@@ -1,0 +1,85 @@
+# Search criteria and filtering rules for job discovery
+# Note: Filtering is primarily for Phase 2, but criteria is defined here
+
+# Job titles to search for
+target_titles:
+  - "Software Engineer"
+  - "Senior Software Engineer"
+  - "Staff Software Engineer"
+  - "Principal Software Engineer"
+  - "Backend Engineer"
+  - "Full Stack Engineer"
+  - "Platform Engineer"
+  - "Infrastructure Engineer"
+  - "Machine Learning Engineer"
+  - "ML Engineer"
+  - "AI Engineer"
+  - "Data Engineer"
+
+# Titles to exclude (regex patterns - case insensitive)
+exclude_title_patterns:
+  - "(?i)intern"
+  - "(?i)junior"
+  - "(?i)\\bjr\\b"
+  - "(?i)entry.?level"
+  - "(?i)manager"
+  - "(?i)director"
+  - "(?i)vp|vice president"
+  - "(?i)head of"
+  - "(?i)chief"
+  - "(?i)recruiter"
+  - "(?i)sales"
+  - "(?i)marketing"
+  - "(?i)support"
+
+# Location preferences
+locations:
+  remote_preference: "remote_only"  # "remote_only", "hybrid_ok", "any"
+  acceptable_cities:
+    - "San Francisco"
+    - "New York"
+    - "Austin"
+    - "Seattle"
+    - "Remote"
+    - "Anywhere"
+
+# Salary expectations (for filtering in Phase 2)
+salary:
+  min: 150000
+  max: 400000
+  currency: "USD"
+
+# Experience level
+experience:
+  min_years: 3
+  max_years: 15
+
+# Company size preferences
+company_size:
+  min_employees: 10
+  max_employees: 10000  # Avoid mega-corps unless specifically targeted
+
+# Keywords to look for in descriptions (positive signals)
+positive_keywords:
+  - "python"
+  - "typescript"
+  - "golang"
+  - "rust"
+  - "kubernetes"
+  - "aws"
+  - "gcp"
+  - "distributed systems"
+  - "microservices"
+  - "machine learning"
+  - "ai"
+  - "startup"
+  - "series"
+  - "remote"
+
+# Keywords to avoid (negative signals)
+negative_keywords:
+  - "clearance required"
+  - "security clearance"
+  - "on-site only"
+  - "no remote"
+  - "must relocate"

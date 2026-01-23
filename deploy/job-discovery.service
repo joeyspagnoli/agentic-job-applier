@@ -1,0 +1,20 @@
+[Unit]
+Description=Job Discovery Service
+After=network.target
+
+[Service]
+Type=oneshot
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/agentic-job-applier
+Environment="PATH=/path/to/agentic-job-applier/.venv/bin"
+ExecStart=/path/to/agentic-job-applier/.venv/bin/python main.py
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Restart policy for oneshot doesn't apply, but good for docs
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,142 @@
+# Target companies for job discovery
+# Priority: 1 = highest, 10 = lowest
+
+greenhouse_companies:
+  # Top Priority - High-profile tech companies
+  Stripe:
+    greenhouse_id: "stripe"
+    priority: 1
+
+  Plaid:
+    greenhouse_id: "plaid"
+    priority: 1
+
+  Cloudflare:
+    greenhouse_id: "cloudflare"
+    priority: 1
+
+  # Priority 2 - Strong tech companies
+  Databricks:
+    greenhouse_id: "databricks"
+    priority: 2
+
+  Snowflake:
+    greenhouse_id: "snowflakecomputing"
+    priority: 2
+
+  Datadog:
+    greenhouse_id: "datadog"
+    priority: 2
+
+  MongoDB:
+    greenhouse_id: "mongodb"
+    priority: 2
+
+  Confluent:
+    greenhouse_id: "confluent"
+    priority: 2
+
+  # Priority 3 - Solid companies
+  HashiCorp:
+    greenhouse_id: "hashicorp"
+    priority: 3
+
+  Vercel:
+    greenhouse_id: "vercel"
+    priority: 3
+
+  Figma:
+    greenhouse_id: "figma"
+    priority: 3
+
+  Notion:
+    greenhouse_id: "notion"
+    priority: 3
+
+  Linear:
+    greenhouse_id: "linear"
+    priority: 3
+
+  Ramp:
+    greenhouse_id: "ramp"
+    priority: 3
+
+  Retool:
+    greenhouse_id: "retool"
+    priority: 3
+
+  Supabase:
+    greenhouse_id: "supabase"
+    priority: 3
+
+  Scale AI:
+    greenhouse_id: "scaleai"
+    priority: 2
+
+  Anthropic:
+    greenhouse_id: "anthropic"
+    priority: 1
+
+  OpenAI:
+    greenhouse_id: "openai"
+    priority: 1
+
+  Cohere:
+    greenhouse_id: "cohere"
+    priority: 2
+
+
+workday_companies:
+  # Major financial institutions using Workday
+  Goldman Sachs:
+    workday_url: "https://gs.wd5.myworkdayjobs.com/en-US/GSCareers"
+    priority: 1
+
+  JPMorgan Chase:
+    workday_url: "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001"
+    priority: 1
+
+  Morgan Stanley:
+    workday_url: "https://morganstanley.wd3.myworkdayjobs.com/en-US/morganstanley"
+    priority: 2
+
+  Citadel:
+    workday_url: "https://citadel.wd1.myworkdayjobs.com/en-US/citadel-careers"
+    priority: 1
+
+  Two Sigma:
+    workday_url: "https://twosigma.wd5.myworkdayjobs.com/en-US/TwoSigmaCareers"
+    priority: 1
+
+
+job_boards:
+  Indeed:
+    enabled: true
+    search_terms:
+      - "senior software engineer"
+      - "staff software engineer"
+      - "backend engineer"
+    locations:
+      - "Remote"
+      - "San Francisco, CA"
+      - "New York, NY"
+    results_wanted: 25
+    priority: 2
+
+  Glassdoor:
+    enabled: true
+    search_terms:
+      - "senior software engineer"
+    locations:
+      - "Remote"
+    results_wanted: 25
+    priority: 3
+
+  LinkedIn:
+    enabled: false  # Requires proxies - enable when ready
+    search_terms:
+      - "senior software engineer"
+    locations:
+      - "Remote"
+    results_wanted: 25
+    priority: 3

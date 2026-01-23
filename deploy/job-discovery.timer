@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Job Discovery Every 30 Minutes
+Requires=job-discovery.service
+
+[Timer]
+# Run every 30 minutes
+OnCalendar=*:0/30
+# Make up for missed runs if system was off
+Persistent=true
+# Randomize start by up to 5 minutes to avoid thundering herd
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
