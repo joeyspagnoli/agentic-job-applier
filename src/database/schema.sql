@@ -79,3 +79,11 @@ CREATE TABLE IF NOT EXISTS daily_stats (
     sources_crawled INTEGER DEFAULT 0,
     sources_failed INTEGER DEFAULT 0
 );
+
+-- Agent workflow tracking (Phase 2)
+-- Note: These columns are added via DatabaseManager.migrate_agent_schema()
+-- to avoid breaking existing databases.
+--
+-- ALTER TABLE job_postings ADD COLUMN agent_processed_at TIMESTAMP;
+-- ALTER TABLE job_postings ADD COLUMN agent_result TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_agent_processed ON job_postings(agent_processed_at);

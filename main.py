@@ -222,6 +222,7 @@ async def run_job_discovery() -> None:
     db_path = os.getenv("DATABASE_PATH", "data/jobs.db")
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
+        await db.migrate_agent_schema()
         deduplicator = Deduplicator(db)
 
         # Track totals
@@ -234,7 +235,9 @@ async def run_job_discovery() -> None:
         # Fetch from Greenhouse
         greenhouse_companies = companies_config.get("greenhouse_companies", {})
         if greenhouse_companies:
-            logger.info(f"Fetching from {len(greenhouse_companies)} Greenhouse companies...")
+            logger.info(
+                f"Fetching from {len(greenhouse_companies)} Greenhouse companies..."
+            )
             d, n, s, f = await fetch_greenhouse_jobs(
                 greenhouse_companies, db, deduplicator
             )
@@ -248,9 +251,7 @@ async def run_job_discovery() -> None:
         workday_companies = companies_config.get("workday_companies", {})
         if workday_companies:
             logger.info(f"Fetching from {len(workday_companies)} Workday companies...")
-            d, n, s, f = await fetch_workday_jobs(
-                workday_companies, db, deduplicator
-            )
+            d, n, s, f = await fetch_workday_jobs(workday_companies, db, deduplicator)
             total_discovered += d
             total_new += n
             total_duplicate += d - n
