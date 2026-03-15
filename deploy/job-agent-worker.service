@@ -1,15 +1,16 @@
 [Unit]
-Description=Job Discovery Service
+Description=Job Agent Worker Service
 After=network-online.target
 Wants=network-online.target
+OnFailure=job-agent-alert@%n.service
 
 [Service]
-Type=oneshot
+Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/path/to/agentic-job-applier
 Environment="PATH=/path/to/agentic-job-applier/.venv/bin"
 EnvironmentFile=/path/to/agentic-job-applier/.env
-ExecStart=/path/to/agentic-job-applier/.venv/bin/python main.py
+ExecStart=/path/to/agentic-job-applier/.venv/bin/python -m scripts.process_new_jobs --loop
 
 # Logging
 StandardOutput=journal
@@ -26,8 +27,9 @@ ProtectKernelModules=true
 RestrictSUIDSGID=true
 ReadWritePaths=/path/to/agentic-job-applier/data /path/to/agentic-job-applier/logs
 
-# Restart policy for oneshot doesn't apply, but good for docs
-Restart=no
+# Keep the worker alive and draining NEW backlog continuously.
+Restart=always
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target

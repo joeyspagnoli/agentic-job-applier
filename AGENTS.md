@@ -30,3 +30,9 @@
 ## Source of Truth
 - Start with `.aqa/spec/index.md` for repo orientation and follow its linked architecture, interface, and data-model documents when behavior is unclear.
 - If code and documentation disagree, treat the current source code as authoritative and update surrounding documentation to match.
+
+## Test Flags
+- Default deterministic test suite (network-free): `uv run pytest -q`
+- Run only deterministic integration coverage: `uv run pytest -q tests/test_scraper_to_agent_integration.py`
+- Opt-in live model end-to-end tests: `uv run pytest -q --run-live-agent-e2e -m live_agent_e2e`
+- Live model tests require `OPENAI_API_KEY` and are skipped unless `--run-live-agent-e2e` is passed.

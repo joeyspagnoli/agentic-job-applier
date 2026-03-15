@@ -135,7 +135,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
             assert db.conn is not None
             row = await (
                 await db.conn.execute(
-                    "SELECT status, error_message FROM crawl_history LIMIT 1"
+                    "SELECT status, error_message FROM crawl_history ORDER BY id DESC LIMIT 1"
                 )
             ).fetchone()
 
@@ -224,7 +224,7 @@ async def test_fetch_jobspy_jobs_counts_fetch_exceptions_as_failures(
             assert db.conn is not None
             row = await (
                 await db.conn.execute(
-                    "SELECT status, error_message FROM crawl_history LIMIT 1"
+                    "SELECT status, error_message FROM crawl_history ORDER BY id DESC LIMIT 1"
                 )
             ).fetchone()
 
@@ -275,13 +275,14 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
 
         return 5, 2, 1, 0
 
-    async def fake_jobspy(*_: object):
+    async def fake_jobspy(*_: object, **__: object):
         """Return deterministic JobSpy counters.
 
         Purpose:
             Isolate daily-stats aggregation from real network behavior.
         Args:
             *_: Ignored positional arguments.
+            **__: Ignored keyword arguments.
         Output:
             Returns a deterministic counter tuple.
         """
@@ -315,6 +316,7 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
                     SELECT total_jobs_discovered, jobs_new, jobs_duplicate,
                            sources_crawled, sources_failed
                     FROM daily_stats
+                    ORDER BY date DESC
                     LIMIT 1
                     """
                 )
@@ -322,4 +324,3 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
 
     assert row is not None
     assert tuple(row) == (22, 9, 13, 4, 2)
-

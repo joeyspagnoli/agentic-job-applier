@@ -1,61 +1,59 @@
 # Architecture
 
 ## Overview
-The system is a Python async pipeline that pulls jobs from multiple sources (Greenhouse HTTP API, Workday via Apify actor, JobSpy scrape), deduplicates them, stores into SQLite, logs crawl/daily stats, and optionally hands NEW jobs to an ADK agent for apply/skip decisions.
+The runtime is a producer/consumer pipeline on a shared SQLite queue:
+- `main.py` (producer) discovers jobs and inserts rows with `status='NEW'`.
+- `scripts/process_new_jobs.py` (consumer) drains NEW backlog, calls the root gate agent, and persists `QUALIFIED`/`FILTERED` decisions.
+- Retry metadata (`agent_retry_count`, `agent_next_retry_at`) allows bounded retries before terminal failure (`agent_failed_at`), with optional ntfy alerts.
 
 ```mermaid
 flowchart TD
-    orchestrator["main.py orchestrator"]
-    config["companies.yaml"]
-    db["DatabaseManager (SQLite)"]
-    deduplicator["Deduplicator"]
-    greenhouse["GreenhouseFetcher"]
-    workday["ApifyWorkdayFetcher"]
-    jobspy["JobSpyFetcher"]
-    dailyStats["daily_stats table"]
-    jobPostings["job_postings table"]
-    processor["scripts/process_new_jobs.py"]
-    decider["ADK RootApplyDecider agent"]
+    timer["job-discovery.timer"]
+    discovery["main.py discovery producer"]
+    worker["process_new_jobs.py --loop consumer"]
+    db["SQLite job_postings queue"]
+    gate["RootApplyDecider (ADK)"]
+    ntfy["ntfy.sh (optional alerts)"]
 
-    orchestrator -->|load config| config
-    orchestrator -->|init| db
-    orchestrator -->|init| deduplicator
-    orchestrator -->|fetch| greenhouse
-    orchestrator -->|fetch| workday
-    orchestrator -->|fetch| jobspy
-
-    greenhouse --> db
-    workday --> db
-    jobspy --> db
-    deduplicator --> db
-    db -->|daily stats| dailyStats
-    db -->|jobs| jobPostings
-
-    processor --> db
-    processor --> decider
+    timer --> discovery
+    discovery -->|insert NEW jobs| db
+    worker -->|load pending NEW/retry-ready| db
+    worker --> gate
+    gate -->|APPLY/SKIP| worker
+    worker -->|persist QUALIFIED/FILTERED| db
+    worker -->|terminal failure alert| ntfy
 ```
 
-## Orchestrator
-- `main.py` loads YAML config, initializes DB and deduplicator, iterates Greenhouse, Workday (Apify), and JobSpy sources, inserts new jobs, logs crawl history, updates daily stats, and summarizes cycle metrics [main.py:24-168](main.py:24-168).
-- Logging configured via `setup_logger`; cycle/crawl summaries written with loguru [main.py:12-22](main.py:12-22) [src/utils/logger.py:9-91](src/utils/logger.py:9-91).
+## Discovery Side
+- `main.py` loads `companies.yaml` and optional `search_criteria.yaml` + `candidate_profile.yaml`, resolves default board search terms, fetches Greenhouse/Workday/JobSpy jobs, deduplicates, and inserts into SQLite.
+- Job board terms are now config-driven with fallback defaults derived from profile/search config rather than hardcoded senior-role terms.
 
-## Data Layer
-- SQLite schema: job_postings (with status/agent fields), crawl_history, daily_stats [src/database/schema.sql:1-89](src/database/schema.sql:1-89).
-- `DatabaseManager` handles connection (WAL, busy_timeout), schema creation, dedup-safe inserts, crawl logging, daily stats upsert, agent result persistence, and counts [src/database/db_manager.py:14-205](src/database/db_manager.py:14-205).
+## Queue + Persistence
+- `src/database/schema.sql` defines queue and stats tables and now includes retry columns:
+  - `agent_retry_count`
+  - `agent_next_retry_at`
+- `DatabaseManager` owns:
+  - queue selection (`get_jobs_pending_agent_processing`)
+  - success persistence (`record_agent_decision`)
+  - transient retry persistence (`record_agent_retry`)
+  - terminal failure marking (`mark_job_agent_terminal_failed`)
+  - manual requeue support (`reset_agent_failure_state`)
 
-## Fetch Layer
-- `BaseFetcher` defines async fetch interface and source naming contract [src/fetchers/base_fetcher.py:1-32](src/fetchers/base_fetcher.py:1-32).
-- `GreenhouseFetcher` pulls jobs via public API with description HTML cleaning and salary parsing [src/fetchers/greenhouse_fetcher.py:1-120](src/fetchers/greenhouse_fetcher.py:1-120).
-- `ApifyWorkdayFetcher` runs the Apify Workday actor, fetches dataset items, and maps them to JobPosting [src/fetchers/apify_fetcher.py:1-110](src/fetchers/apify_fetcher.py:1-110).
-- `JobSpyFetcher` scrapes boards via jobspy, cleans/normalizes data (salary to annual cents) into JobPosting models [src/fetchers/jobspy_fetcher.py:1-200](src/fetchers/jobspy_fetcher.py:1-200).
+## Gate Worker
+- `scripts/process_new_jobs.py`:
+  - processes full pending backlog (bounded by per-cycle `--limit`)
+  - retries per job using configurable backoff
+  - marks terminal failure after max retries
+  - sends optional ntfy alerts for terminal failures and startup config failures
+- `scripts/run_pipeline_once.py` provides a one-shot orchestrator (`discovery -> one gate batch`) for operations and testing.
 
-## Deduplication
-- `Deduplicator` queries DB by hash and filters out existing jobs before insert; exposes stats helper [src/utils/deduplicator.py:11-59](src/utils/deduplicator.py:11-59).
-- `JobPosting.job_hash` combines normalized company/title + description slice to produce MD5 [src/models/job_posting.py:43-50](src/models/job_posting.py:43-50).
+## Prompt/Profile
+- Gate prompt candidate context is config-backed:
+  - primary source: `config/candidate_profile.yaml`
+  - optional override: `CANDIDATE_PROFILE_PATH`
+  - fallback: built-in context string in prompts module
 
-## Agent Processing (Phase 2)
-- `scripts/process_new_jobs.py` loads candidate profile, fetches NEW jobs, runs the ADK root decider agent, and records decisions; currently gated by stub model wiring [scripts/process_new_jobs.py:1-200](scripts/process_new_jobs.py:1-200).
-- `root_apply_decider.get_decider_model()` is intentionally a stub raising RuntimeError until a model is injected; `build_root_agent` constructs the ADK agent with JSON schema output [src/agents/root_apply_decider.py:1-105](src/agents/root_apply_decider.py:1-105).
-
-## Deployment
-- systemd oneshot service plus 30-minute timer; deploy README guides setup and highlights placeholders to replace (user/path/venv) [deploy/job-discovery.service:1-20](deploy/job-discovery.service:1-20) [deploy/job-discovery.timer:1-14](deploy/job-discovery.timer:1-14) [deploy/README.md:1-95](deploy/README.md:1-95).
+## Deployment Topology
+- `deploy/job-discovery.timer` + `deploy/job-discovery.service` for periodic producer runs.
+- `deploy/job-agent-worker.service` for continuous queue draining.
+- Optional `deploy/job-agent-alert@.service` as a systemd `OnFailure` hook.

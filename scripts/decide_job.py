@@ -1,35 +1,42 @@
 #!/usr/bin/env python3
-"""Run RootApplyDecider for a single job.
+"""Run RootApplyDecider for a single stored job.
 
 Examples:
-  uv run python scripts/decide_job.py --job-hash <hash>
-  uv run python scripts/decide_job.py --job-hash <hash> --save
+  uv run python -m scripts.decide_job --job-hash <hash>
+  uv run python -m scripts.decide_job --job-hash <hash> --save
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import os
-import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
 
-# Add repo root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from src.agents.root_apply_decider import build_root_agent, get_decider_model  # noqa: E402
-from src.database.db_manager import DatabaseManager  # noqa: E402
-from scripts.process_new_jobs import (  # noqa: E402
-    _load_candidate_profile,
-    _map_status,
-    _run_decider_for_job,
+from src.agents.root_apply_decider import (
+    build_root_agent,
+    get_decider_model,
+    map_decision_to_status,
+    run_decider_for_job,
 )
+from src.database.db_manager import DatabaseManager
+from src.utils.paths import resolve_database_path
 
 
 async def main() -> None:
+    """Parse CLI args, run the decider for one job, and optionally persist it.
+
+    Purpose:
+        Provide a focused debugging and inspection tool for running the agent on
+        a single stored job outside the batch processor.
+    Args:
+        None.
+    Output:
+        Returns `None` after printing the agent result and optionally saving the
+        resulting status transition back to the database.
+    """
+
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Run RootApplyDecider on a job")
@@ -43,36 +50,37 @@ async def main() -> None:
 
     try:
         model = get_decider_model()
-    except Exception as e:
-        logger.error(f"Decider model not configured: {e}")
+    except Exception as exc:
+        logger.error(f"Decider model not configured: {exc}")
         return
 
     agent = build_root_agent(model=model)
-    candidate_profile = _load_candidate_profile()
+    db_path = str(resolve_database_path())
 
-    db_path = os.getenv("DATABASE_PATH", "data/jobs.db")
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_agent_schema()
 
+        # The script operates on an existing stored row so the hash lookup is
+        # validated before any model work is attempted.
         job = await db.get_job_by_hash(args.job_hash)
         if not job:
             logger.error(f"Job not found: {args.job_hash}")
             return
 
-        result = await _run_decider_for_job(
+        result = await run_decider_for_job(
             agent=agent,
             job=job,
-            candidate_profile=candidate_profile,
         )
-
         print(result.model_dump_json(indent=2))
 
+        # Saving is optional so the script can be used as a dry-run debugging
+        # tool without mutating the stored status of the target job.
         if args.save:
             await db.record_agent_decision(
                 job_hash=args.job_hash,
                 agent_result=result.model_dump_json(),
-                status=_map_status(result.decision),
+                status=map_decision_to_status(result.decision),
             )
 
 

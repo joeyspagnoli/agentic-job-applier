@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS job_postings (
     agent_result TEXT,               -- Serialized GateRunResult payload
     agent_failed_at TIMESTAMP,       -- Failure marker to stop infinite retries
     agent_error TEXT,                -- Last recorded gate-processing error
+    agent_retry_count INTEGER NOT NULL DEFAULT 0,  -- Number of retry attempts
+    agent_next_retry_at TIMESTAMP,   -- Next scheduled retry timestamp (UTC)
+    agent_claim_token TEXT,          -- Worker claim token for atomic queueing
+    agent_claimed_at TIMESTAMP,      -- Timestamp when worker claimed this row
 
     -- Timestamps
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -59,6 +63,9 @@ CREATE INDEX IF NOT EXISTS idx_fetched_at ON job_postings(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_source ON job_postings(source);
 CREATE INDEX IF NOT EXISTS idx_agent_processed ON job_postings(agent_processed_at);
 CREATE INDEX IF NOT EXISTS idx_agent_failed ON job_postings(agent_failed_at);
+CREATE INDEX IF NOT EXISTS idx_agent_retry_ready
+    ON job_postings(status, agent_failed_at, agent_processed_at, agent_next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_agent_claimed_at ON job_postings(agent_claimed_at);
 
 -- Crawl history tracking
 CREATE TABLE IF NOT EXISTS crawl_history (

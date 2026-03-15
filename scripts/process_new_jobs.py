@@ -2,94 +2,205 @@
 """Process NEW jobs with the RootApplyDecider agent.
 
 Run once (default):
-  uv run python scripts/process_new_jobs.py
+  uv run python -m scripts.process_new_jobs
 
 Run continuously:
-  AGENT_POLL_INTERVAL_SECONDS=60 uv run python scripts/process_new_jobs.py --loop
+  AGENT_POLL_INTERVAL_SECONDS=60 uv run python -m scripts.process_new_jobs --loop
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
-import sys
-import uuid
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from dotenv import load_dotenv
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
 from loguru import logger
 
-# Add repo root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from src.agents.root_apply_decider import (  # noqa: E402
-    DECIDER_OUTPUT_KEY,
+from src.agents.root_apply_decider import (
     ApplyDecision,
-    RootApplyDeciderOutput,
+    GateRunResult,
     build_root_agent,
     get_decider_model,
+    get_decider_model_name,
+    get_decider_provider,
+    map_decision_to_status,
+    run_decider_for_job,
 )
-from src.database.db_manager import DatabaseManager  # noqa: E402
+from src.database.db_manager import DatabaseManager
+from src.utils.notifications import send_ntfy_notification
+from src.utils.paths import resolve_database_path
+
+DEFAULT_AGENT_BATCH_LIMIT = 25
+DEFAULT_AGENT_POLL_INTERVAL_SECONDS = 60
+DEFAULT_AGENT_MAX_RETRIES = 3
+DEFAULT_AGENT_RETRY_BACKOFF_SECONDS = 300
+DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER = 3
 
 
-def _load_candidate_profile() -> dict[str, Any]:
-    profile_path_raw = os.getenv("CANDIDATE_PROFILE_PATH")
-    if not profile_path_raw:
-        logger.warning("CANDIDATE_PROFILE_PATH not set; using placeholder profile")
-        return {"summary": "No candidate profile provided."}
+class ModelConfigurationError(RuntimeError):
+    """Represent missing or invalid model configuration for the gate worker."""
 
-    profile_path = Path(profile_path_raw)
-    if not profile_path.exists():
+
+def _map_status(decision: ApplyDecision) -> str:
+    """Translate an agent decision into the stored workflow status.
+
+    Purpose:
+        Keep the mapping from gate output to database workflow status in one
+        place so both scripts persist the same status values.
+    Args:
+        decision: Apply/skip decision returned by the gate.
+    Output:
+        Returns `QUALIFIED` for apply decisions and `FILTERED` for skip decisions.
+    """
+
+    return map_decision_to_status(decision)
+
+
+def _load_int_env(name: str, default_value: int) -> int:
+    """Read a positive integer from environment and fall back safely.
+
+    Purpose:
+        Keep CLI/env configuration parsing consistent for worker tuning knobs
+        while preventing invalid values from crashing startup.
+    Args:
+        name: Environment variable name to read.
+        default_value: Fallback integer when parsing fails or value is invalid.
+    Output:
+        Returns a positive integer parsed from environment or the fallback.
+    """
+
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default_value
+
+    try:
+        parsed_value = int(raw_value)
+    except ValueError:
         logger.warning(
-            f"Candidate profile not found at {profile_path}; using placeholder"
+            "Invalid integer for {}='{}'; using default {}",
+            name,
+            raw_value,
+            default_value,
         )
-        return {"summary": f"Candidate profile missing at {profile_path}"}
+        return default_value
 
-    raw_text = profile_path.read_text(encoding="utf-8")
-
-    if profile_path.suffix.lower() in {".yml", ".yaml"}:
-        try:
-            import yaml  # local import to keep module import minimal
-
-            parsed = yaml.safe_load(raw_text)
-            return parsed if isinstance(parsed, dict) else {"profile": parsed}
-        except Exception as e:
-            logger.warning(f"Failed to parse YAML profile ({profile_path}): {e}")
-            return {"raw_text": raw_text}
-
-    if profile_path.suffix.lower() == ".json":
-        try:
-            parsed = json.loads(raw_text)
-            return parsed if isinstance(parsed, dict) else {"profile": parsed}
-        except Exception as e:
-            logger.warning(f"Failed to parse JSON profile ({profile_path}): {e}")
-            return {"raw_text": raw_text}
-
-    return {"raw_text": raw_text}
+    if parsed_value <= 0:
+        logger.warning(
+            "Non-positive value for {}={}; using default {}",
+            name,
+            parsed_value,
+            default_value,
+        )
+        return default_value
+    return parsed_value
 
 
-def _build_prompt(job: dict[str, Any], candidate_profile: dict[str, Any]) -> str:
-    job_payload = {
-        "job_hash": job.get("job_hash"),
-        "source": job.get("source"),
-        "source_url": job.get("source_url"),
-        "company": job.get("company"),
-        "title": job.get("title"),
-        "location": job.get("location"),
-        "is_remote": job.get("is_remote"),
-        "job_type": job.get("job_type"),
-        "description": job.get("description"),
-        "requirements": job.get("requirements"),
-    }
-    return json.dumps(
-        {"candidate_profile": candidate_profile, "job_posting": job_payload},
-        ensure_ascii=False,
+def _calculate_retry_delay_seconds(
+    *,
+    retry_count: int,
+    backoff_seconds: int,
+    backoff_multiplier: int,
+) -> int:
+    """Calculate backoff delay seconds for the next retry attempt.
+
+    Purpose:
+        Centralize the retry-backoff formula used by the worker so behavior is
+        deterministic and easy to test.
+    Args:
+        retry_count: The retry count value being scheduled (1-based).
+        backoff_seconds: Base delay in seconds for the first retry.
+        backoff_multiplier: Multiplier applied to each additional retry.
+    Output:
+        Returns the computed delay in seconds for the next retry timestamp.
+    """
+
+    exponent = max(retry_count - 1, 0)
+    return backoff_seconds * (backoff_multiplier**exponent)
+
+
+def _calculate_next_retry_at(
+    *,
+    retry_count: int,
+    backoff_seconds: int,
+    backoff_multiplier: int,
+) -> str:
+    """Calculate the UTC timestamp string for the next retry attempt.
+
+    Purpose:
+        Produce SQLite-compatible retry scheduling timestamps for transient
+        agent failures.
+    Args:
+        retry_count: The retry count value being scheduled (1-based).
+        backoff_seconds: Base delay in seconds for the first retry.
+        backoff_multiplier: Multiplier applied to each additional retry.
+    Output:
+        Returns a UTC timestamp string in `%Y-%m-%d %H:%M:%S` format.
+    """
+
+    delay_seconds = _calculate_retry_delay_seconds(
+        retry_count=retry_count,
+        backoff_seconds=backoff_seconds,
+        backoff_multiplier=backoff_multiplier,
+    )
+    scheduled_time = datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+    return scheduled_time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def _notify_terminal_failure(
+    *,
+    job_hash: str,
+    error: str,
+    retry_count: int,
+) -> None:
+    """Send an ntfy alert for a job that exhausted all retry attempts.
+
+    Purpose:
+        Notify operators when manual intervention is needed after terminal gate
+        processing failure.
+    Args:
+        job_hash: Stable deduplication hash for the failed job.
+        error: Terminal error message stored in the database.
+        retry_count: Number of attempts made before terminal failure.
+    Output:
+        Returns `None` after best-effort notification attempt.
+    """
+
+    await send_ntfy_notification(
+        title="Job gate terminal failure",
+        message=(
+            "Root gate exhausted retries and needs intervention.\n"
+            f"job_hash={job_hash}\n"
+            f"retry_count={retry_count}\n"
+            f"error={error}"
+        ),
+        tags=("warning", "rotating_light"),
+        priority="high",
+    )
+
+
+async def _notify_worker_configuration_failure(error: str) -> None:
+    """Send a one-time ntfy alert for worker model configuration failure.
+
+    Purpose:
+        Surface fatal startup misconfiguration to operators without creating
+        notification spam every polling cycle.
+    Args:
+        error: Configuration error text that prevented model creation.
+    Output:
+        Returns `None` after best-effort notification attempt.
+    """
+
+    await send_ntfy_notification(
+        title="Job gate worker configuration failure",
+        message=(
+            "Root gate worker could not initialize its model configuration.\n"
+            f"error={error}"
+        ),
+        tags=("warning", "gear"),
+        priority="high",
     )
 
 
@@ -97,74 +208,55 @@ async def _run_decider_for_job(
     *,
     agent: Any,
     job: dict[str, Any],
-    candidate_profile: dict[str, Any],
-) -> RootApplyDeciderOutput:
-    session_service = InMemorySessionService()
+) -> GateRunResult:
+    """Run the ADK decider for one job and parse its raw response locally.
 
-    app_name = "job_apply_decider"
-    user_id = "worker"
-    session_id = str(uuid.uuid4())
-    await session_service.create_session(
-        app_name=app_name,
-        user_id=user_id,
-        session_id=session_id,
-        state={},
+    Purpose:
+        Execute one isolated ADK session, capture the model's final text
+        response, and turn it into a durable gate result payload.
+    Args:
+        agent: Configured ADK agent instance to run.
+        job: Database row representing the job being evaluated.
+    Output:
+        Returns a validated `GateRunResult`, or raises an error when the
+        decision cannot be recovered from the model response.
+    """
+
+    return await run_decider_for_job(
+        agent=agent,
+        job=job,
     )
 
-    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
-    try:
-        new_message = types.Content(
-            role="user",
-            parts=[types.Part(text=_build_prompt(job, candidate_profile))],
-        )
 
-        # Consume events until completion to ensure session state is persisted.
-        async for _event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=new_message,
-        ):
-            pass
-    finally:
-        await runner.close()
+async def _process_once(
+    *,
+    db: DatabaseManager,
+    limit: int,
+    max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
+    backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
+    backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
+) -> int:
+    """Process one batch of pending jobs through the decider.
 
-    session = await session_service.get_session(
-        app_name=app_name,
-        user_id=user_id,
-        session_id=session_id,
-    )
+    Purpose:
+        Drive the end-to-end batch workflow for loading the model, fetching
+        pending jobs, handling failures, and recording successful decisions.
+    Args:
+        db: Connected database manager used to load and update job rows.
+        limit: Maximum number of pending jobs to process in this batch.
+        max_retries: Maximum attempts allowed before terminal failure.
+        backoff_seconds: Base delay in seconds for retry scheduling.
+        backoff_multiplier: Multiplicative factor applied per retry attempt.
+    Output:
+        Returns the number of jobs successfully processed in the batch.
+    """
 
-    if session is None:
-        raise RuntimeError("Failed to load ADK session after run")
-
-    output_raw = session.state.get(DECIDER_OUTPUT_KEY)
-    if output_raw is None:
-        raise RuntimeError(
-            f"Agent did not write '{DECIDER_OUTPUT_KEY}' to session state"
-        )
-
-    if isinstance(output_raw, str):
-        return RootApplyDeciderOutput.model_validate_json(output_raw)
-
-    return RootApplyDeciderOutput.model_validate(output_raw)
-
-
-def _map_status(decision: ApplyDecision) -> str:
-    return "QUALIFIED" if decision == ApplyDecision.APPLY else "FILTERED"
-
-
-async def _process_once(*, db: DatabaseManager, limit: int) -> int:
     try:
         model = get_decider_model()
-    except Exception as e:
-        logger.warning(
-            f"Decider model not configured; skipping job processing. Error: {e}"
-        )
-        return 0
+    except Exception as exc:
+        raise ModelConfigurationError(str(exc)) from exc
 
     agent = build_root_agent(model=model)
-    candidate_profile = _load_candidate_profile()
-
     jobs = await db.get_jobs_pending_agent_processing(limit=limit)
     if not jobs:
         logger.info("No NEW jobs pending agent processing")
@@ -177,15 +269,56 @@ async def _process_once(*, db: DatabaseManager, limit: int) -> int:
             logger.warning("Skipping job without job_hash")
             continue
 
+        # Each job is isolated so a single provider or parsing error does not
+        # stop the rest of the batch from being evaluated and persisted.
         try:
             result = await _run_decider_for_job(
                 agent=agent,
                 job=job,
-                candidate_profile=candidate_profile,
             )
-        except Exception as e:
-            logger.error(f"Decider failed for job {job_hash}: {e}")
-            await db.mark_job_agent_failed(job_hash, str(e))
+        except Exception as exc:
+            error_text = str(exc)
+            retry_count = int(job.get("agent_retry_count") or 0) + 1
+
+            if retry_count < max_retries:
+                next_retry_at = _calculate_next_retry_at(
+                    retry_count=retry_count,
+                    backoff_seconds=backoff_seconds,
+                    backoff_multiplier=backoff_multiplier,
+                )
+                logger.warning(
+                    "Decider failed for job {} (attempt {}/{}). "
+                    "Retry scheduled at {}. Error: {}",
+                    job_hash,
+                    retry_count,
+                    max_retries,
+                    next_retry_at,
+                    error_text,
+                )
+                await db.record_agent_retry(
+                    job_hash=job_hash,
+                    error=error_text,
+                    retry_count=retry_count,
+                    next_retry_at=next_retry_at,
+                )
+                continue
+
+            logger.error(
+                "Decider terminal failure for job {} after {} attempts: {}",
+                job_hash,
+                retry_count,
+                error_text,
+            )
+            await db.mark_job_agent_terminal_failed(
+                job_hash,
+                error_text,
+                retry_count=retry_count,
+            )
+            await _notify_terminal_failure(
+                job_hash=job_hash,
+                error=error_text,
+                retry_count=retry_count,
+            )
             continue
 
         await db.record_agent_decision(
@@ -194,19 +327,71 @@ async def _process_once(*, db: DatabaseManager, limit: int) -> int:
             status=_map_status(result.decision),
         )
         processed += 1
+
+        confidence = result.debug.confidence
+        confidence_text = f"{confidence:.2f}" if confidence is not None else "n/a"
         logger.info(
-            f"Processed {job_hash}: decision={result.decision.value} confidence={result.confidence:.2f}"
+            "Processed {}: decision={} confidence={} model={} parse_mode={}",
+            job_hash,
+            result.decision.value,
+            confidence_text,
+            result.model,
+            result.parse_mode,
         )
 
     return processed
 
 
+async def process_once(
+    *,
+    db: DatabaseManager,
+    limit: int,
+    max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
+    backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
+    backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
+) -> int:
+    """Run one public processing batch for external orchestration calls.
+
+    Purpose:
+        Expose a stable one-shot processing API for scripts/tests that should
+        not depend on private helper naming.
+    Args:
+        db: Connected database manager used for queue reads and updates.
+        limit: Maximum number of jobs to process in this batch.
+        max_retries: Maximum attempts before terminal failure.
+        backoff_seconds: Base backoff delay for retry scheduling.
+        backoff_multiplier: Multiplicative backoff factor per retry attempt.
+    Output:
+        Returns the number of jobs successfully processed in the batch.
+    """
+
+    return await _process_once(
+        db=db,
+        limit=limit,
+        max_retries=max_retries,
+        backoff_seconds=backoff_seconds,
+        backoff_multiplier=backoff_multiplier,
+    )
+
+
 async def main() -> None:
+    """Parse CLI args and run one-shot or looping agent processing.
+
+    Purpose:
+        Provide the script entrypoint that loads environment variables, prepares
+        the database, and decides whether to run once or poll continuously.
+    Args:
+        None.
+    Output:
+        Returns `None` after completing the requested processing mode.
+    """
+
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Process NEW jobs using ADK decider")
-    parser.add_argument("--loop", action="store_true", help="Poll forever")
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--loop", action="store_true", help="Poll forever")
+    mode_group.add_argument(
         "--once",
         action="store_true",
         help="Process once and exit (default behavior)",
@@ -214,29 +399,80 @@ async def main() -> None:
     parser.add_argument(
         "--limit",
         type=int,
-        default=int(
-            os.getenv("AGENT_BATCH_LIMIT", os.getenv("AGENT_BATCH_SIZE", "25"))
+        default=_load_int_env(
+            "AGENT_BATCH_LIMIT",
+            _load_int_env("AGENT_BATCH_SIZE", DEFAULT_AGENT_BATCH_LIMIT),
         ),
         help=(
-            "Max jobs to process per cycle (default: env AGENT_BATCH_LIMIT/AGENT_BATCH_SIZE or 25)"
+            "Max jobs to process per cycle "
+            "(default: env AGENT_BATCH_LIMIT/AGENT_BATCH_SIZE or 25)"
         ),
     )
     args = parser.parse_args()
 
-    should_loop = args.loop
-    poll_interval_seconds = int(os.getenv("AGENT_POLL_INTERVAL_SECONDS", "60"))
+    should_loop = args.loop and not args.once
+    poll_interval_seconds = _load_int_env(
+        "AGENT_POLL_INTERVAL_SECONDS",
+        DEFAULT_AGENT_POLL_INTERVAL_SECONDS,
+    )
+    max_retries = _load_int_env("AGENT_MAX_RETRIES", DEFAULT_AGENT_MAX_RETRIES)
+    backoff_seconds = _load_int_env(
+        "AGENT_RETRY_BACKOFF_SECONDS",
+        DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
+    )
+    backoff_multiplier = _load_int_env(
+        "AGENT_RETRY_BACKOFF_MULTIPLIER",
+        DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
+    )
 
-    db_path = os.getenv("DATABASE_PATH", "data/jobs.db")
+    db_path = str(resolve_database_path())
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_agent_schema()
+        startup_alert_sent = False
 
+        # The default behavior is a single batch run so the script remains easy
+        # to invoke manually and safe to schedule externally.
         if not should_loop:
-            await _process_once(db=db, limit=args.limit)
+            try:
+                await _process_once(
+                    db=db,
+                    limit=args.limit,
+                    max_retries=max_retries,
+                    backoff_seconds=backoff_seconds,
+                    backoff_multiplier=backoff_multiplier,
+                )
+            except ModelConfigurationError as exc:
+                logger.error("Decider model not configured: {}", exc)
+                await _notify_worker_configuration_failure(str(exc))
             return
 
         while True:
-            await _process_once(db=db, limit=args.limit)
+            try:
+                processed = await _process_once(
+                    db=db,
+                    limit=args.limit,
+                    max_retries=max_retries,
+                    backoff_seconds=backoff_seconds,
+                    backoff_multiplier=backoff_multiplier,
+                )
+                logger.info(
+                    "Agent batch complete: processed={} provider={} model={}",
+                    processed,
+                    get_decider_provider(),
+                    get_decider_model_name(),
+                )
+                startup_alert_sent = False
+            except ModelConfigurationError as exc:
+                logger.error(
+                    "Decider model not configured; worker will retry next cycle: {}",
+                    exc,
+                )
+                if not startup_alert_sent:
+                    await _notify_worker_configuration_failure(str(exc))
+                    startup_alert_sent = True
+            except Exception as exc:
+                logger.exception(f"Agent polling cycle failed: {exc}")
             await asyncio.sleep(poll_interval_seconds)
 
 

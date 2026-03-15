@@ -113,9 +113,9 @@ job_boards:
   Indeed:
     enabled: true
     search_terms:
-      - "senior software engineer"
-      - "staff software engineer"
-      - "backend engineer"
+      - "software engineering internship"
+      - "machine learning internship"
+      - "backend engineering internship"
     locations:
       - "Remote"
       - "San Francisco, CA"
@@ -126,7 +126,8 @@ job_boards:
   Glassdoor:
     enabled: true
     search_terms:
-      - "senior software engineer"
+      - "software engineering internship"
+      - "ai internship"
     locations:
       - "Remote"
     results_wanted: 25
@@ -135,7 +136,7 @@ job_boards:
   LinkedIn:
     enabled: false  # Requires proxies - enable when ready
     search_terms:
-      - "senior software engineer"
+      - "software engineering internship"
     locations:
       - "Remote"
     results_wanted: 25

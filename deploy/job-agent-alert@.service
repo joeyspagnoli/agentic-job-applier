@@ -1,0 +1,17 @@
+[Unit]
+Description=Send ntfy alert for failed unit %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/agentic-job-applier
+EnvironmentFile=/path/to/agentic-job-applier/.env
+ExecStart=/bin/sh -c 'if [ -z "$NTFY_TOPIC" ]; then exit 0; fi; if [ -n "$NTFY_TOKEN" ]; then curl -fsS -H "Title: job-agent-worker service failure" -H "Priority: high" -H "Authorization: Bearer $NTFY_TOKEN" -d "Systemd unit failed: %i on $(hostname)" "${NTFY_SERVER:-https://ntfy.sh}/$NTFY_TOPIC"; else curl -fsS -H "Title: job-agent-worker service failure" -H "Priority: high" -d "Systemd unit failed: %i on $(hostname)" "${NTFY_SERVER:-https://ntfy.sh}/$NTFY_TOPIC"; fi >/dev/null'
+
+# Restrictive defaults for this one-shot helper.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

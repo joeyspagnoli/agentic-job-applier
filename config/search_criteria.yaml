@@ -3,25 +3,21 @@
 
 # Job titles to search for
 target_titles:
-  - "Software Engineer"
-  - "Senior Software Engineer"
-  - "Staff Software Engineer"
-  - "Principal Software Engineer"
-  - "Backend Engineer"
-  - "Full Stack Engineer"
-  - "Platform Engineer"
-  - "Infrastructure Engineer"
-  - "Machine Learning Engineer"
-  - "ML Engineer"
-  - "AI Engineer"
-  - "Data Engineer"
+  - "Software Engineering Intern"
+  - "Software Engineer Intern"
+  - "Backend Engineering Intern"
+  - "Machine Learning Intern"
+  - "ML Engineer Intern"
+  - "AI Engineer Intern"
+  - "MLOps Intern"
+  - "Data Engineering Intern"
+  - "Computer Science Internship"
 
 # Titles to exclude (regex patterns - case insensitive)
 exclude_title_patterns:
-  - "(?i)intern"
-  - "(?i)junior"
-  - "(?i)\\bjr\\b"
-  - "(?i)entry.?level"
+  - "(?i)senior"
+  - "(?i)staff"
+  - "(?i)principal"
   - "(?i)manager"
   - "(?i)director"
   - "(?i)vp|vice president"
@@ -45,14 +41,14 @@ locations:
 
 # Salary expectations (for filtering in Phase 2)
 salary:
-  min: 150000
-  max: 400000
+  min: 25
+  max: 80
   currency: "USD"
 
 # Experience level
 experience:
-  min_years: 3
-  max_years: 15
+  min_years: 0
+  max_years: 2
 
 # Company size preferences
 company_size:
@@ -61,25 +57,26 @@ company_size:
 
 # Keywords to look for in descriptions (positive signals)
 positive_keywords:
+  - "intern"
+  - "internship"
+  - "co-op"
+  - "student"
   - "python"
-  - "typescript"
-  - "golang"
-  - "rust"
-  - "kubernetes"
-  - "aws"
-  - "gcp"
-  - "distributed systems"
-  - "microservices"
+  - "ml"
   - "machine learning"
   - "ai"
-  - "startup"
-  - "series"
+  - "backend"
+  - "distributed systems"
+  - "aws"
+  - "gcp"
   - "remote"
 
 # Keywords to avoid (negative signals)
 negative_keywords:
   - "clearance required"
   - "security clearance"
-  - "on-site only"
-  - "no remote"
-  - "must relocate"
+  - "full-time only"
+  - "5+ years"
+  - "7+ years"
+  - "help desk"
+  - "it support"

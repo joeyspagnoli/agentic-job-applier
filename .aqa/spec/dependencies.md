@@ -9,8 +9,13 @@
 - **JobSpy**: scraping library for job boards; no explicit API keys shown, but network/proxy requirements may apply (LinkedIn often needs proxies) [src/fetchers/jobspy_fetcher.py:28-96](src/fetchers/jobspy_fetcher.py:28-96).
 
 ## Environment Variables
-- From `.env.example`: `APIFY_API_TOKEN`, `DATABASE_PATH`, `LOG_LEVEL`, `LOG_FILE`, `RUN_INTERVAL_MINUTES`, agent keys (GOOGLE_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY), `AGENT_BATCH_SIZE` [ .env.example:1-20](.env.example:1-20).
-- Agent processing: optional `CANDIDATE_PROFILE_PATH`, `AGENT_BATCH_LIMIT`/`AGENT_BATCH_SIZE`, `AGENT_POLL_INTERVAL_SECONDS` [scripts/process_new_jobs.py:41-76](scripts/process_new_jobs.py:41-76) [scripts/process_new_jobs.py:130-200](scripts/process_new_jobs.py:130-200).
+- Core runtime: `DATABASE_PATH`, `LOG_LEVEL`, `LOG_FILE`, `SQLITE_JOURNAL_MODE`
+- Source credentials: `APIFY_API_TOKEN` (Workday via Apify)
+- Model credentials: `OPENAI_API_KEY` (required for live root gate execution), optional other provider keys
+- Gate queue controls: `AGENT_BATCH_SIZE`, `AGENT_BATCH_LIMIT`, `AGENT_POLL_INTERVAL_SECONDS`
+- Retry controls: `AGENT_MAX_RETRIES`, `AGENT_RETRY_BACKOFF_SECONDS`, `AGENT_RETRY_BACKOFF_MULTIPLIER`
+- Notification controls: `NTFY_TOPIC`, `NTFY_SERVER`, `NTFY_TOKEN`, `NTFY_PRIORITY`
+- Profile override: `CANDIDATE_PROFILE_PATH`
 
 ## Platform / Runtime
 - Python 3.11 pinned (.python-version) [.python-version:1](.python-version:1).
@@ -18,7 +23,11 @@
 - uv recommended for dependency management and running scripts [deploy/README.md:7-22](deploy/README.md:7-22).
 
 ## Deployment & Scheduling
-- systemd oneshot service and 30-minute timer; requires editing placeholders (User, WorkingDirectory, PATH, ExecStart) before enabling [deploy/job-discovery.service:5-17](deploy/job-discovery.service:5-17) [deploy/job-discovery.timer:4-12](deploy/job-discovery.timer:4-12) [deploy/README.md:27-54](deploy/README.md:27-54).
+- Producer: `job-discovery.service` + `job-discovery.timer` (30-minute cadence)
+- Consumer: `job-agent-worker.service` (`process_new_jobs --loop`)
+- Optional systemd failure hook: `job-agent-alert@.service`
 
 ## Data / Files
-- `config/companies.yaml` drives source targets; `config/search_criteria.yaml` defines desired/undesired roles and signals for later filtering [config/companies.yaml:1-120](config/companies.yaml:1-120) [config/search_criteria.yaml:1-70](config/search_criteria.yaml:1-70).
+- `config/companies.yaml` drives source targets and board query terms.
+- `config/search_criteria.yaml` defines role/title and keyword targeting defaults.
+- `config/candidate_profile.yaml` defines gate prompt profile and default board terms.

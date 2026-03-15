@@ -11,7 +11,7 @@ Automated job discovery system that monitors multiple sources (Greenhouse, Workd
 - **Intelligent deduplication** based on content hashing
 - **SQLite database** for persistent storage
 - **Comprehensive logging** with rotation
-- **Automated scheduling** via systemd timer (Linux)
+- **Autonomous runtime** via systemd timer + continuous worker (Linux)
 - **Status dashboard** script for monitoring
 
 ## Installation
@@ -46,10 +46,25 @@ Required environment variables:
 - `DATABASE_PATH`: Path to SQLite database (default: `data/jobs.db`)
 - `LOG_FILE`: Path to log file (default: `logs/job_monitor.log`)
 - `LOG_LEVEL`: Logging level (default: `INFO`)
+- `OPENAI_API_KEY`: Required for the `gpt-5-mini` apply/skip gate
+
+Agent workflow environment variables:
+- `AGENT_BATCH_SIZE`: Max NEW jobs processed per run
+- `AGENT_POLL_INTERVAL_SECONDS`: Poll interval when running `--loop`
+- `AGENT_MAX_RETRIES`: Retry attempts before terminal failure (default: 3)
+- `AGENT_RETRY_BACKOFF_SECONDS`: Base retry delay in seconds (default: 300)
+- `AGENT_RETRY_BACKOFF_MULTIPLIER`: Retry backoff multiplier (default: 3)
+- `NTFY_TOPIC`: Enable ntfy terminal-failure alerts when set
+- `NTFY_SERVER`: ntfy endpoint (default: `https://ntfy.sh`)
+- `NTFY_TOKEN`: Optional bearer token for ntfy auth
+- `NTFY_PRIORITY`: ntfy priority header (default: `default`)
+- `CANDIDATE_PROFILE_PATH`: Optional profile config path override
+- `SQLITE_JOURNAL_MODE`: Optional journal mode override (`WAL` default)
 
 4. Configure companies and search criteria:
    - Edit `config/companies.yaml` to add/remove target companies
    - Edit `config/search_criteria.yaml` to customize search terms and filters
+   - Edit `config/candidate_profile.yaml` to tune gate context and default internship targeting
 
 ## Usage
 
@@ -66,7 +81,7 @@ uv run python main.py
 View current system status and statistics:
 
 ```bash
-uv run python scripts/status.py
+uv run python -m scripts.status
 ```
 
 This displays:
@@ -78,33 +93,61 @@ This displays:
 - Failed crawls
 - Daily statistics
 
+### Run The Apply/Skip Gate
+
+Process pending `NEW` jobs through the local-first decider:
+
+```bash
+uv run python -m scripts.process_new_jobs --limit 25
+```
+
+Run one full pipeline cycle (discovery then one gate batch):
+
+```bash
+uv run python -m scripts.run_pipeline_once --limit 25
+```
+
+Inspect one stored job with the exact same gate logic:
+
+```bash
+uv run python -m scripts.decide_job --job-hash <job_hash>
+uv run python -m scripts.decide_job --job-hash <job_hash> --save
+```
+
 ### Automated Scheduling (Linux)
 
-For automated runs every 30 minutes on your Linux homeserver:
+Recommended autonomous runtime on Linux homeserver:
+- `job-discovery.timer`: discovery producer every 30 minutes
+- `job-agent-worker.service`: continuous consumer draining NEW backlog
 
 1. Edit systemd service files:
 ```bash
 cd deploy
 nano job-discovery.service
-# Update User, WorkingDirectory, and ExecStart paths
+nano job-agent-worker.service
+# Update User, WorkingDirectory, and ExecStart paths in both files
 ```
 
 2. Install systemd service:
 ```bash
 sudo cp job-discovery.service /etc/systemd/system/
 sudo cp job-discovery.timer /etc/systemd/system/
+sudo cp job-agent-worker.service /etc/systemd/system/
+sudo cp job-agent-alert@.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable job-discovery.timer
-sudo systemctl start job-discovery.timer
+sudo systemctl enable --now job-discovery.timer
+sudo systemctl enable --now job-agent-worker.service
 ```
 
 3. Verify:
 ```bash
-# Check timer status
+# Check timer + worker status
 systemctl status job-discovery.timer
+systemctl status job-agent-worker.service
 
 # View logs
 journalctl -u job-discovery.service -f
+journalctl -u job-agent-worker.service -f
 ```
 
 See [deploy/README.md](deploy/README.md) for detailed deployment instructions.
@@ -247,7 +290,13 @@ journalctl -u job-discovery.service --since "1 hour ago"
 ### Running Tests
 
 ```bash
-uv run pytest tests/
+uv run --group dev pytest tests/
+```
+
+Live model E2E tests are opt-in:
+
+```bash
+uv run pytest -q --run-live-agent-e2e -m live_agent_e2e
 ```
 
 ### Adding a New Fetcher
@@ -276,10 +325,10 @@ class CustomFetcher(BaseFetcher):
   - Deduplication and storage
   - Automated scheduling
 
-- [ ] **Phase 2: Intelligent Filtering**
-  - ML-based job matching
-  - Keyword filtering
-  - Company/role scoring
+- [x] **Phase 2: Intelligent Filtering**
+  - Root apply/skip decider workflow
+  - Agent-result persistence and status mapping
+  - Retry/failure tracking for agent processing
 
 - [ ] **Phase 3: Application Automation**
   - Resume customization

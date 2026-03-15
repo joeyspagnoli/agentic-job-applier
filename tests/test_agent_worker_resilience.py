@@ -27,6 +27,20 @@ def test_map_status_maps_skip_to_filtered():
     assert process_new_jobs._map_status(ApplyDecision.SKIP) == "FILTERED"
 
 
+def test_map_status_maps_apply_to_qualified():
+    """Verify APPLY decisions map to QUALIFIED workflow status.
+
+    Purpose:
+        Protect the persisted status mapping contract for apply decisions.
+    Args:
+        None.
+    Output:
+        Returns `None`; the test passes when APPLY maps to QUALIFIED.
+    """
+
+    assert process_new_jobs._map_status(ApplyDecision.APPLY) == "QUALIFIED"
+
+
 @pytest.mark.asyncio
 async def test_process_once_skips_rows_missing_job_hash(
     monkeypatch: pytest.MonkeyPatch,
@@ -108,7 +122,9 @@ async def test_process_once_skips_rows_missing_job_hash(
 
     monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
     monkeypatch.setattr(process_new_jobs, "build_root_agent", lambda model: object())
-    monkeypatch.setattr(process_new_jobs, "_run_decider_for_job", should_not_run_decider)
+    monkeypatch.setattr(
+        process_new_jobs, "_run_decider_for_job", should_not_run_decider
+    )
 
     processed = await process_new_jobs._process_once(db=FakeDb(), limit=5)  # type: ignore[arg-type]
     assert processed == 0
@@ -118,15 +134,15 @@ async def test_process_once_skips_rows_missing_job_hash(
 async def test_process_once_skips_batch_when_model_is_not_configured(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Verify model configuration failures short-circuit batch processing.
+    """Verify model configuration failures raise dedicated configuration errors.
 
     Purpose:
-        Ensure missing model credentials do not crash the worker and no DB
-        reads are attempted in the skipped cycle.
+        Ensure missing model credentials fail fast before any pending-row query
+        and surface a dedicated error type for caller-level alert handling.
     Args:
         monkeypatch: Pytest fixture used to force model configuration failure.
     Output:
-        Returns `None`; the test passes when processing count is zero.
+        Returns `None`; the test passes when model setup raises expected error.
     """
 
     class UnusedDb:
@@ -153,8 +169,8 @@ async def test_process_once_skips_batch_when_model_is_not_configured(
         lambda: (_ for _ in ()).throw(RuntimeError("missing API key")),
     )
 
-    processed = await process_new_jobs._process_once(db=UnusedDb(), limit=10)  # type: ignore[arg-type]
-    assert processed == 0
+    with pytest.raises(process_new_jobs.ModelConfigurationError):
+        await process_new_jobs._process_once(db=UnusedDb(), limit=10)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -177,7 +193,14 @@ async def test_main_loop_continues_after_process_cycle_exception(
 
     calls = {"process": 0, "sleep": 0}
 
-    async def fake_process_once(*, db: DatabaseManager, limit: int) -> int:
+    async def fake_process_once(
+        *,
+        db: DatabaseManager,
+        limit: int,
+        max_retries: int = 3,
+        backoff_seconds: int = 300,
+        backoff_multiplier: int = 3,
+    ) -> int:
         """Raise once, then succeed once.
 
         Purpose:
@@ -191,6 +214,7 @@ async def test_main_loop_continues_after_process_cycle_exception(
 
         _ = db
         assert limit == 3
+        _ = (max_retries, backoff_seconds, backoff_multiplier)
         calls["process"] += 1
         if calls["process"] == 1:
             raise RuntimeError("transient failure")
@@ -245,7 +269,14 @@ async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatc
 
     calls = {"process": 0}
 
-    async def fake_process_once(*, db: DatabaseManager, limit: int) -> int:
+    async def fake_process_once(
+        *,
+        db: DatabaseManager,
+        limit: int,
+        max_retries: int = 3,
+        backoff_seconds: int = 300,
+        backoff_multiplier: int = 3,
+    ) -> int:
         """Record a single call for one-shot mode verification.
 
         Purpose:
@@ -259,6 +290,7 @@ async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatc
 
         _ = db
         assert limit == 1
+        _ = (max_retries, backoff_seconds, backoff_multiplier)
         calls["process"] += 1
         return 1
 

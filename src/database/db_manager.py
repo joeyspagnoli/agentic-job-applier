@@ -6,11 +6,14 @@ queries, and the extra state needed by the apply/skip agent pipeline.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
 from loguru import logger
+
+DEFAULT_AGENT_CLAIM_LEASE_SECONDS = 900
 
 
 class DatabaseManager:
@@ -75,7 +78,17 @@ class DatabaseManager:
         # These pragmas reduce lock contention during timer-driven runs while
         # still keeping the database simple and file-backed.
         await self.conn.execute("PRAGMA busy_timeout = 5000")
-        await self.conn.execute("PRAGMA journal_mode = WAL")
+
+        journal_mode = os.getenv("SQLITE_JOURNAL_MODE", "WAL").strip().upper()
+        allowed_journal_modes = {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL"}
+        if journal_mode not in allowed_journal_modes:
+            logger.warning(
+                "Invalid SQLITE_JOURNAL_MODE='{}'; falling back to WAL",
+                journal_mode,
+            )
+            journal_mode = "WAL"
+
+        await self.conn.execute(f"PRAGMA journal_mode = {journal_mode}")
 
     async def create_tables(self) -> None:
         """Create the database tables defined in `schema.sql`.
@@ -255,37 +268,87 @@ class DatabaseManager:
         return [dict(row) for row in rows]
 
     async def get_jobs_pending_agent_processing(self, limit: int = 100) -> list[dict]:
-        """Fetch NEW jobs that have not been processed by the agent.
+        """Atomically claim and fetch pending NEW jobs for agent processing.
 
         Purpose:
-            Feed the agent-processing script only the rows that are still ready
-            for a first decision and have not already failed permanently.
+            Prevent duplicate work across concurrent workers by claiming rows
+            in one transaction before returning them for processing.
         Args:
             self: The database manager performing the query.
-            limit: Maximum number of rows to return in one batch.
+            limit: Maximum number of rows to claim and return in one batch.
         Output:
-            Returns a list of pending job rows as dictionaries ordered by newest
-            `fetched_at` first.
+            Returns a list of pending claimed rows as dictionaries.
         """
 
         await self._ensure_agent_schema_ready()
         conn = self._require_conn()
-
-        # Failed rows are excluded to avoid infinite retry loops until a human
-        # explicitly decides how to handle them.
-        cursor = await conn.execute(
-            """
-            SELECT *
-            FROM job_postings
-            WHERE status = 'NEW'
-              AND agent_processed_at IS NULL
-              AND agent_failed_at IS NULL
-            ORDER BY fetched_at DESC
-            LIMIT ?
-            """,
-            (limit,),
+        raw_claim_lease_seconds = os.getenv(
+            "AGENT_CLAIM_LEASE_SECONDS",
+            str(DEFAULT_AGENT_CLAIM_LEASE_SECONDS),
         )
-        rows = await cursor.fetchall()
+        try:
+            claim_lease_seconds = int(raw_claim_lease_seconds)
+        except ValueError:
+            logger.warning(
+                "Invalid AGENT_CLAIM_LEASE_SECONDS='{}'; using {}",
+                raw_claim_lease_seconds,
+                DEFAULT_AGENT_CLAIM_LEASE_SECONDS,
+            )
+            claim_lease_seconds = DEFAULT_AGENT_CLAIM_LEASE_SECONDS
+        claim_cutoff_modifier = f"-{max(claim_lease_seconds, 1)} seconds"
+        claim_token = os.urandom(12).hex()
+
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+            cursor = await conn.execute(
+                """
+                UPDATE job_postings
+                SET agent_claim_token = ?,
+                    agent_claimed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id IN (
+                    SELECT id
+                    FROM job_postings
+                    WHERE status = 'NEW'
+                      AND agent_processed_at IS NULL
+                      AND agent_failed_at IS NULL
+                      AND (
+                            agent_next_retry_at IS NULL
+                            OR agent_next_retry_at <= CURRENT_TIMESTAMP
+                          )
+                      AND (
+                            agent_claimed_at IS NULL
+                            OR agent_claimed_at <= datetime('now', ?)
+                          )
+                    ORDER BY
+                        CASE
+                            WHEN agent_next_retry_at IS NULL THEN fetched_at
+                            ELSE agent_next_retry_at
+                        END ASC,
+                        fetched_at ASC,
+                        id ASC
+                    LIMIT ?
+                )
+                RETURNING *
+                """,
+                (claim_token, claim_cutoff_modifier, limit),
+            )
+            rows = await cursor.fetchall()
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+        # Keep returned rows in deterministic FIFO order.
+        rows.sort(
+            key=lambda row: (
+                row["agent_next_retry_at"]
+                if row["agent_next_retry_at"]
+                else row["fetched_at"],
+                row["fetched_at"],
+                row["id"],
+            )
+        )
         return [dict(row) for row in rows]
 
     async def start_crawl(self, source: str, company: Optional[str] = None) -> int:
@@ -449,6 +512,31 @@ class DatabaseManager:
             await conn.execute("ALTER TABLE job_postings ADD COLUMN agent_error TEXT")
             logger.info("Added agent_error column")
 
+        if "agent_retry_count" not in column_names:
+            await conn.execute(
+                "ALTER TABLE job_postings "
+                "ADD COLUMN agent_retry_count INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.info("Added agent_retry_count column")
+
+        if "agent_next_retry_at" not in column_names:
+            await conn.execute(
+                "ALTER TABLE job_postings ADD COLUMN agent_next_retry_at TIMESTAMP"
+            )
+            logger.info("Added agent_next_retry_at column")
+
+        if "agent_claim_token" not in column_names:
+            await conn.execute(
+                "ALTER TABLE job_postings ADD COLUMN agent_claim_token TEXT"
+            )
+            logger.info("Added agent_claim_token column")
+
+        if "agent_claimed_at" not in column_names:
+            await conn.execute(
+                "ALTER TABLE job_postings ADD COLUMN agent_claimed_at TIMESTAMP"
+            )
+            logger.info("Added agent_claimed_at column")
+
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_agent_processed
@@ -459,6 +547,18 @@ class DatabaseManager:
             """
             CREATE INDEX IF NOT EXISTS idx_agent_failed
             ON job_postings(agent_failed_at)
+            """
+        )
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agent_retry_ready
+            ON job_postings(status, agent_failed_at, agent_processed_at, agent_next_retry_at)
+            """
+        )
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agent_claimed_at
+            ON job_postings(agent_claimed_at)
             """
         )
         await conn.commit()
@@ -488,6 +588,10 @@ class DatabaseManager:
             "agent_result",
             "agent_failed_at",
             "agent_error",
+            "agent_retry_count",
+            "agent_next_retry_at",
+            "agent_claim_token",
+            "agent_claimed_at",
         }
 
         if required_columns.issubset(column_names):
@@ -527,6 +631,12 @@ class DatabaseManager:
             UPDATE job_postings
             SET agent_result = ?,
                 agent_processed_at = CURRENT_TIMESTAMP,
+                agent_failed_at = NULL,
+                agent_error = NULL,
+                agent_retry_count = 0,
+                agent_next_retry_at = NULL,
+                agent_claim_token = NULL,
+                agent_claimed_at = NULL,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE job_hash = ?
@@ -535,16 +645,64 @@ class DatabaseManager:
         )
         await conn.commit()
 
-    async def mark_job_agent_failed(self, job_hash: str, error: str) -> None:
-        """Record an agent-processing failure for a job.
+    async def record_agent_retry(
+        self,
+        *,
+        job_hash: str,
+        error: str,
+        retry_count: int,
+        next_retry_at: str,
+    ) -> None:
+        """Persist retry state for a job that failed this processing attempt.
 
         Purpose:
-            Mark jobs that failed during agent execution so they can be reviewed
-            without being retried forever on every loop iteration.
+            Record transient agent failure metadata while keeping the row in the
+            NEW backlog so it can be retried after the scheduled timestamp.
         Args:
-            self: The database manager recording the failure.
+            self: The database manager recording retry metadata.
             job_hash: Stable deduplication hash for the target job.
-            error: Error message describing why agent processing failed.
+            error: Error message describing the failed processing attempt.
+            retry_count: Retry-attempt counter value to persist.
+            next_retry_at: SQLite-compatible UTC timestamp string for the next
+                retry attempt.
+        Output:
+            Returns `None` after persisting retry metadata and committing.
+        """
+
+        await self._ensure_agent_schema_ready()
+        conn = self._require_conn()
+
+        await conn.execute(
+            """
+            UPDATE job_postings
+            SET agent_error = ?,
+                agent_retry_count = ?,
+                agent_next_retry_at = ?,
+                agent_claim_token = NULL,
+                agent_claimed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE job_hash = ?
+            """,
+            (error, retry_count, next_retry_at, job_hash),
+        )
+        await conn.commit()
+
+    async def mark_job_agent_terminal_failed(
+        self,
+        job_hash: str,
+        error: str,
+        retry_count: int | None = None,
+    ) -> None:
+        """Record a terminal agent-processing failure for a job.
+
+        Purpose:
+            Mark jobs that exhausted retries so operators can review and requeue
+            them manually without reprocessing every loop.
+        Args:
+            self: The database manager recording the terminal failure.
+            job_hash: Stable deduplication hash for the target job.
+            error: Error message describing the terminal failure reason.
+            retry_count: Optional final retry-attempt count to persist.
         Output:
             Returns `None` after updating the failure markers and committing.
         """
@@ -559,10 +717,63 @@ class DatabaseManager:
             UPDATE job_postings
             SET agent_failed_at = CURRENT_TIMESTAMP,
                 agent_error = ?,
+                agent_retry_count = COALESCE(?, agent_retry_count),
+                agent_next_retry_at = NULL,
+                agent_claim_token = NULL,
+                agent_claimed_at = NULL,
                 updated_at = CURRENT_TIMESTAMP
             WHERE job_hash = ?
             """,
-            (error, job_hash),
+            (error, retry_count, job_hash),
+        )
+        await conn.commit()
+
+    async def mark_job_agent_failed(self, job_hash: str, error: str) -> None:
+        """Record terminal failure metadata for compatibility call sites.
+
+        Purpose:
+            Preserve backward compatibility for existing call sites/tests while
+            routing writes through the terminal-failure method.
+        Args:
+            self: The database manager recording the terminal failure.
+            job_hash: Stable deduplication hash for the target job.
+            error: Error message describing why agent processing failed.
+        Output:
+            Returns `None` after writing terminal failure markers.
+        """
+
+        await self.mark_job_agent_terminal_failed(job_hash, error)
+
+    async def reset_agent_failure_state(self, job_hash: str) -> None:
+        """Requeue a terminally failed job back into NEW processing backlog.
+
+        Purpose:
+            Provide an explicit operator action for retrying jobs that failed
+            terminally after the automated retry limit.
+        Args:
+            self: The database manager requeueing the target job.
+            job_hash: Stable deduplication hash for the target job.
+        Output:
+            Returns `None` after clearing failure metadata and committing.
+        """
+
+        await self._ensure_agent_schema_ready()
+        conn = self._require_conn()
+
+        await conn.execute(
+            """
+            UPDATE job_postings
+            SET status = 'NEW',
+                agent_failed_at = NULL,
+                agent_error = NULL,
+                agent_retry_count = 0,
+                agent_next_retry_at = NULL,
+                agent_claim_token = NULL,
+                agent_claimed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE job_hash = ?
+            """,
+            (job_hash,),
         )
         await conn.commit()
 
@@ -587,6 +798,12 @@ class DatabaseManager:
             UPDATE job_postings
             SET agent_result = ?,
                 agent_processed_at = CURRENT_TIMESTAMP,
+                agent_failed_at = NULL,
+                agent_error = NULL,
+                agent_retry_count = 0,
+                agent_next_retry_at = NULL,
+                agent_claim_token = NULL,
+                agent_claimed_at = NULL,
                 updated_at = CURRENT_TIMESTAMP
             WHERE job_hash = ?
             """,

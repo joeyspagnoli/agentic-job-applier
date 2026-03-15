@@ -1,5 +1,35 @@
 # Workflows
 
+## Autonomous Producer/Consumer Runtime
+```mermaid
+sequenceDiagram
+    participant Timer as job-discovery.timer
+    participant Discovery as main.py
+    participant DB as SQLite job_postings
+    participant Worker as process_new_jobs.py --loop
+    participant Gate as RootApplyDecider
+    participant Alert as ntfy.sh
+
+    Timer->>Discovery: run every 30 minutes
+    Discovery->>DB: insert NEW jobs
+    loop every poll interval
+        Worker->>DB: get NEW + retry-ready jobs
+        Worker->>Gate: run decision per job
+        alt success
+            Worker->>DB: record_agent_decision (QUALIFIED/FILTERED)
+        else transient failure
+            Worker->>DB: record_agent_retry (count + next_retry_at)
+        else retry limit reached
+            Worker->>DB: mark_job_agent_terminal_failed
+            Worker->>Alert: send terminal failure notification
+        end
+    end
+```
+
+- Producer: `main.py` via `job-discovery.timer`.
+- Consumer: `scripts/process_new_jobs.py --loop` via `job-agent-worker.service`.
+- Queue boundary: `job_postings` rows in status `NEW`.
+
 ## Job Discovery Cycle
 ```mermaid
 sequenceDiagram
@@ -19,24 +49,15 @@ sequenceDiagram
     Main->>DB: start/complete crawl, update_daily_stats
     Main->>Main: log summaries
 ```
-- Trigger: systemd timer every 30 minutes (oneshot service) [deploy/job-discovery.timer:1-12](deploy/job-discovery.timer:1-12).
-- Steps: load env/logging, load company configs, fetch per source, dedup and insert, record crawl history and daily stats, log cycle summary [main.py:24-168](main.py:24-168).
+- Trigger: systemd timer every 30 minutes.
+- Steps: load configs (`companies`, optional `search_criteria` + `candidate_profile`), fetch per source, dedup, insert NEW rows, update crawl and daily stats.
 
-## Agent Decision Loop (Phase 2)
-```mermaid
-sequenceDiagram
-    participant Runner as process_new_jobs.py
-    participant DB as DatabaseManager
-    participant Agent as RootApplyDecider (ADK)
-
-    Runner->>DB: get_jobs_pending_agent_processing(limit)
-    DB-->>Runner: NEW jobs
-    Runner->>Agent: run per job with profile prompt
-    Agent-->>Runner: RootApplyDeciderOutput
-    Runner->>DB: record_agent_decision / mark_job_agent_failed
-```
-- Entry: `scripts/process_new_jobs.py --loop|--once`; loads env, candidate profile, ADK model (stub), processes NEW jobs [scripts/process_new_jobs.py:130-200](scripts/process_new_jobs.py:130-200).
-- Model requirement: `get_decider_model()` stub must be implemented; otherwise jobs are skipped with a warning [src/agents/root_apply_decider.py:51-74](src/agents/root_apply_decider.py:51-74) [scripts/process_new_jobs.py:156-164](scripts/process_new_jobs.py:156-164).
+## One-shot Pipeline Workflow
+- Command: `python -m scripts.run_pipeline_once [--limit N]`.
+- Sequence:
+  1. run one discovery cycle
+  2. run one gate-processing batch against current NEW/retry-ready backlog
+- Intended for local ops/debug and deterministic integration tests.
 
 ## Utility CLIs
 - **Query jobs**: filter by company/title/location/remote/new, display results [scripts/query_jobs.py:21-105](scripts/query_jobs.py:21-105).
@@ -45,5 +66,12 @@ sequenceDiagram
 - **Single-job decider**: run agent against one job hash, optionally persist [scripts/decide_job.py:32-79](scripts/decide_job.py:32-79).
 
 ## Deployment Flow
-- Install deps with uv, copy .env, edit systemd service placeholders (User, WorkingDirectory, PATH, ExecStart), install service+timer, enable and verify [deploy/README.md:7-54](deploy/README.md:7-54) [deploy/job-discovery.service:5-17](deploy/job-discovery.service:5-17).
-- Timer runs main.py every 30 minutes with randomized delay to avoid thundering herd [deploy/job-discovery.timer:4-12](deploy/job-discovery.timer:4-12).
+- Install deps and configure `.env`.
+- Configure and install:
+  - `job-discovery.service`
+  - `job-discovery.timer`
+  - `job-agent-worker.service`
+  - optional `job-agent-alert@.service`
+- Enable both autonomous units:
+  - `job-discovery.timer`
+  - `job-agent-worker.service`

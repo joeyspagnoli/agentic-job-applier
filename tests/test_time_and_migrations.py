@@ -38,7 +38,9 @@ async def test_status_failed_24h_filter_uses_sqlite_compatible_timestamps(
             await db.create_tables()
             assert db.conn is not None
 
-            recent = (datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+            recent = (datetime.utcnow() - timedelta(hours=2)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
             old = (datetime.utcnow() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
             await db.conn.execute(
                 """
@@ -219,7 +221,16 @@ async def test_agent_queries_auto_migrate_legacy_schema():
         await db.close()
 
     assert pending == []
-    for required in ("agent_processed_at", "agent_result", "agent_failed_at", "agent_error"):
+    for required in (
+        "agent_processed_at",
+        "agent_result",
+        "agent_failed_at",
+        "agent_error",
+        "agent_retry_count",
+        "agent_next_retry_at",
+        "agent_claim_token",
+        "agent_claimed_at",
+    ):
         assert required in columns
 
 
@@ -249,3 +260,5 @@ async def test_migrate_agent_schema_is_idempotent():
 
     assert "idx_agent_processed" in index_names
     assert "idx_agent_failed" in index_names
+    assert "idx_agent_retry_ready" in index_names
+    assert "idx_agent_claimed_at" in index_names

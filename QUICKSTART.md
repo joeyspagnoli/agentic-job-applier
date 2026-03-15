@@ -13,7 +13,7 @@ cd agentic-job-applier
 uv sync
 
 # Test fetchers (optional)
-uv run python scripts/test_fetchers.py
+uv run python -m scripts.test_fetchers
 ```
 
 ## Configuration
@@ -31,8 +31,8 @@ nano .env
 ## First Run
 
 ```bash
-# Run discovery cycle (takes 2-5 minutes)
-uv run python main.py
+# Run one full pipeline cycle (discovery + gate worker batch)
+uv run python -m scripts.run_pipeline_once --limit 25
 ```
 
 Expected output:
@@ -60,7 +60,7 @@ Database: 3847 total jobs, 3847 added today
 
 ```bash
 # View dashboard
-uv run python scripts/status.py
+uv run python -m scripts.status
 ```
 
 Output:
@@ -94,16 +94,16 @@ Top 10 companies:
 
 ```bash
 # Search by company
-uv run python scripts/query_jobs.py --company Stripe
+uv run python -m scripts.query_jobs --company Stripe
 
 # Search by title
-uv run python scripts/query_jobs.py --title "senior engineer"
+uv run python -m scripts.query_jobs --title "senior engineer"
 
 # Remote jobs only
-uv run python scripts/query_jobs.py --remote
+uv run python -m scripts.query_jobs --remote
 
 # Today's jobs
-uv run python scripts/query_jobs.py --new --limit 20
+uv run python -m scripts.query_jobs --new --limit 20
 ```
 
 ## Customize
@@ -141,23 +141,27 @@ job_boards:
     results_wanted: 25
 ```
 
-## Schedule Automated Runs
+## Autonomous Runtime
 
 ### On Linux (systemd)
 
 ```bash
-# Edit paths in service file
+# Edit paths in service files
 nano deploy/job-discovery.service
+nano deploy/job-agent-worker.service
 
 # Install
 sudo cp deploy/job-discovery.service /etc/systemd/system/
 sudo cp deploy/job-discovery.timer /etc/systemd/system/
+sudo cp deploy/job-agent-worker.service /etc/systemd/system/
+sudo cp deploy/job-agent-alert@.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable job-discovery.timer
-sudo systemctl start job-discovery.timer
+sudo systemctl enable --now job-discovery.timer
+sudo systemctl enable --now job-agent-worker.service
 
 # Check status
 systemctl status job-discovery.timer
+systemctl status job-agent-worker.service
 ```
 
 ### On macOS (cron)
@@ -166,8 +170,9 @@ systemctl status job-discovery.timer
 # Open crontab
 crontab -e
 
-# Add line (runs every 30 minutes):
+# Add two lines (discovery + gate worker one-shot)
 */30 * * * * cd /path/to/agentic-job-applier && /path/to/.venv/bin/python main.py >> logs/cron.log 2>&1
+*/5 * * * * cd /path/to/agentic-job-applier && /path/to/.venv/bin/python -m scripts.process_new_jobs --once --limit 25 >> logs/cron.log 2>&1
 ```
 
 ## Troubleshooting
@@ -196,9 +201,9 @@ chmod 755 data logs
 
 ## Next Steps
 
-1. **Phase 2**: Add intelligent filtering to auto-qualify jobs
-2. **Phase 3**: Automate applications with resume customization
-3. **Customize**: Add your own job sources/fetchers
+1. Edit `config/candidate_profile.yaml` for your own background and role targets
+2. Configure `NTFY_TOPIC` in `.env` to receive terminal gate failure alerts
+3. Run opt-in live E2E tests: `uv run pytest -q --run-live-agent-e2e -m live_agent_e2e`
 
 See [README.md](README.md) for complete documentation.
 

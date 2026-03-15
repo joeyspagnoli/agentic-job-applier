@@ -1,95 +1,109 @@
 # Deployment Instructions for Linux Homeserver
 
+## Runtime Model
+
+- `job-discovery.timer` triggers `job-discovery.service` every 30 minutes.
+- `job-agent-worker.service` runs continuously and drains NEW backlog from SQLite.
+- Handoff between discovery and gate worker is the `job_postings` table queue.
+
 ## Prerequisites
 
 1. Python 3.11+ installed
-2. `uv` package manager installed
-3. Project cloned to your server
+2. `uv` installed
+3. Linux host with systemd
+4. Project cloned on the host
 
-## Setup
-
-### 1. Clone and Install Dependencies
+## 1. Clone and Install
 
 ```bash
-cd /opt  # or wherever you want to install
+cd /opt
 git clone <your-repo-url> agentic-job-applier
 cd agentic-job-applier
 uv sync
 ```
 
-### 2. Configure Environment
+## 2. Configure Environment
 
 ```bash
 cp .env.example .env
-# Edit .env with your actual values:
-# - APIFY_API_TOKEN (get from https://console.apify.com/account/integrations)
 nano .env
 ```
 
-### 3. Test Manually
+Set at minimum:
+- `OPENAI_API_KEY` for gate decisions
+- `APIFY_API_TOKEN` (optional, Workday source)
+- `NTFY_TOPIC` (optional, enables terminal failure alerts)
+
+## 3. Preflight Checks
+
+Check SQLite runtime used by Python:
 
 ```bash
-uv run python main.py
+uv run python -c "import sqlite3; print(sqlite3.sqlite_version)"
 ```
 
-### 4. Install systemd Service
+If your runtime is older than SQLite `3.52.0`, keep `SQLITE_JOURNAL_MODE=WAL` only if
+you are comfortable with older WAL behavior, or set `SQLITE_JOURNAL_MODE=DELETE`
+until your Python sqlite runtime is upgraded.
+
+## 4. Manual Smoke Test
 
 ```bash
-# Edit the service file to match your paths and username
-sudo nano deploy/job-discovery.service
-# Update:
-#   User=YOUR_USERNAME
-#   WorkingDirectory=/opt/agentic-job-applier
-#   Environment="PATH=/opt/agentic-job-applier/.venv/bin"
-#   ExecStart=/opt/agentic-job-applier/.venv/bin/python main.py
+# One-shot end-to-end run: discovery then one gate batch.
+uv run python -m scripts.run_pipeline_once --limit 25
+```
 
-# Copy files to systemd
+## 5. Configure systemd Units
+
+Edit placeholders in:
+- `deploy/job-discovery.service`
+- `deploy/job-agent-worker.service`
+- `deploy/job-agent-alert@.service` (optional OnFailure alert hook)
+
+Replace:
+- `User=YOUR_USERNAME`
+- `/path/to/agentic-job-applier`
+
+## 6. Install and Enable Units
+
+```bash
 sudo cp deploy/job-discovery.service /etc/systemd/system/
 sudo cp deploy/job-discovery.timer /etc/systemd/system/
+sudo cp deploy/job-agent-worker.service /etc/systemd/system/
+sudo cp deploy/job-agent-alert@.service /etc/systemd/system/
 
-# Reload systemd
 sudo systemctl daemon-reload
 
-# Enable and start the timer
-sudo systemctl enable job-discovery.timer
-sudo systemctl start job-discovery.timer
+sudo systemctl enable --now job-discovery.timer
+sudo systemctl enable --now job-agent-worker.service
 ```
 
-### 5. Verify
+## 7. Verify
 
 ```bash
-# Check timer status
-sudo systemctl status job-discovery.timer
+systemctl status job-discovery.timer
+systemctl status job-agent-worker.service
 
-# List all timers
-systemctl list-timers --all | grep job-discovery
-
-# Run manually to test
-sudo systemctl start job-discovery.service
-
-# Check logs
 journalctl -u job-discovery.service -f
+journalctl -u job-agent-worker.service -f
 ```
 
-## Useful Commands
+## Operational Playbook
+
+Check terminal gate failures:
 
 ```bash
-# Stop the timer
-sudo systemctl stop job-discovery.timer
-
-# Disable the timer
-sudo systemctl disable job-discovery.timer
-
-# Check recent runs
-journalctl -u job-discovery.service --since "1 hour ago"
-
-# Check application logs
-tail -f /opt/agentic-job-applier/logs/job_monitor.log
+sqlite3 data/jobs.db "SELECT job_hash, title, agent_retry_count, agent_error, agent_failed_at FROM job_postings WHERE agent_failed_at IS NOT NULL ORDER BY agent_failed_at DESC LIMIT 20;"
 ```
 
-## Troubleshooting
+Requeue one terminally failed job:
 
-1. **Permission errors**: Make sure the User in the service file owns the project directory
-2. **Python not found**: Verify the path to the .venv/bin/python is correct
-3. **Module not found**: Run `uv sync` to install dependencies
-4. **Database errors**: Check that data/ directory is writable
+```bash
+sqlite3 data/jobs.db "UPDATE job_postings SET status='NEW', agent_failed_at=NULL, agent_error=NULL, agent_retry_count=0, agent_next_retry_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE job_hash='YOUR_JOB_HASH';"
+```
+
+Run one manual gate batch:
+
+```bash
+uv run python -m scripts.process_new_jobs --once --limit 25
+```

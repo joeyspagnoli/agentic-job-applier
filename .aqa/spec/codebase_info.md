@@ -7,14 +7,14 @@
 
 ## Key Directories
 - `src/`: core library
-  - `agents/`: ADK decision agent stub and builder (`root_apply_decider.py`) [src/agents/root_apply_decider.py:1-105](src/agents/root_apply_decider.py:1-105)
+  - `agents/`: ADK decision agents organized as per-agent packages (`root_apply_decider/`, plus shared helpers) [src/agents/root_apply_decider/__init__.py](../../src/agents/root_apply_decider/__init__.py)
   - `fetchers/`: source-specific fetchers (`greenhouse_fetcher.py`, `apify_fetcher.py`, `jobspy_fetcher.py`) plus `base_fetcher.py` [src/fetchers/base_fetcher.py:1-32](src/fetchers/base_fetcher.py:1-32)
   - `database/`: SQLite manager and schema [src/database/db_manager.py:1-210](src/database/db_manager.py:1-210) [src/database/schema.sql:1-89](src/database/schema.sql:1-89)
   - `models/`: shared Pydantic models (JobPosting) [src/models/job_posting.py:1-103](src/models/job_posting.py:1-103)
-  - `utils/`: logging and deduplication helpers [src/utils/logger.py:1-91](src/utils/logger.py:1-91) [src/utils/deduplicator.py:1-59](src/utils/deduplicator.py:1-59)
-- `scripts/`: operational CLIs (query jobs, find Greenhouse IDs, test fetchers, run decider) [scripts/query_jobs.py:1-109](scripts/query_jobs.py:1-109) [scripts/find_greenhouse_id.py:1-108](scripts/find_greenhouse_id.py:1-108) [scripts/test_fetchers.py:1-78](scripts/test_fetchers.py:1-78) [scripts/decide_job.py:1-80](scripts/decide_job.py:1-80) [scripts/process_new_jobs.py:1-200](scripts/process_new_jobs.py:1-200)
-- `config/`: discovery targets and search criteria [config/companies.yaml:1-120](config/companies.yaml:1-120) [config/search_criteria.yaml:1-70](config/search_criteria.yaml:1-70)
-- `deploy/`: systemd units and deployment guide [deploy/job-discovery.service:1-20](deploy/job-discovery.service:1-20) [deploy/job-discovery.timer:1-14](deploy/job-discovery.timer:1-14) [deploy/README.md:1-95](deploy/README.md:1-95)
+  - `utils/`: logging, deduplication, path resolution, ntfy notification helper
+- `scripts/`: operational CLIs (query/find/test/decide/process) plus one-shot pipeline command `run_pipeline_once.py`
+- `config/`: `companies.yaml`, `search_criteria.yaml`, `candidate_profile.yaml`
+- `deploy/`: producer timer/service, consumer worker service, optional alert hook, deployment README
 
 ## Tooling & Dependencies
 - Runtime: Python >=3.11 (.python-version, pyproject) [.python-version:1](.python-version:1) [pyproject.toml:1-18](pyproject.toml:1-18)
@@ -22,17 +22,18 @@
 - Package manager: uv (noted in deploy docs) [deploy/README.md:7-18](deploy/README.md:7-18)
 
 ## Config & Environment
-- `.env.example` documents required env vars: APIFY_API_TOKEN, DATABASE_PATH, LOG_LEVEL/FILE, scheduler interval, agent keys, AGENT_BATCH_SIZE [ .env.example:1-20](.env.example:1-20)
+- `.env.example` documents source credentials, gate model keys, retry/backoff settings, ntfy settings, profile override, and journal mode override.
 - `config/companies.yaml` lists target Greenhouse boards, Workday URLs, and JobSpy board settings [config/companies.yaml:1-120](config/companies.yaml:1-120)
 - `config/search_criteria.yaml` captures desired/undesired titles, locations, salary/experience bounds, keywords (used mainly for future filtering) [config/search_criteria.yaml:1-70](config/search_criteria.yaml:1-70)
 
 ## Data & Persistence
-- SQLite schema for job_postings, crawl_history, daily_stats defined in `schema.sql`; agent fields added via runtime migration [src/database/schema.sql:1-89](src/database/schema.sql:1-89) [src/database/db_manager.py:118-205](src/database/db_manager.py:118-205)
+- SQLite schema for `job_postings`, `crawl_history`, `daily_stats`; queue retry fields and indexes are migrated automatically by `DatabaseManager`.
 
 ## Execution Entrypoints
 - Discovery orchestrator: `main.py` (async cycle over sources, dedup, stats, logging) [main.py:1-168](main.py:1-168)
-- Agent processor: `scripts/process_new_jobs.py` (pull NEW jobs, run ADK decider, persist results) [scripts/process_new_jobs.py:1-200](scripts/process_new_jobs.py:1-200)
+- Agent processor: `scripts/process_new_jobs.py` (pull NEW/retry-ready jobs, run ADK decider, persist success/retry/terminal failure state)
+- One-shot pipeline: `scripts/run_pipeline_once.py` (discovery then one gate batch)
 - Utility CLIs: query, find IDs, test fetchers, single-job decider [scripts/query_jobs.py:1-109](scripts/query_jobs.py:1-109) [scripts/find_greenhouse_id.py:1-108](scripts/find_greenhouse_id.py:1-108) [scripts/test_fetchers.py:1-78](scripts/test_fetchers.py:1-78) [scripts/decide_job.py:1-80](scripts/decide_job.py:1-80)
 
 ## Deployment
-- systemd oneshot service & 30-minute timer; deploy README covers setup/edit placeholders and enablement [deploy/job-discovery.service:1-20](deploy/job-discovery.service:1-20) [deploy/job-discovery.timer:1-14](deploy/job-discovery.timer:1-14) [deploy/README.md:1-95](deploy/README.md:1-95)
+- systemd producer timer/service (`job-discovery.*`) + continuous worker (`job-agent-worker.service`) for autonomous runtime.
