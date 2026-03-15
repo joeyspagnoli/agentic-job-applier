@@ -1,7 +1,7 @@
 """ADK agents used by the application.
 
-This package is intentionally lightweight: agents should be importable without
-requiring model credentials.
+Each custom agent should live in its own package directory so prompts, schemas,
+and helpers stay isolated per agent.
 """
 
 from .root_apply_decider import build_root_agent

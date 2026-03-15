@@ -1,4 +1,4 @@
-"""Apify-based fetcher for Workday job boards."""
+"""Fetch and normalize Workday jobs through an Apify actor."""
 
 import asyncio
 import os
@@ -8,20 +8,30 @@ from apify_client import ApifyClient
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
+from src.fetchers.errors import FetchError
 from src.models.job_posting import JobPosting
 
 
 class ApifyWorkdayFetcher(BaseFetcher):
-    """Fetches job postings from Workday using Apify actors.
+    """Fetch job postings from Workday boards using Apify."""
 
-    Uses the Workday scraper actor from Apify marketplace.
-    Requires APIFY_API_TOKEN environment variable.
-    """
-
-    # Apify actor for Workday scraping
     ACTOR_ID = "gooyer.co/myworkdayjobs"
 
     def __init__(self, company_name: str, workday_url: str, max_items: int = 100):
+        """Store the Workday board information and result limits.
+
+        Purpose:
+            Capture the source-specific settings needed to run the Apify actor
+            and label the resulting normalized jobs.
+        Args:
+            self: The Workday fetcher instance being initialized.
+            company_name: Human-readable company name used in logs and jobs.
+            workday_url: Workday careers URL passed to the Apify actor.
+            max_items: Maximum number of rows the actor should return.
+        Output:
+            Returns `None` after saving the fetcher configuration.
+        """
+
         self.company_name = company_name
         self.workday_url = workday_url
         self.max_items = max_items
@@ -31,83 +41,140 @@ class ApifyWorkdayFetcher(BaseFetcher):
         )
 
     def get_source_name(self) -> str:
+        """Return the source name recorded on Apify Workday jobs.
+
+        Purpose:
+            Provide a stable identifier for crawl history and persisted job rows
+            that originate from this Workday board.
+        Args:
+            self: The Workday fetcher reporting its source name.
+        Output:
+            Returns a machine-friendly source identifier string.
+        """
+
         return f"apify_workday_{self.company_name.lower().replace(' ', '_')}"
 
     async def __aenter__(self):
+        """Create the Apify client for the fetcher context.
+
+        Purpose:
+            Validate required credentials and prepare the client used to launch
+            the Workday scraping actor.
+        Args:
+            self: The Workday fetcher entering the async context.
+        Output:
+            Returns the fetcher instance after creating the Apify client.
+        """
+
         api_token = os.getenv("APIFY_API_TOKEN")
         if not api_token:
             raise ValueError("APIFY_API_TOKEN environment variable not set")
+
         self._client = ApifyClient(api_token)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Clear the Apify client reference when the context ends.
+
+        Purpose:
+            Mirror the async context-manager contract even though the Apify
+            client itself does not require explicit asynchronous cleanup.
+        Args:
+            self: The Workday fetcher exiting the async context.
+            exc_type: Exception type raised inside the context, if any.
+            exc_val: Exception instance raised inside the context, if any.
+            exc_tb: Traceback for the exception raised inside the context.
+        Output:
+            Returns `None` after clearing the stored client reference.
+        """
+
         self._client = None
 
     async def fetch_jobs(self) -> List[JobPosting]:
-        """Fetch jobs from Workday via Apify actor."""
+        """Run the Apify actor and normalize the returned jobs.
+
+        Purpose:
+            Bridge the synchronous Apify client into the async discovery flow,
+            then map the resulting dataset items into `JobPosting` objects.
+        Args:
+            self: The Workday fetcher performing the actor run.
+        Output:
+            Returns a list of normalized `JobPosting` objects, or an empty list
+            when credentials are missing or the actor returns no usable data.
+        """
+
         if not self._client:
             api_token = os.getenv("APIFY_API_TOKEN")
             if not api_token:
-                logger.error("APIFY_API_TOKEN not set, skipping Workday fetch")
-                return []
+                raise FetchError("APIFY_API_TOKEN not set")
             self._client = ApifyClient(api_token)
 
         logger.info(f"Starting Apify actor for {self.company_name}")
-
-        # Run the actor (this is synchronous in the apify-client library)
-        # We'll run it in an executor to not block the event loop
         loop = asyncio.get_event_loop()
 
         try:
-            run_result = await loop.run_in_executor(
-                None, self._run_actor_sync
-            )
+            # The Apify client is synchronous, so the actor call runs in an
+            # executor to avoid blocking the orchestrator event loop.
+            run_result = await loop.run_in_executor(None, self._run_actor_sync)
         except Exception as e:
-            logger.error(f"Apify actor failed for {self.company_name}: {e}")
-            return []
+            raise FetchError(f"Apify actor failed for {self.company_name}: {e}") from e
 
         if not run_result:
-            return []
+            raise FetchError(f"Apify actor returned no run result for {self.company_name}")
 
-        # Fetch results from the dataset
         try:
             dataset_id = run_result.get("defaultDatasetId")
             if not dataset_id:
-                logger.warning(f"No dataset returned for {self.company_name}")
-                return []
+                raise FetchError(f"No dataset returned for {self.company_name}")
 
+            # Dataset iteration is also synchronous, so it follows the same
+            # executor pattern as the actor launch.
             items = await loop.run_in_executor(
                 None,
                 lambda: list(self._client.dataset(dataset_id).iterate_items()),
             )
         except Exception as e:
-            logger.error(f"Failed to fetch Apify results for {self.company_name}: {e}")
-            return []
+            raise FetchError(
+                f"Failed to fetch Apify results for {self.company_name}: {e}"
+            ) from e
 
         logger.info(f"Fetched {len(items)} jobs from {self.company_name} via Apify")
-
         return [self._parse_job(item) for item in items]
 
     def _run_actor_sync(self) -> Optional[dict]:
-        """Run the Apify actor synchronously."""
-        try:
-            run = self._client.actor(self.ACTOR_ID).call(
-                run_input={
-                    "startUrls": [{"url": self.workday_url}],
-                    "maxItems": self.max_items,
-                },
-                timeout_secs=300,  # 5 minute timeout
-            )
-            return run
-        except Exception as e:
-            logger.error(f"Actor call failed: {e}")
-            return None
+        """Run the Apify actor using the synchronous client API.
+
+        Purpose:
+            Isolate the blocking actor invocation so the async fetch path can
+            hand it to an executor without mixing sync and async logic.
+        Args:
+            self: The Workday fetcher running the actor.
+        Output:
+            Returns the actor run metadata dictionary.
+        """
+        return self._client.actor(self.ACTOR_ID).call(
+            run_input={
+                "startUrls": [{"url": self.workday_url}],
+                "maxItems": self.max_items,
+            },
+            timeout_secs=300,
+        )
 
     def _parse_job(self, job_data: dict) -> JobPosting:
-        """Convert Apify Workday job data to JobPosting model."""
-        # Workday scraper typically returns fields like:
-        # title, company, location, description, url, postedDate
+        """Convert one Apify dataset item into a normalized `JobPosting`.
 
+        Purpose:
+            Translate the Workday actor's field names into the shared model used
+            by persistence, deduplication, and agent-processing code.
+        Args:
+            self: The Workday fetcher performing the normalization.
+            job_data: Raw dataset item returned by the Apify actor.
+        Output:
+            Returns a normalized `JobPosting` instance.
+        """
+
+        # The actor's field names vary slightly across boards, so each field is
+        # pulled from the common alternatives before falling back to defaults.
         title = job_data.get("title") or job_data.get("jobTitle") or "Unknown Title"
         location = job_data.get("location") or job_data.get("jobLocation") or ""
         description = job_data.get("description") or job_data.get("jobDescription") or ""

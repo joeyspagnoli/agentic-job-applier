@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS job_postings (
     -- Raw data for debugging
     raw_data JSON,                   -- Complete original API response
 
+    -- Agent workflow metadata
+    agent_processed_at TIMESTAMP,    -- Successful gate processing timestamp
+    agent_result TEXT,               -- Serialized GateRunResult payload
+    agent_failed_at TIMESTAMP,       -- Failure marker to stop infinite retries
+    agent_error TEXT,                -- Last recorded gate-processing error
+
     -- Timestamps
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -51,6 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_status ON job_postings(status);
 CREATE INDEX IF NOT EXISTS idx_company ON job_postings(company);
 CREATE INDEX IF NOT EXISTS idx_fetched_at ON job_postings(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_source ON job_postings(source);
+CREATE INDEX IF NOT EXISTS idx_agent_processed ON job_postings(agent_processed_at);
+CREATE INDEX IF NOT EXISTS idx_agent_failed ON job_postings(agent_failed_at);
 
 -- Crawl history tracking
 CREATE TABLE IF NOT EXISTS crawl_history (
@@ -79,11 +87,3 @@ CREATE TABLE IF NOT EXISTS daily_stats (
     sources_crawled INTEGER DEFAULT 0,
     sources_failed INTEGER DEFAULT 0
 );
-
--- Agent workflow tracking (Phase 2)
--- Note: These columns are added via DatabaseManager.migrate_agent_schema()
--- to avoid breaking existing databases.
---
--- ALTER TABLE job_postings ADD COLUMN agent_processed_at TIMESTAMP;
--- ALTER TABLE job_postings ADD COLUMN agent_result TEXT;
--- CREATE INDEX IF NOT EXISTS idx_agent_processed ON job_postings(agent_processed_at);

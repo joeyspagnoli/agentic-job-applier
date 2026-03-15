@@ -1,7 +1,15 @@
-"""Pydantic model for standardized job postings."""
+"""Define the normalized job-posting model used across the repository.
+
+This module turns fetcher-specific payloads into a shared shape that the
+database layer, deduplicator, and agent pipeline can all rely on.
+"""
 
 import hashlib
 import json
+from urllib.parse import parse_qsl
+from urllib.parse import urlencode
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -42,16 +50,99 @@ class JobPosting(BaseModel):
 
     @property
     def job_hash(self) -> str:
-        """Generate unique hash for deduplication.
+        """Generate the stable hash used for deduplication.
 
-        Based on company + title + first 500 chars of description.
+        Purpose:
+            Create a reproducible identifier with enough entropy to avoid
+            collapsing distinct jobs that share generic boilerplate text.
+        Args:
+            self: The normalized job posting whose identifying content is hashed.
+        Output:
+            Returns a SHA-256 hex digest derived from canonicalized identity
+            fields and full-content digests.
         """
-        unique_string = f"{self.company.lower()}|{self.title.lower()}|{self.description[:500]}"
-        return hashlib.md5(unique_string.encode()).hexdigest()
+
+        # URL query parameters frequently include tracking data, so URL identity
+        # is normalized before being included in the dedup fingerprint.
+        identity_parts = [
+            self.source.lower().strip(),
+            self.company.lower().strip(),
+            self.title.lower().strip(),
+            self._normalize_text(self.location),
+            self._normalize_text(self.posted_date),
+            self._canonicalize_url(self.source_url),
+            hashlib.sha256(self._normalize_text(self.description).encode()).hexdigest(),
+            hashlib.sha256(self._normalize_text(self.requirements).encode()).hexdigest(),
+        ]
+        return hashlib.sha256("|".join(identity_parts).encode()).hexdigest()
+
+    @staticmethod
+    def _normalize_text(value: Optional[str]) -> str:
+        """Normalize optional text into a stable, comparable representation.
+
+        Purpose:
+            Collapse casing and whitespace differences so hash inputs stay
+            stable across minor formatting changes in source payloads.
+        Args:
+            value: Optional text value that should be normalized.
+        Output:
+            Returns lowercased text with internal whitespace collapsed.
+        """
+
+        if not value:
+            return ""
+        return " ".join(str(value).lower().split())
+
+    @staticmethod
+    def _canonicalize_url(url: str) -> str:
+        """Canonicalize source URLs before deduplication hashing.
+
+        Purpose:
+            Avoid hash churn from query-param order and common tracking params
+            while preserving the URL components that identify the posting.
+        Args:
+            url: Raw source URL from a fetcher payload.
+        Output:
+            Returns a normalized URL string used in the hash identity fields.
+        """
+
+        if not url:
+            return ""
+
+        parts = urlsplit(url.strip())
+        query_items = []
+        for key, value in parse_qsl(parts.query, keep_blank_values=True):
+            key_lower = key.lower()
+            if key_lower.startswith("utm_") or key_lower in {"gh_src", "gh_jid"}:
+                continue
+            query_items.append((key, value))
+
+        normalized_query = urlencode(sorted(query_items))
+        normalized_parts = (
+            parts.scheme.lower(),
+            parts.netloc.lower(),
+            parts.path.rstrip("/"),
+            normalized_query,
+            "",
+        )
+        return urlunsplit(normalized_parts)
 
     @model_validator(mode="after")
     def detect_remote(self):
-        """Auto-detect remote from location if not explicitly set."""
+        """Infer the remote flag from the location text when needed.
+
+        Purpose:
+            Normalize a common fetcher gap where remote status is implied in the
+            location string rather than provided as a dedicated field.
+        Args:
+            self: The partially validated model instance being finalized.
+        Output:
+            Returns the model instance after filling `is_remote` when the
+            location text clearly signals remote work.
+        """
+
+        # Fetchers often pass through raw location strings, so this validator
+        # centralizes the remote-detection heuristic in one place.
         if self.is_remote is None and self.location:
             location = self.location.lower()
             remote_keywords = ["remote", "anywhere", "work from home", "wfh", "distributed"]
@@ -61,10 +152,23 @@ class JobPosting(BaseModel):
     @field_validator("job_type", mode="before")
     @classmethod
     def normalize_job_type(cls, v):
-        """Normalize job type to standard values."""
+        """Normalize source-specific job-type labels to the shared enum set.
+
+        Purpose:
+            Collapse varied job-type strings from different sources into a small
+            canonical set before the record is stored or analyzed.
+        Args:
+            cls: The Pydantic model class invoking the validator.
+            v: Raw incoming job-type value from a fetcher payload.
+        Output:
+            Returns the normalized job-type string or `None` when the value does
+            not map cleanly to one of the supported categories.
+        """
         if v is None:
             return None
 
+        # Most sources send free-form strings, so the validator uses a few
+        # broad keyword checks instead of relying on exact matches.
         v_lower = v.lower().strip()
 
         if "full" in v_lower or v_lower == "ft":
@@ -79,7 +183,20 @@ class JobPosting(BaseModel):
         return None  # Unknown type
 
     def to_db_dict(self) -> dict:
-        """Convert to database-compatible dict."""
+        """Convert the model into a database-ready dictionary payload.
+
+        Purpose:
+            Bridge the in-memory Pydantic model and the SQLite insert statement
+            expected by `DatabaseManager.insert_job`.
+        Args:
+            self: The normalized job posting being prepared for persistence.
+        Output:
+            Returns a dictionary whose keys match the `job_postings` insert
+            placeholders, including JSON serialization of raw source data.
+        """
+
+        # Raw source payloads are serialized here so the database layer can stay
+        # focused on SQL concerns instead of model-specific conversions.
         return {
             "job_hash": self.job_hash,
             "source": self.source,
@@ -100,4 +217,6 @@ class JobPosting(BaseModel):
             "raw_data": json.dumps(self.raw_data),
         }
 
-    model_config = ConfigDict(extra="ignore")  # Ignore extra fields from raw data
+    # Extra keys are ignored so fetchers can pass through heterogeneous payloads
+    # without updating the model every time a source adds a new field.
+    model_config = ConfigDict(extra="ignore")
