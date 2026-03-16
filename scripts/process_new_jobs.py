@@ -241,12 +241,14 @@ async def _process_once(
     Purpose:
         Drive the end-to-end batch workflow for loading the model, fetching
         pending jobs, handling failures, and recording successful decisions.
-    Args:
+
+    Arg(s):
         db: Connected database manager used to load and update job rows.
         limit: Maximum number of pending jobs to process in this batch.
         max_retries: Maximum attempts allowed before terminal failure.
         backoff_seconds: Base delay in seconds for retry scheduling.
         backoff_multiplier: Multiplicative factor applied per retry attempt.
+
     Output:
         Returns the number of jobs successfully processed in the batch.
     """
@@ -355,12 +357,14 @@ async def process_once(
     Purpose:
         Expose a stable one-shot processing API for scripts/tests that should
         not depend on private helper naming.
-    Args:
+
+    Arg(s):
         db: Connected database manager used for queue reads and updates.
         limit: Maximum number of jobs to process in this batch.
         max_retries: Maximum attempts before terminal failure.
         backoff_seconds: Base backoff delay for retry scheduling.
         backoff_multiplier: Multiplicative backoff factor per retry attempt.
+
     Output:
         Returns the number of jobs successfully processed in the batch.
     """
@@ -424,7 +428,6 @@ async def main() -> None:
         "AGENT_RETRY_BACKOFF_MULTIPLIER",
         DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
     )
-
     db_path = str(resolve_database_path())
     async with DatabaseManager(db_path) as db:
         await db.create_tables()

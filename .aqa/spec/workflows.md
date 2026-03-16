@@ -64,14 +64,89 @@ sequenceDiagram
 - **Find/verify Greenhouse ID**: try common patterns or verify an ID [scripts/find_greenhouse_id.py:19-105](scripts/find_greenhouse_id.py:19-105).
 - **Smoke-test fetchers**: async checks for Greenhouse (Stripe) and JobSpy (Indeed) [scripts/test_fetchers.py:18-78](scripts/test_fetchers.py:18-78).
 - **Single-job decider**: run agent against one job hash, optionally persist [scripts/decide_job.py:32-79](scripts/decide_job.py:32-79).
+- **Resume migration**: convert LaTeX source to canonical YAML (`scripts/migrate_resume_tex_to_yaml.py`).
+- **Resume tailor tools**: DB/YAML/render/compile/page-count commands (`scripts/resume_tailor_tools.py`).
+- **Resume tailor runner**: one-job pi-mono tailoring loop with one-page enforcement (`scripts/run_resume_tailor.py`).
+
+## Resume Tailor Workflow (On-Demand)
+```mermaid
+sequenceDiagram
+    participant Operator as run_resume_tailor.py
+    participant DB as SQLite
+    participant Pi as pi-coding-agent
+    participant YAML as resume_content.yaml
+    participant Build as renderer/compiler
+
+    Operator->>DB: db-get-job-context (job_hash|job_id)
+    Operator->>Pi: content pass prompt + tool commands
+    Pi->>YAML: targeted listing/bullet edits below Education
+    Operator->>Build: render .tex + compile PDF + page count
+    alt page_count <= 1
+        Operator-->>Operator: success
+    else overflow
+        loop max 2 content readjust retries
+            Operator->>Pi: content retry prompt
+            Pi->>YAML: shorter targeted edits / listing swaps
+            Operator->>Build: render + compile + count
+        end
+        alt still overflow
+            Operator->>YAML: apply balanced layout compression bounds
+            Operator->>Build: render + compile + count
+            alt still overflow
+                Operator-->>Operator: explicit failure
+            else fit
+                Operator-->>Operator: success
+            end
+        else fit
+            Operator-->>Operator: success
+        end
+    end
+```
+
+## Autonomous Tailor Worker
+```mermaid
+sequenceDiagram
+    participant Worker as process_qualified_jobs.py --loop
+    participant DB as SQLite tailor_runs
+    participant Pi as pi-mono coding agent
+    participant YAML as resume_content.yaml
+    participant Build as renderer/compiler
+    participant Alert as ntfy.sh
+
+    loop every poll interval
+        Worker->>DB: claim_next_tailor_job (BEGIN IMMEDIATE)
+        alt no eligible job
+            Worker->>Worker: sleep(poll_interval)
+        else claimed
+            Worker->>YAML: read baseline snapshot
+            Worker->>Pi: run_resume_tailor_pipeline
+            Pi->>YAML: targeted edits
+            Worker->>Build: render .tex + compile PDF
+            alt success (1 page)
+                Worker->>DB: record_tailor_success (artifact paths, page count)
+            else failure
+                Worker->>DB: record_tailor_failure (error, next_retry_at)
+                Worker->>Alert: send failure notification
+            end
+            Worker->>YAML: restore baseline snapshot
+        end
+    end
+```
+
+- Worker: `scripts/process_qualified_jobs.py --loop` via `job-tailor-worker.service`.
+- Queue boundary: `job_postings` rows in status `QUALIFIED` without a SUCCESS tailor_run.
+- State: `tailor_runs` table tracks per-attempt PENDING/SUCCESS/FAILED with claim lease.
 
 ## Deployment Flow
 - Install deps and configure `.env`.
+- Install system dependencies: texlive-full, latexmk (for tailor worker).
 - Configure and install:
   - `job-discovery.service`
   - `job-discovery.timer`
   - `job-agent-worker.service`
+  - `job-tailor-worker.service`
   - optional `job-agent-alert@.service`
-- Enable both autonomous units:
+- Enable all autonomous units:
   - `job-discovery.timer`
   - `job-agent-worker.service`
+  - `job-tailor-worker.service`

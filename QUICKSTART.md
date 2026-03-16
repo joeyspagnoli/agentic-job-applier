@@ -106,6 +106,33 @@ uv run python -m scripts.query_jobs --remote
 uv run python -m scripts.query_jobs --new --limit 20
 ```
 
+## Resume Tailor (Pi-Mono)
+
+1. Migrate your LaTeX resume into canonical YAML:
+
+```bash
+uv run python -m scripts.migrate_resume_tex_to_yaml \
+  --tex-path ../resume/resume.tex \
+  --yaml-out config/resume_content.yaml
+```
+
+2. Run one tailoring pass for a stored job:
+
+```bash
+uv run python -m scripts.run_resume_tailor \
+  --job-hash <job_hash> \
+  --resume-yaml-path config/resume_content.yaml \
+  --pi-coding-agent-command "<your non-interactive pi-coding-agent command>"
+```
+
+3. Inspect resulting artifacts:
+
+```bash
+ls data/tailored_resumes/<job_hash>/
+uv run python -m scripts.resume_tailor_tools get-page-count \
+  --pdf-path data/tailored_resumes/<job_hash>/resume_tailored.pdf
+```
+
 ## Customize
 
 ### Add/Remove Companies
@@ -143,25 +170,83 @@ job_boards:
 
 ## Autonomous Runtime
 
-### On Linux (systemd)
+### On Linux (systemd) — Ubuntu Server LTS
+
+#### Prerequisites
 
 ```bash
-# Edit paths in service files
+# Install TeX Live and latexmk (required for resume tailor worker)
+sudo apt-get update
+sudo apt-get install -y texlive-full latexmk
+
+# Install uv (Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and install
+git clone <your-repo-url>
+cd agentic-job-applier
+uv sync
+
+# Copy and edit environment
+cp .env.example .env
+nano .env
+# Set at minimum: DATABASE_PATH, PI_CODING_AGENT_COMMAND (or ensure 'pi' is in PATH)
+# Set NTFY_TOPIC for operational alerts
+# Set API keys as needed (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+```
+
+#### Deploy all services
+
+```bash
+# Edit paths in ALL service files (replace /path/to/ and YOUR_USERNAME)
 nano deploy/job-discovery.service
 nano deploy/job-agent-worker.service
+nano deploy/job-tailor-worker.service
 
-# Install
+# Install service units
 sudo cp deploy/job-discovery.service /etc/systemd/system/
 sudo cp deploy/job-discovery.timer /etc/systemd/system/
 sudo cp deploy/job-agent-worker.service /etc/systemd/system/
+sudo cp deploy/job-tailor-worker.service /etc/systemd/system/
 sudo cp deploy/job-agent-alert@.service /etc/systemd/system/
 sudo systemctl daemon-reload
+
+# Enable discovery + gate worker
 sudo systemctl enable --now job-discovery.timer
 sudo systemctl enable --now job-agent-worker.service
+
+# Enable resume tailor worker
+# NOTE: PI_CODING_AGENT_COMMAND must be set in .env (or 'pi' in PATH)
+# NOTE: latexmk must be installed (texlive-full)
+sudo systemctl enable --now job-tailor-worker.service
 
 # Check status
 systemctl status job-discovery.timer
 systemctl status job-agent-worker.service
+systemctl status job-tailor-worker.service
+journalctl -u job-tailor-worker.service -f
+```
+
+#### Cost controls and shutdown
+
+```bash
+# Stop the tailor worker (most expensive — runs pi-mono coding agent)
+sudo systemctl stop job-tailor-worker.service
+
+# Stop the gate worker (moderate — runs ADK model calls)
+sudo systemctl stop job-agent-worker.service
+
+# Stop everything (discovery still runs but nothing processes)
+sudo systemctl stop job-tailor-worker.service job-agent-worker.service
+
+# Disable to prevent restart on reboot
+sudo systemctl disable job-tailor-worker.service
+
+# Monitor costs: check how many runs happened today
+sqlite3 data/jobs.db "SELECT status, COUNT(*) FROM tailor_runs WHERE started_at >= date('now') GROUP BY status;"
+
+# Check which jobs were tailored
+sqlite3 data/jobs.db "SELECT job_hash, status, started_at, completed_at FROM tailor_runs ORDER BY started_at DESC LIMIT 20;"
 ```
 
 ### On macOS (cron)

@@ -94,3 +94,23 @@ CREATE TABLE IF NOT EXISTS daily_stats (
     sources_crawled INTEGER DEFAULT 0,
     sources_failed INTEGER DEFAULT 0
 );
+
+-- Resume tailor run tracking
+CREATE TABLE IF NOT EXISTS tailor_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING, SUCCESS, FAILED
+    artifact_tex_path TEXT,
+    artifact_pdf_path TEXT,
+    page_count INTEGER,
+    error TEXT,
+    next_retry_at TIMESTAMP,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    claim_token TEXT,
+    CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED'))
+);
+CREATE INDEX IF NOT EXISTS idx_tailor_runs_job_hash ON tailor_runs(job_hash);
+CREATE INDEX IF NOT EXISTS idx_tailor_runs_status ON tailor_runs(status);
+CREATE INDEX IF NOT EXISTS idx_tailor_runs_started_at ON tailor_runs(started_at);
+CREATE INDEX IF NOT EXISTS idx_tailor_runs_job_status ON tailor_runs(job_hash, status);

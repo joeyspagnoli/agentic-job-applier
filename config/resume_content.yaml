@@ -1,0 +1,210 @@
+schema_version: 1
+lock_rules:
+  section_order:
+  - education
+  - experience
+  - projects
+  - skills_achievements
+  section_headings:
+    education: Education
+    experience: Experience
+    projects: Projects
+    skills_achievements: Skills and Achievements
+  non_editable_sections:
+  - personal
+  - education
+layout:
+  margin_in: 0.5
+  top_vspace_in: -0.45
+  section_heading_font_size_pt: 13.0
+  section_heading_line_height_pt: 15.0
+  section_spacing_before_pt: 1.0
+  section_spacing_after_pt: 1.0
+  subheading_itemsep_pt: 2.0
+  bullet_itemsep_pt: 1.0
+personal:
+  section_id: personal
+  name: Joseph Spagnoli
+  phone: 561-329-2705
+  email: jspagnoli1705@gmail.com
+  links:
+  - id: linkedin_com_in_joseph_spagnoli
+    label: linkedin.com/in/joseph-spagnoli
+    url: https://www.linkedin.com/in/joseph-spagnoli/
+  - id: github_com_joeyspagnoli
+    label: github.com/joeyspagnoli
+    url: https://github.com/joeyspagnoli
+education:
+  section_id: education
+  heading: Education
+  entries:
+  - id: edu_university_of_florida
+    institution: University of Florida $|$ Gainesville
+    date_range: Aug. 2023 -- May 2027
+    degree: 'Bachelor of Science in Computer Science, Minors: Statistics, Electrical Engineering'
+    detail: 'GPA: 4.0'
+    bullets:
+    - id: edu_uf_bullet_0
+      text: Certificates in AI Fundamentals and Applications and Data Analytics
+experience:
+  section_id: experience
+  heading: Experience
+  listings:
+  - id: exp_ai_solutions_engineer_intern
+    enabled: true
+    title: AI Solutions Engineer Intern
+    date_range: Jan. 2026 -- Present
+    organization: GE Appliances $|$ Louisville, KY
+    bullets:
+    - id: ai_solutions_engineer_intern_bullet_0
+      text: Building an \textbf{agentic test suite generator} using \textbf{Google ADK, CrewAI, and Playwright MCP} to auto-generate
+        end-to-end tests from codebases.
+    - id: ai_solutions_engineer_intern_bullet_1
+      text: Developed a \textbf{Python library documentation agent} that aggregates official docs and forum discussions, reducing
+        research time by \textbf{80\%}.
+  - id: exp_ai_scholars_researcher
+    enabled: true
+    title: AI Scholars Researcher
+    date_range: Aug. 2025 -- Present
+    organization: M.E. Rinker, Sr. School of Construction Management $|$ University of Florida
+    bullets:
+    - id: ai_scholars_researcher_bullet_0
+      text: Researching an early-warning ML task to \textbf{reduce occupational noise risk} by predicting whether a construction
+        worker will exceed \textbf{NIOSH recommended} daily noise exposure limits using only the first half of a shift.
+    - id: ai_scholars_researcher_bullet_1
+      text: Engineering \textbf{time-series} and \textbf{frequency-based features} and comparing candidate models using appropriate
+        evaluation metrics to determine the best approach for practical safety alerts.
+  - id: exp_system_administrator_intern
+    enabled: true
+    title: System Administrator Intern
+    date_range: May 2025 -- Present
+    organization: IFAS $|$ University of Florida
+    bullets:
+    - id: system_administrator_intern_bullet_0
+      text: Managed technology needs for \textbf{25+ faculty}, providing technical support and leading system maintenance,
+        imaging, and deployment to ensure seamless technology integration and reliability.
+    - id: system_administrator_intern_bullet_1
+      text: Created a dedicated laptop \textbf{OU} in \textbf{Active Directory} and linked a custom \textbf{GPO} to automate
+        biweekly maintenance, running Dell Command Update and Windows security updates every other Sunday.
+  - id: exp_ai_engineer_intern
+    enabled: true
+    title: AI Engineer Intern
+    date_range: Jun. 2025 -- Aug. 2025
+    organization: Amentum $|$ NASA Johnson Space Center (JSC)
+    bullets:
+    - id: ai_engineer_intern_bullet_0
+      text: Reduced manual anomaly detection time by \textbf{12 hours} by assisting in the development of an \textbf{autoencoder}
+        using \textbf{PyTorch} to detect anomalies for ISS ARED machine sensor faults, processing over \textbf{11,000} data
+        points per exercise set in \textbf{large-scale time-series data}.
+    - id: ai_engineer_intern_bullet_1
+      text: Engineering a comprehensive dashboard using \textbf{Dash, Plotly, and SciPy}, implemented a \textbf{CI/CD pipeline}
+        with \textbf{PyTest} and GitLab runners to ensure code quality and deployed an \textbf{end-to-end data pipeline} with
+        \textbf{Dagster}.
+  - id: exp_undergraduate_research_assistant
+    enabled: true
+    title: Undergraduate Research Assistant
+    date_range: Oct. 2024 -- May 2025
+    organization: M.E. Rinker, Sr. School of Construction Management $|$ University of Florida
+    bullets:
+    - id: undergraduate_research_assistant_bullet_0
+      text: Developed a \textbf{CTGAN synthesizer} using \textbf{SDV} and Python to generate high-fidelity synthetic data,
+        enabling initial \textbf{neural network training} in the absence of real-world data.
+    - id: undergraduate_research_assistant_bullet_1
+      text: "Identified and analyzed key \\textbf{physiological (5\u20138)} and \\textbf{environmental (12\u201313)} variables\
+        \ to inform early model development for predicting heat-related illness risk in construction settings."
+  - id: exp_ai_solutions_engineer_intern_pool
+    enabled: false
+    title: AI Solutions Engineer Intern
+    date_range: Jan. 2026 -- Present
+    organization: GE Appliances $|$ Louisville, KY
+    bullets:
+    - id: ai_solutions_engineer_intern_bullet_0
+      text: Building an \textbf{agentic test suite generator} using \textbf{Google ADK, CrewAI, and Playwright MCP} to auto-generate
+        end-to-end tests from codebases.
+    - id: ai_solutions_engineer_intern_bullet_1
+      text: Developed a \textbf{Python library documentation agent} that aggregates official docs and forum discussions, reducing
+        research time by \textbf{80\%}.
+projects:
+  section_id: projects
+  heading: Projects
+  listings:
+  - id: proj_experiencecurator_ai
+    enabled: true
+    title: ExperienceCurator AI
+    tech_stack: Python, FastAPI, PostgreSQL, pgvector, LangChain, Docker, React/TypeScript
+    date_range: Dec. 2025 -- Present
+    bullets:
+    - id: experiencecurator_ai_bullet_0
+      text: Built a local-first \textbf{"career memory"} system with \textbf{agent-orchestrated RAG workflows} to ingest docs
+        and codebases, normalize content, generate embeddings, and serve evidence-grounded answers through a \textbf{FastAPI}
+        REST API with \textbf{pgvector retrieval}.
+    - id: experiencecurator_ai_bullet_1
+      text: Implemented \textbf{multi-agent} resume tailoring and interview preparation tools, reducing resume customization
+        time by \textbf{30\%} through \textbf{citation-grounded} bullet suggestions and generating concise, sourced answers
+        to user-created interview questions.
+  - id: proj_evochess
+    enabled: true
+    title: EvoChess
+    tech_stack: Python, PyTorch, MLflow, Dagster, AWS S3, Docker, Google Cloud Run
+    date_range: Mar. 2025 -- Apr. 2025
+    bullets:
+    - id: evochess_bullet_0
+      text: Orchestrated an \textbf{automated MLOps pipeline} with \textbf{Dagster} to ETL chess game data from Lichess into
+        \textbf{AWS S3} for CNN model training with \textbf{PyTorch}, and deployed the final model as a containerized API
+        using \textbf{Docker} and \textbf{Google Cloud Run}.
+    - id: evochess_bullet_1
+      text: Trained a \textbf{Convolutional Neural Network} in \textbf{PyTorch} on a filtered dataset of \textbf{9,000,000+
+        games rated 2000+ elo}, engineering a data processing workflow to predict optimal move sequences from any given board
+        state.
+  - id: proj_data_driven_resource_optimization
+    enabled: true
+    title: Data-Driven Resource Optimization
+    tech_stack: Python, Matplotlib, Scikit-learn
+    date_range: Jul. 2024 -- Aug. 2024
+    bullets:
+    - id: data_driven_resource_optimization_bullet_0
+      text: "Developed a \\textbf{gradient descent} algorithm to minimize \\textbf{Mean Squared Error (MSE)} for predicting\
+        \ event resource needs, achieving an \\textbf{R\xB2 score of 0.958} with \\textbf{Scikit-learn} and reducing costs\
+        \ by \\textbf{20\\%} with an \\textbf{85\\%} decrease in waste."
+  - id: proj_experiencecurator_ai_pool
+    enabled: false
+    title: ExperienceCurator AI
+    tech_stack: Python, FastAPI, PostgreSQL, pgvector, LangChain, Docker, React/TypeScript
+    date_range: Dec. 2025 -- Present
+    bullets:
+    - id: experiencecurator_ai_bullet_0
+      text: Built a local-first \textbf{"career memory"} system with \textbf{agent-orchestrated RAG workflows} to ingest docs
+        and codebases, normalize content, generate embeddings, and serve evidence-grounded answers through a \textbf{FastAPI}
+        REST API with \textbf{pgvector retrieval}.
+    - id: experiencecurator_ai_bullet_1
+      text: Implemented \textbf{multi-agent} resume tailoring and interview preparation tools, reducing resume customization
+        time by \textbf{30\%} through \textbf{citation-grounded} bullet suggestions and generating concise, sourced answers
+        to user-created interview questions.
+skills_achievements:
+  section_id: skills_achievements
+  heading: Skills and Achievements
+  listings:
+  - id: skill_ml_ai
+    enabled: true
+    category: ML/AI
+    text: PyTorch, Scikit-learn, LangChain, Google ADK, CrewAI, RAG, CNNs, Autoencoders, Time-Series Analysis
+  - id: skill_production_mlops
+    enabled: true
+    category: Production \& MLOps
+    text: FastAPI, Docker, Dagster, MLflow, CI/CD,PyTest, Git, Linux
+  - id: skill_cloud_data
+    enabled: true
+    category: Cloud \& Data
+    text: AWS (S3), GCP (Cloud Run), PostgreSQL (pgvector), MongoDB, InfluxDB, Pandas, Plotly, Dash
+  - id: skill_languages
+    enabled: true
+    category: Languages
+    text: Python, SQL, C++, R, TypeScript
+  - id: skill_awards
+    enabled: true
+    category: Awards
+    text: Amentum Intern Scholarship (2025), AI Scholar (2025), UF President's Honor Roll (2024--Present)
+  - id: skill_ml_ai_pool
+    enabled: false
+    category: ML/AI
+    text: PyTorch, Scikit-learn, LangChain, Google ADK, CrewAI, RAG, CNNs, Autoencoders, Time-Series Analysis

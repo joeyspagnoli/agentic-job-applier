@@ -30,6 +30,7 @@ Decision rules:
 - If compensation is listed and clearly below $25/hour, treat that as a strong negative signal.
 - If compensation is not listed, rely on company quality and role alignment.
 - If the company is unfamiliar but the role still looks aligned, bias toward APPLY.
+- If the posted date is more than 3 months ago, return SKIP — the application window has likely closed.
 
 Output:
 Return a JSON object with this required field:
@@ -317,6 +318,7 @@ def build_gate_payload(job: Mapping[str, Any]) -> str:
         f"- Remote: {job.get('is_remote')}",
         f"- Job type: {job.get('job_type') or 'Not specified'}",
         f"- Compensation: {_format_salary_range(job)}",
+        f"- Posted date: {job.get('posted_date_parsed') or job.get('posted_date') or 'Not specified'}",
         "Description (Untrusted Job Text):",
         "<untrusted_job_description>",
         _trim_prompt_text(

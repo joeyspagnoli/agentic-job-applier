@@ -13,6 +13,7 @@ Automated job discovery system that monitors multiple sources (Greenhouse, Workd
 - **Comprehensive logging** with rotation
 - **Autonomous runtime** via systemd timer + continuous worker (Linux)
 - **Status dashboard** script for monitoring
+- **YAML-canonical resume tailoring pipeline** with 1-page enforcement
 
 ## Installation
 
@@ -60,6 +61,7 @@ Agent workflow environment variables:
 - `NTFY_PRIORITY`: ntfy priority header (default: `default`)
 - `CANDIDATE_PROFILE_PATH`: Optional profile config path override
 - `SQLITE_JOURNAL_MODE`: Optional journal mode override (`WAL` default)
+- `PI_CODING_AGENT_COMMAND`: Optional command override for the pi-coding-agent resume tailor runner
 
 4. Configure companies and search criteria:
    - Edit `config/companies.yaml` to add/remove target companies
@@ -112,6 +114,50 @@ Inspect one stored job with the exact same gate logic:
 ```bash
 uv run python -m scripts.decide_job --job-hash <job_hash>
 uv run python -m scripts.decide_job --job-hash <job_hash> --save
+```
+
+### Run Resume Tailor (Pi-Mono, YAML Canonical)
+
+Migrate your existing LaTeX resume to canonical YAML (one-time or whenever your base resume changes):
+
+```bash
+uv run python -m scripts.migrate_resume_tex_to_yaml \
+  --tex-path ../resume/resume.tex \
+  --yaml-out config/resume_content.yaml
+```
+
+Use the tool surface directly (useful for debugging or integrating with custom pi prompts):
+
+```bash
+uv run python -m scripts.resume_tailor_tools db-get-job-context --job-hash <job_hash>
+uv run python -m scripts.resume_tailor_tools load-resume-yaml --path config/resume_content.yaml
+uv run python -m scripts.resume_tailor_tools render-resume-tex \
+  --yaml-path config/resume_content.yaml \
+  --tex-out data/tailored_resumes/manual/resume.tex
+uv run python -m scripts.resume_tailor_tools compile-resume \
+  --tex-path data/tailored_resumes/manual/resume.tex \
+  --pdf-out data/tailored_resumes/manual/resume.pdf
+uv run python -m scripts.resume_tailor_tools get-page-count \
+  --pdf-path data/tailored_resumes/manual/resume.pdf
+```
+
+Run the full one-page-enforced tailor loop for one stored job:
+
+```bash
+uv run python -m scripts.run_resume_tailor \
+  --job-hash <job_hash> \
+  --resume-yaml-path config/resume_content.yaml \
+  --pi-coding-agent-command "<your non-interactive pi-coding-agent command>"
+```
+
+Optional branch isolation per tailoring run:
+
+```bash
+uv run python -m scripts.run_resume_tailor \
+  --job-hash <job_hash> \
+  --create-git-branch \
+  --branch-prefix resume-tailor \
+  --pi-coding-agent-command "<your non-interactive pi-coding-agent command>"
 ```
 
 ### Automated Scheduling (Linux)
@@ -209,11 +255,15 @@ salary:
 agentic-job-applier/
 ├── config/                    # Configuration files
 │   ├── companies.yaml        # Target companies
-│   └── search_criteria.yaml  # Search criteria
+│   ├── search_criteria.yaml  # Search criteria
+│   └── resume_content.yaml   # YAML-canonical resume source of truth
 ├── src/
 │   ├── database/             # Database layer
 │   │   ├── db_manager.py    # SQLite manager
 │   │   └── schema.sql       # Database schema
+│   ├── agents/
+│   │   ├── root_apply_decider/   # ADK apply/skip gate
+│   │   └── resume_tailor_pi/     # pi-mono resume tailor runtime + tools
 │   ├── fetchers/             # Job fetchers
 │   │   ├── base_fetcher.py  # Abstract base
 │   │   ├── greenhouse_fetcher.py
@@ -225,7 +275,10 @@ agentic-job-applier/
 │       ├── deduplicator.py  # Deduplication logic
 │       └── logger.py        # Logging setup
 ├── scripts/
-│   └── status.py            # Status dashboard
+│   ├── status.py                 # Status dashboard
+│   ├── run_resume_tailor.py      # End-to-end tailor runner
+│   ├── resume_tailor_tools.py    # Tool surface for pi-coding-agent
+│   └── migrate_resume_tex_to_yaml.py # LaTeX->YAML migration utility
 ├── deploy/                   # Deployment files
 │   ├── job-discovery.service
 │   ├── job-discovery.timer
@@ -331,7 +384,7 @@ class CustomFetcher(BaseFetcher):
   - Retry/failure tracking for agent processing
 
 - [ ] **Phase 3: Application Automation**
-  - Resume customization
+  - Resume customization (YAML-canonical pi-mono tailor loop now available)
   - Cover letter generation
   - Form filling automation
 

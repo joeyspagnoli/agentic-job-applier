@@ -12,6 +12,7 @@
 - CRUD/helpers:
   - `insert_job(job_data) -> bool` (False on duplicate hash) [src/database/db_manager.py:80-112](src/database/db_manager.py:80-112).
   - `get_job_by_hash(job_hash)` [src/database/db_manager.py:114-129](src/database/db_manager.py:114-129).
+  - `get_job_by_id(job_id)` and `get_resume_tailor_job_context(job_hash|job_id)` for tailor DB lookups.
   - `update_job_status(job_hash, status)` [src/database/db_manager.py:131-147](src/database/db_manager.py:131-147).
   - `get_jobs_by_status(status, limit=100)` and `get_jobs_pending_agent_processing(limit=100)` (includes retry-ready NEW rows) [src/database/db_manager.py](../../src/database/db_manager.py).
   - Crawl logging: `start_crawl(source, company)` / `complete_crawl(crawl_id, jobs_found, jobs_new, error=None)` [src/database/db_manager.py:185-220](src/database/db_manager.py:185-220).
@@ -34,6 +35,19 @@
 - **Runner usage** in `scripts/process_new_jobs.py`: `_run_decider_for_job(agent, job)` executes ADK runner and parses raw text into `GateRunResult`.
 - Candidate context input is config-driven (`config/candidate_profile.yaml`, optional `CANDIDATE_PROFILE_PATH` override).
 
+## Resume Tailor Interfaces (Pi-Mono)
+- **Invocation contract**: `TailorInvocationContract` with `job_ref`, YAML/artifact paths, page limit, retry counts, layout profile, optional branch settings.
+- **Run result contract**: `TailorRunResult` with success flag, failure reason, final page count, and per-attempt phase history.
+- **Tool contracts** (`scripts/resume_tailor_tools.py`):
+  - `db-get-job-context --job-hash|--job-id [--database-path]`
+  - `load-resume-yaml --path`
+  - `save-resume-yaml --path (--content-json|--content-file)`
+  - `render-resume-tex --yaml-path --tex-out`
+  - `compile-resume --tex-path --pdf-out`
+  - `get-page-count --pdf-path [--log-path]`
+- **Tailor runner**: `scripts/run_resume_tailor.py --job-hash|--job-id ...` executes one-page loop via `run_resume_tailor_pipeline`.
+- **Migration utility**: `scripts/migrate_resume_tex_to_yaml.py --tex-path --yaml-out [--seed-inactive-slots|--no-seed-inactive-slots]`.
+
 ## CLI / Operational Interfaces
 - **Discovery cycle**: `python main.py` (reads env, sets up logger, runs async discovery) [main.py:105-167](main.py:105-167).
 - **One-shot pipeline**: `python -m scripts.run_pipeline_once [--limit N]`.
@@ -42,6 +56,7 @@
 - **Fetcher smoke tests**: `scripts/test_fetchers.py` (no args) [scripts/test_fetchers.py:18-78](scripts/test_fetchers.py:18-78).
 - **Single-job decider**: `scripts/decide_job.py --job-hash <hash> [--save]` [scripts/decide_job.py:32-79](scripts/decide_job.py:32-79).
 - **Agent batch processor**: `scripts/process_new_jobs.py [--loop|--once] [--limit N]` with retry/backoff env controls.
+- **Resume tailor processor**: `scripts/run_resume_tailor.py` for one job at a time with optional per-run branch creation.
 
 ## Configuration Inputs
 - `config/companies.yaml`: source targets + board search terms.
@@ -53,8 +68,24 @@
   - alerts: `NTFY_TOPIC`, `NTFY_SERVER`, `NTFY_TOKEN`, `NTFY_PRIORITY`
   - profile path override: `CANDIDATE_PROFILE_PATH`
 
+## Tailor Worker Interfaces
+- **Autonomous daemon**: `scripts/process_qualified_jobs.py [--once|--loop]`
+  - Claims QUALIFIED jobs atomically via `claim_next_tailor_job` (BEGIN IMMEDIATE + claim token)
+  - Invokes `run_resume_tailor_pipeline` per job
+  - Records success/failure in `tailor_runs` table
+  - Restores YAML baseline after each run
+- **DatabaseManager tailor methods**:
+  - `migrate_tailor_schema()` — idempotent schema bootstrap
+  - `claim_next_tailor_job(max_retries, lease_seconds)` — atomic claim with lease
+  - `record_tailor_success(run_id, artifact_tex_path, artifact_pdf_path, page_count)`
+  - `record_tailor_failure(run_id, error, next_retry_at)`
+  - `mark_stale_tailor_runs_failed(lease_seconds)` — crash recovery
+  - `reset_tailor_failure_state(job_hash)` — operator requeue
+  - `get_tailor_runs_for_job(job_hash)` — attempt history
+
 ## Deployment Interfaces
 - `deploy/job-discovery.service` + `deploy/job-discovery.timer` (producer)
-- `deploy/job-agent-worker.service` (consumer)
+- `deploy/job-agent-worker.service` (gate consumer)
+- `deploy/job-tailor-worker.service` (tailor consumer, persistent daemon)
 - optional `deploy/job-agent-alert@.service` (systemd OnFailure alert hook)
-- Deployment steps in `deploy/README.md`
+- Deployment steps in `deploy/README.md` and `QUICKSTART.md`

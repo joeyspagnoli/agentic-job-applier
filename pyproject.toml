@@ -38,3 +38,6 @@ override-dependencies = [
     # lockfile on a patched markdownify release while upstream catches up.
     "markdownify>=0.14.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

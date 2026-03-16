@@ -36,3 +36,17 @@
 - Run only deterministic integration coverage: `uv run pytest -q tests/test_scraper_to_agent_integration.py`
 - Opt-in live model end-to-end tests: `uv run pytest -q --run-live-agent-e2e -m live_agent_e2e`
 - Live model tests require `OPENAI_API_KEY` and are skipped unless `--run-live-agent-e2e` is passed.
+
+## Resume Tailor Worker (Autonomous Runtime)
+- `scripts/process_qualified_jobs.py`: Claims QUALIFIED jobs from the database and invokes the pi-mono resume tailor pipeline (`run_resume_tailor_pipeline`) for each one.
+- Tracks state in a separate `tailor_runs` table (PENDING → SUCCESS/FAILED) with retry backoff.
+- The worker restores `config/resume_content.yaml` to its baseline state after every run (success or failure) so sequential jobs start from a clean YAML.
+- Preflight checks validate `pi` command, `latexmk`, and database path availability before entering the loop.
+- Generated artifacts land in `data/tailored_resumes/<job_hash>/resume_tailored.{tex,pdf}`.
+- Systemd unit: `deploy/job-tailor-worker.service`.
+- Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_RETRY_BACKOFF_SECONDS`, `TAILOR_RETRY_BACKOFF_MULTIPLIER`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`.
+
+## Autonomy End Goal
+- End goal: this repository should be cloneable on a home server, configured once, and then run autonomously to discover jobs and execute the full workflow through job application.
+- The system may run asynchronously or in batches, but it should not require day-to-day operator intervention.
+- Ongoing human involvement should be limited to updating preferences, the base resume, and reference files.

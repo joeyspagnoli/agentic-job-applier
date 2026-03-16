@@ -13,21 +13,27 @@
 - Source credentials: `APIFY_API_TOKEN` (Workday via Apify)
 - Model credentials: `OPENAI_API_KEY` (required for live root gate execution), optional other provider keys
 - Gate queue controls: `AGENT_BATCH_SIZE`, `AGENT_BATCH_LIMIT`, `AGENT_POLL_INTERVAL_SECONDS`
-- Retry controls: `AGENT_MAX_RETRIES`, `AGENT_RETRY_BACKOFF_SECONDS`, `AGENT_RETRY_BACKOFF_MULTIPLIER`
+- Gate retry controls: `AGENT_MAX_RETRIES`, `AGENT_RETRY_BACKOFF_SECONDS`, `AGENT_RETRY_BACKOFF_MULTIPLIER`
+- Tailor worker controls: `TAILOR_POLL_INTERVAL_SECONDS` (default 30), `TAILOR_MAX_RETRIES` (default 2), `TAILOR_RETRY_BACKOFF_SECONDS` (default 600), `TAILOR_RETRY_BACKOFF_MULTIPLIER` (default 2), `TAILOR_CLAIM_LEASE_SECONDS` (default 7200), `TAILOR_OUTPUT_DIR` (default data/tailored_resumes)
 - Notification controls: `NTFY_TOPIC`, `NTFY_SERVER`, `NTFY_TOKEN`, `NTFY_PRIORITY`
 - Profile override: `CANDIDATE_PROFILE_PATH`
+- Resume tailor command override: `PI_CODING_AGENT_COMMAND`
 
 ## Platform / Runtime
 - Python 3.11 pinned (.python-version) [.python-version:1](.python-version:1).
 - SQLite database stored at `DATABASE_PATH` default `data/jobs.db` [main.py:98-101](main.py:98-101) [ .env.example:4-8](.env.example:4-8).
 - uv recommended for dependency management and running scripts [deploy/README.md:7-22](deploy/README.md:7-22).
+- Resume tailoring compile helpers require local TeX tooling (`latexmk`) and page inspection via `pdfinfo` (with LaTeX-log fallback when `pdfinfo` is unavailable).
 
 ## Deployment & Scheduling
 - Producer: `job-discovery.service` + `job-discovery.timer` (30-minute cadence)
-- Consumer: `job-agent-worker.service` (`process_new_jobs --loop`)
+- Gate consumer: `job-agent-worker.service` (`process_new_jobs --loop`)
+- Tailor consumer: `job-tailor-worker.service` (`process_qualified_jobs --loop`), `Restart=always`, 30s backoff
 - Optional systemd failure hook: `job-agent-alert@.service`
+- System dependencies for tailor: texlive-full, latexmk, pi-mono (or `PI_CODING_AGENT_COMMAND`)
 
 ## Data / Files
 - `config/companies.yaml` drives source targets and board query terms.
 - `config/search_criteria.yaml` defines role/title and keyword targeting defaults.
 - `config/candidate_profile.yaml` defines gate prompt profile and default board terms.
+- `config/resume_content.yaml` is the YAML-canonical resume source used by the pi-mono tailor workflow.
