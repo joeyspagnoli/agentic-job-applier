@@ -257,7 +257,9 @@ def _resolve_pi_workspace_dir(
         if not workspace_path.is_absolute():
             workspace_path = repo_root / workspace_path
     else:
-        workspace_path = Path(invocation.resume_yaml_path).resolve().parent
+        # Default to repository root so `python -m scripts.*` tool commands in
+        # prompts resolve consistently during agent execution.
+        workspace_path = repo_root
 
     workspace_path.mkdir(parents=True, exist_ok=True)
     return workspace_path.resolve()

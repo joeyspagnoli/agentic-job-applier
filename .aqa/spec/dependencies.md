@@ -15,22 +15,27 @@
 - Gate queue controls: `AGENT_BATCH_SIZE`, `AGENT_BATCH_LIMIT`, `AGENT_POLL_INTERVAL_SECONDS`
 - Gate retry controls: `AGENT_MAX_RETRIES`, `AGENT_RETRY_BACKOFF_SECONDS`, `AGENT_RETRY_BACKOFF_MULTIPLIER`
 - Tailor worker controls: `TAILOR_POLL_INTERVAL_SECONDS` (default 30), `TAILOR_MAX_RETRIES` (default 2), `TAILOR_RETRY_BACKOFF_SECONDS` (default 600), `TAILOR_RETRY_BACKOFF_MULTIPLIER` (default 2), `TAILOR_CLAIM_LEASE_SECONDS` (default 7200), `TAILOR_OUTPUT_DIR` (default data/tailored_resumes)
+- Review worker controls: `REVIEW_POLL_INTERVAL_SECONDS` (default 30), `REVIEW_MAX_RETRIES` (default 2), `REVIEW_RETRY_BACKOFF_SECONDS` (default 600), `REVIEW_RETRY_BACKOFF_MULTIPLIER` (default 2), `REVIEW_CLAIM_LEASE_SECONDS` (default 7200), `REVIEW_OUTPUT_DIR` (default data/tailored_resumes)
+- Review base refs: `REVIEW_BASE_RESUME_YAML_PATH`, `REVIEW_BASE_RESUME_TEX_PATH`, `REVIEW_BASE_RESUME_PDF_PATH`
 - Notification controls: `NTFY_TOPIC`, `NTFY_SERVER`, `NTFY_TOKEN`, `NTFY_PRIORITY`
 - Profile override: `CANDIDATE_PROFILE_PATH`
 - Resume tailor command override: `PI_CODING_AGENT_COMMAND`
+- Optional review model override: `RESUME_REVIEW_MODEL`
 
 ## Platform / Runtime
 - Python 3.11 pinned (.python-version) [.python-version:1](.python-version:1).
 - SQLite database stored at `DATABASE_PATH` default `data/jobs.db` [main.py:98-101](main.py:98-101) [ .env.example:4-8](.env.example:4-8).
 - uv recommended for dependency management and running scripts [deploy/README.md:7-22](deploy/README.md:7-22).
-- Resume tailoring compile helpers require local TeX tooling (`latexmk`) and page inspection via `pdfinfo` (with LaTeX-log fallback when `pdfinfo` is unavailable).
+- Resume tailoring/review compile helpers require local TeX tooling (`latexmk`).
+- Review geometry/text tooling requires poppler CLIs: `pdfinfo`, `pdftotext`, `pdftoppm`.
 
 ## Deployment & Scheduling
 - Producer: `job-discovery.service` + `job-discovery.timer` (30-minute cadence)
 - Gate consumer: `job-agent-worker.service` (`process_new_jobs --loop`)
 - Tailor consumer: `job-tailor-worker.service` (`process_qualified_jobs --loop`), `Restart=always`, 30s backoff
+- Review consumer: `job-review-worker.service` (`process_reviewed_resumes --loop`), `Restart=always`, 30s backoff
 - Optional systemd failure hook: `job-agent-alert@.service`
-- System dependencies for tailor: texlive-full, latexmk, pi-mono (or `PI_CODING_AGENT_COMMAND`)
+- System dependencies for tailor/review: texlive-full, latexmk, poppler-utils, pi-mono (or `PI_CODING_AGENT_COMMAND`)
 
 ## Data / Files
 - `config/companies.yaml` drives source targets and board query terms.

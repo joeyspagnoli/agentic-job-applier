@@ -249,7 +249,7 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
         aggregate counts.
     """
 
-    async def fake_greenhouse(*_: object):
+    async def fake_greenhouse(*_: object, **__: object):
         """Return deterministic Greenhouse counters.
 
         Purpose:
@@ -262,7 +262,7 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
 
         return 10, 4, 1, 1
 
-    async def fake_workday(*_: object):
+    async def fake_workday(*_: object, **__: object):
         """Return deterministic Workday counters.
 
         Purpose:

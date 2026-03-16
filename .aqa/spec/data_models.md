@@ -11,10 +11,17 @@
   - retry fields: `agent_retry_count`, `agent_next_retry_at`
 - **tailor_runs** (new):
   - `id` (PK autoincrement), `job_hash` (FK to job_postings), `status` (PENDING|SUCCESS|FAILED)
-  - artifact tracking: `artifact_tex_path`, `artifact_pdf_path`, `page_count`
+  - artifact tracking: `artifact_yaml_path`, `artifact_tex_path`, `artifact_pdf_path`, `page_count`
   - retry/claim: `error`, `next_retry_at`, `started_at`, `completed_at`, `claim_token`
   - CHECK constraint: `status IN ('PENDING', 'SUCCESS', 'FAILED')`
   - Indexes: `idx_tailor_runs_job_hash`, `idx_tailor_runs_status`, `idx_tailor_runs_started_at`
+- **review_runs**:
+  - `id` (PK autoincrement), `job_hash`, `tailor_run_id`, `status` (PENDING|SUCCESS|FAILED)
+  - verdict/result payload: `verdict` (PASS|TAILORED|BASE|FAIL), selected artifact paths, `review_report_json`
+  - diagnostics: `agent_stdout`, `agent_stderr`, `error`
+  - retry/claim: `next_retry_at`, `started_at`, `completed_at`, `claim_token`
+  - fallback refs on hard runtime failures: `fallback_base_yaml_path`, `fallback_base_tex_path`, `fallback_base_pdf_path`
+  - Indexes: `idx_review_runs_job_hash`, `idx_review_runs_status`, `idx_review_runs_started_at`, `idx_review_runs_tailor_run_id`, `idx_review_runs_tailor_status`
 - **Indexes** include `idx_agent_retry_ready` for pending retry selection.
 - **crawl_history**: per-source crawl execution and failure metadata.
 - **daily_stats**: per-day aggregate discovery counters.
@@ -26,7 +33,7 @@
 - Runtime payload includes candidate context + normalized job fields via `build_gate_payload(job)`.
 
 ## Agent Output
-- **GateRunResult**: decision (APPLY|SKIP), optional debug metadata, raw response, provider, model, and parse mode [src/agents/root_apply_decider/schemas.py](../../src/agents/root_apply_decider/schemas.py).
+- **GateRunResult**: decision (APPLY|SKIP), optional debug metadata, raw response, provider, model, and parse mode [src/agents/root_apply_decider/schemas.py](../../src/agents/root_apply_decider/schemas.py). Decisions are now accepted only from structured JSON parse recovery.
 - Persisted outcomes:
   - success: `record_agent_decision` -> `status` to `QUALIFIED`/`FILTERED`
   - transient failure: `record_agent_retry`
@@ -46,9 +53,16 @@
     - `projects` listings + bullets (`enabled` toggle)
     - `skills_achievements` rows (`enabled` toggle)
 - **Canonical artifact**: `config/resume_content.yaml` is the source of truth; `.tex` is generated output.
+- **Tailor worker output artifact set**: `resume_content_work.yaml`, `resume_tailored.tex`, `resume_tailored.pdf`.
 
 ## Resume Tailor Runtime Models
 - **TailorJobRef**: exactly one selector (`job_hash` or `job_id`).
 - **TailorInvocationContract**: job ref, YAML/artifact paths, page limit, content retry count, layout profile, optional branch config.
 - **TailorAttemptRecord**: phase (`content` or `layout`), attempt index, page count, message, success flag.
 - **TailorRunResult**: final success/failure payload returned by `run_resume_tailor_pipeline`.
+
+## Resume Review Runtime Models
+- **ReviewInvocationContract**: job/tailor refs, candidate/base artifact paths, report path, loop budget, and pi subprocess config.
+- **ReviewVerdict**: `PASS | TAILORED | BASE | FAIL`.
+- **ReviewReport**: strict completion handshake payload written by the agent (`write-review-report`) and validated by runtime.
+- **ReviewRunResult**: runtime outcome with hard-failure marker, validated report payload, selected refs, and agent stdout/stderr diagnostics.

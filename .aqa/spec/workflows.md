@@ -66,6 +66,7 @@ sequenceDiagram
 - **Single-job decider**: run agent against one job hash, optionally persist [scripts/decide_job.py:32-79](scripts/decide_job.py:32-79).
 - **Resume migration**: convert LaTeX source to canonical YAML (`scripts/migrate_resume_tex_to_yaml.py`).
 - **Resume tailor tools**: DB/YAML/render/compile/page-count commands (`scripts/resume_tailor_tools.py`).
+- **Resume review tools**: tailor-equivalent commands plus geometry/log/text/report commands (`scripts/resume_review_tools.py`).
 - **Resume tailor runner**: one-job pi-mono tailoring loop with one-page enforcement (`scripts/run_resume_tailor.py`).
 
 ## Resume Tailor Workflow (On-Demand)
@@ -109,7 +110,8 @@ sequenceDiagram
     participant Worker as process_qualified_jobs.py --loop
     participant DB as SQLite tailor_runs
     participant Pi as pi-mono coding agent
-    participant YAML as resume_content.yaml
+    participant Baseline as config/resume_content.yaml
+    participant YAML as resume_content_work.yaml
     participant Build as renderer/compiler
     participant Alert as ntfy.sh
 
@@ -118,17 +120,16 @@ sequenceDiagram
         alt no eligible job
             Worker->>Worker: sleep(poll_interval)
         else claimed
-            Worker->>YAML: read baseline snapshot
+            Worker->>Baseline: copy to per-run work YAML
             Worker->>Pi: run_resume_tailor_pipeline
             Pi->>YAML: targeted edits
             Worker->>Build: render .tex + compile PDF
             alt success (1 page)
-                Worker->>DB: record_tailor_success (artifact paths, page count)
+                Worker->>DB: record_tailor_success (yaml/tex/pdf paths, page count)
             else failure
                 Worker->>DB: record_tailor_failure (error, next_retry_at)
                 Worker->>Alert: send failure notification
             end
-            Worker->>YAML: restore baseline snapshot
         end
     end
 ```
@@ -136,6 +137,38 @@ sequenceDiagram
 - Worker: `scripts/process_qualified_jobs.py --loop` via `job-tailor-worker.service`.
 - Queue boundary: `job_postings` rows in status `QUALIFIED` without a SUCCESS tailor_run.
 - State: `tailor_runs` table tracks per-attempt PENDING/SUCCESS/FAILED with claim lease.
+
+## Autonomous Review Worker
+```mermaid
+sequenceDiagram
+    participant Worker as process_reviewed_resumes.py --loop
+    participant DB as SQLite review_runs
+    participant Pi as pi-mono coding agent
+    participant Tools as resume_review_tools.py
+    participant Base as resume_base.{tex,pdf}
+    participant Alert as ntfy.sh
+
+    loop every poll interval
+        Worker->>DB: claim_next_review_job (BEGIN IMMEDIATE)
+        alt no eligible run
+            Worker->>Worker: sleep(poll_interval)
+        else claimed
+            Worker->>Base: ensure base reference artifacts exist
+            Worker->>Pi: run_resume_review_pipeline
+            Pi->>Tools: analyze geometry/log/text + optional edits + write-review-report
+            alt runtime hard failure
+                Worker->>DB: record_review_failure (error + stdout/stderr + base fallback refs)
+                Worker->>Alert: send terminal failure notification when retries exhausted
+            else runtime success
+                Worker->>DB: record_review_success (verdict + selected refs + report json)
+            end
+        end
+    end
+```
+
+- Worker: `scripts/process_reviewed_resumes.py --loop` via `job-review-worker.service`.
+- Queue boundary: successful `tailor_runs` rows without a successful `review_runs` row.
+- State: `review_runs` tracks PENDING/SUCCESS/FAILED, verdicts, report payloads, retry scheduling, and base fallback references.
 
 ## Deployment Flow
 - Install deps and configure `.env`.
@@ -145,8 +178,10 @@ sequenceDiagram
   - `job-discovery.timer`
   - `job-agent-worker.service`
   - `job-tailor-worker.service`
+  - `job-review-worker.service`
   - optional `job-agent-alert@.service`
 - Enable all autonomous units:
   - `job-discovery.timer`
   - `job-agent-worker.service`
   - `job-tailor-worker.service`
+  - `job-review-worker.service`

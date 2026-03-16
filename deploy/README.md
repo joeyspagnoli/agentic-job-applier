@@ -4,7 +4,9 @@
 
 - `job-discovery.timer` triggers `job-discovery.service` every 30 minutes.
 - `job-agent-worker.service` runs continuously and drains NEW backlog from SQLite.
-- Handoff between discovery and gate worker is the `job_postings` table queue.
+- `job-tailor-worker.service` runs continuously and drains QUALIFIED backlog.
+- `job-review-worker.service` runs continuously and drains successful tailor runs.
+- Handoff queues are SQLite-backed (`job_postings`, `tailor_runs`, `review_runs`).
 
 ## Prerequisites
 
@@ -58,6 +60,8 @@ uv run python -m scripts.run_pipeline_once --limit 25
 Edit placeholders in:
 - `deploy/job-discovery.service`
 - `deploy/job-agent-worker.service`
+- `deploy/job-tailor-worker.service`
+- `deploy/job-review-worker.service`
 - `deploy/job-agent-alert@.service` (optional OnFailure alert hook)
 
 Replace:
@@ -70,12 +74,16 @@ Replace:
 sudo cp deploy/job-discovery.service /etc/systemd/system/
 sudo cp deploy/job-discovery.timer /etc/systemd/system/
 sudo cp deploy/job-agent-worker.service /etc/systemd/system/
+sudo cp deploy/job-tailor-worker.service /etc/systemd/system/
+sudo cp deploy/job-review-worker.service /etc/systemd/system/
 sudo cp deploy/job-agent-alert@.service /etc/systemd/system/
 
 sudo systemctl daemon-reload
 
 sudo systemctl enable --now job-discovery.timer
 sudo systemctl enable --now job-agent-worker.service
+sudo systemctl enable --now job-tailor-worker.service
+sudo systemctl enable --now job-review-worker.service
 ```
 
 ## 7. Verify
@@ -83,9 +91,13 @@ sudo systemctl enable --now job-agent-worker.service
 ```bash
 systemctl status job-discovery.timer
 systemctl status job-agent-worker.service
+systemctl status job-tailor-worker.service
+systemctl status job-review-worker.service
 
 journalctl -u job-discovery.service -f
 journalctl -u job-agent-worker.service -f
+journalctl -u job-tailor-worker.service -f
+journalctl -u job-review-worker.service -f
 ```
 
 ## Operational Playbook

@@ -1,0 +1,37 @@
+[Unit]
+Description=Job Resume Review Worker Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/agentic-job-applier
+Environment="PATH=/path/to/agentic-job-applier/.venv/bin"
+EnvironmentFile=/path/to/agentic-job-applier/.env
+ExecStart=/path/to/agentic-job-applier/.venv/bin/python -m scripts.process_reviewed_resumes --loop
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Baseline hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/path/to/agentic-job-applier/data /path/to/agentic-job-applier/data/tailored_resumes /path/to/agentic-job-applier/logs
+
+# Keep the worker alive and draining review backlog continuously.
+Restart=always
+RestartSec=30
+MemoryMax=4G
+CPUQuota=200%
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

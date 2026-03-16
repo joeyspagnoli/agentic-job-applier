@@ -23,10 +23,11 @@ Use this file as the primary context for assistants. It links to detailed specs 
 
 ## Quick Answers
 - **Where is the main pipeline?** Discovery producer is `main.py`; gate consumer is `scripts/process_new_jobs.py`; queue boundary is SQLite `job_postings` NEW rows [architecture.md](architecture.md).
-- **How are jobs stored?** SQLite schema (job_postings/crawl_history/daily_stats) in `schema.sql`; JobPosting maps via `to_db_dict()` [data_models.md](data_models.md).
-- **How to run it autonomously?** Enable `job-discovery.timer`, `job-agent-worker.service`, and `job-tailor-worker.service`; see deployment workflow docs [workflows.md](workflows.md).
+- **How are jobs stored?** SQLite schema includes `job_postings`, `crawl_history`, `daily_stats`, `tailor_runs`, and `review_runs`; JobPosting maps via `to_db_dict()` [data_models.md](data_models.md).
+- **How to run it autonomously?** Enable `job-discovery.timer`, `job-agent-worker.service`, `job-tailor-worker.service`, and `job-review-worker.service`; see deployment workflow docs [workflows.md](workflows.md).
 - **How to decide apply/skip?** Configure `OPENAI_API_KEY` and run `scripts/process_new_jobs.py`; retries and terminal alerts are env-configurable.
 - **How to run resume tailoring?** Use `scripts/migrate_resume_tex_to_yaml.py` to bootstrap YAML, then either `scripts/run_resume_tailor.py` for one-shot or `scripts/process_qualified_jobs.py --loop` for autonomous daemon. Requires pi-mono and latexmk.
+- **How to run resume review?** Use `scripts/process_reviewed_resumes.py --once` for one-shot or `--loop` for autonomous review queue processing. Requires pi-mono, latexmk, and poppler CLIs (`pdfinfo`, `pdftotext`, `pdftoppm`).
 - **What configs matter?** `companies.yaml`, `search_criteria.yaml`, `candidate_profile.yaml`, and `.env` runtime/retry/alert vars [dependencies.md](dependencies.md).
 
 ## Source of Truth

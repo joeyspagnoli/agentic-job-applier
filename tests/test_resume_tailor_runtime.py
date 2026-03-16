@@ -361,3 +361,27 @@ def test_maybe_checkout_tailor_branch_creates_branch_in_clean_repo(
     assert branch_name is not None
     assert branch_name.startswith("resume-tailor/abc123hash/")
     assert current_branch == branch_name
+
+
+def test_workspace_defaults_to_repo_root(tmp_path: Path) -> None:
+    """Verify default tailor-agent workspace resolves to repository root.
+
+    Purpose:
+        Ensure prompt examples that run `python -m scripts.*` commands execute
+        from a module-resolvable working directory by default.
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+    Output:
+        Returns `None`; test passes when workspace path equals repo root.
+    """
+
+    invocation = _build_invocation(tmp_path)
+    repo_root = tmp_path / "repo_root"
+    repo_root.mkdir(parents=True, exist_ok=True)
+
+    workspace_path = runtime_module._resolve_pi_workspace_dir(
+        invocation=invocation,
+        repo_root=repo_root,
+    )
+
+    assert workspace_path == repo_root.resolve()

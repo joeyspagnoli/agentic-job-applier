@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS tailor_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING, SUCCESS, FAILED
+    artifact_yaml_path TEXT,
     artifact_tex_path TEXT,
     artifact_pdf_path TEXT,
     page_count INTEGER,
@@ -114,3 +115,34 @@ CREATE INDEX IF NOT EXISTS idx_tailor_runs_job_hash ON tailor_runs(job_hash);
 CREATE INDEX IF NOT EXISTS idx_tailor_runs_status ON tailor_runs(status);
 CREATE INDEX IF NOT EXISTS idx_tailor_runs_started_at ON tailor_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_tailor_runs_job_status ON tailor_runs(job_hash, status);
+
+-- Resume review run tracking
+CREATE TABLE IF NOT EXISTS review_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_hash TEXT NOT NULL,
+    tailor_run_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING, SUCCESS, FAILED
+    verdict TEXT,  -- PASS, TAILORED, BASE, FAIL
+    selected_yaml_path TEXT,
+    selected_tex_path TEXT,
+    selected_pdf_path TEXT,
+    review_report_json TEXT,
+    agent_stdout TEXT,
+    agent_stderr TEXT,
+    error TEXT,
+    next_retry_at TIMESTAMP,
+    fallback_base_yaml_path TEXT,
+    fallback_base_tex_path TEXT,
+    fallback_base_pdf_path TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    claim_token TEXT,
+    CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+    CHECK (verdict IS NULL OR verdict IN ('PASS', 'TAILORED', 'BASE', 'FAIL'))
+);
+CREATE INDEX IF NOT EXISTS idx_review_runs_job_hash ON review_runs(job_hash);
+CREATE INDEX IF NOT EXISTS idx_review_runs_status ON review_runs(status);
+CREATE INDEX IF NOT EXISTS idx_review_runs_started_at ON review_runs(started_at);
+CREATE INDEX IF NOT EXISTS idx_review_runs_tailor_run_id ON review_runs(tailor_run_id);
+CREATE INDEX IF NOT EXISTS idx_review_runs_tailor_status
+    ON review_runs(tailor_run_id, status);

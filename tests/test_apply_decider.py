@@ -196,28 +196,24 @@ def test_parse_gate_response_recovers_json_and_optional_debug_fields():
     assert result.parse_mode == "json_recovered"
 
 
-def test_parse_gate_response_recovers_text_only_decision():
-    """Verify the parser can recover APPLY or SKIP from plain text responses.
+def test_parse_gate_response_rejects_text_only_decision() -> None:
+    """Verify parser rejects plain-text responses without structured JSON.
 
     Purpose:
-        Keep the workflow resilient when the model returns prose instead of the
-        expected JSON object while still making the binary gate decision usable.
+        Enforce strict model-authored verdict extraction by requiring valid JSON
+        decision payloads from the gate model output.
     Args:
         None.
     Output:
-        Returns `None`; the test passes when the decision is recovered from
-        plain text and the parse mode reflects that fallback path.
+        Returns `None`; test passes when text-only output raises ValueError.
     """
 
-    result = parse_gate_response(
-        "Decision: SKIP because this is a full-time retail SWE role.",
-        provider="openai",
-        model="openai/gpt-5-mini",
-    )
-
-    assert result.decision == ApplyDecision.SKIP
-    assert result.parse_mode == "text_recovered"
-    assert result.debug.explanation is None
+    with pytest.raises(ValueError):
+        parse_gate_response(
+            "Decision: SKIP because this is a full-time retail SWE role.",
+            provider="openai",
+            model="openai/gpt-5-mini",
+        )
 
 
 @pytest.mark.asyncio

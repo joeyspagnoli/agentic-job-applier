@@ -274,8 +274,7 @@ async def _notify_preflight_failure(error: str) -> None:
     await send_ntfy_notification(
         title="Resume tailor worker preflight failure",
         message=(
-            "Tailor worker could not start due to preflight failure.\n"
-            f"error={error}"
+            f"Tailor worker could not start due to preflight failure.\nerror={error}"
         ),
         tags=("warning", "gear"),
         priority="high",
@@ -466,6 +465,7 @@ async def _tailor_once(
     if result.success:
         await db.record_tailor_success(
             run_id=run_id,
+            artifact_yaml_path=str(work_yaml_path),
             artifact_tex_path=str(tex_path),
             artifact_pdf_path=str(pdf_path),
             page_count=result.final_page_count,
@@ -617,7 +617,11 @@ async def main() -> None:
         DEFAULT_TAILOR_CLAIM_LEASE_SECONDS,
     )
 
-    pi_model: str | None = args.model or os.environ.get("RESUME_TAILOR_MODEL") or "openai/gpt-5.1-codex-mini"
+    pi_model: str | None = (
+        args.model
+        or os.environ.get("RESUME_TAILOR_MODEL")
+        or "openai/gpt-5.1-codex-mini"
+    )
 
     # Preflight checks before entering the processing loop.
     try:
@@ -640,9 +644,7 @@ async def main() -> None:
 
     if not resume_yaml_path.exists():
         logger.error("Resume YAML not found: {}", resume_yaml_path)
-        await _notify_preflight_failure(
-            f"Resume YAML not found: {resume_yaml_path}"
-        )
+        await _notify_preflight_failure(f"Resume YAML not found: {resume_yaml_path}")
         return
 
     # Resolve database path.

@@ -166,6 +166,7 @@ async def test_record_success_excludes_from_future_claims(
 
     await db.record_tailor_success(
         run_id=claimed["_tailor_run_id"],
+        artifact_yaml_path="/tmp/out.yaml",
         artifact_tex_path="/tmp/out.tex",
         artifact_pdf_path="/tmp/out.pdf",
         page_count=1,

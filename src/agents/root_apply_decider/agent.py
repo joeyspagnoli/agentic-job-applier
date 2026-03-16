@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 from typing import Mapping
 
@@ -109,8 +108,8 @@ def parse_gate_response(
     """Parse raw model text into a durable gate run payload.
 
     Purpose:
-        Prioritize successful APPLY/SKIP recovery while treating optional
-        metadata as best-effort enrichment rather than strict requirements.
+        Parse a structured JSON decision payload and reject malformed text-only
+        responses so final verdicts remain model-authored and schema-backed.
     Args:
         raw_response: Full raw text returned by the model.
         provider: Provider label to persist with the result metadata.
@@ -121,33 +120,25 @@ def parse_gate_response(
     """
 
     parsed_json = _extract_first_json_object(raw_response)
-    if parsed_json is not None:
-        decision = _extract_decision(parsed_json.get("decision"))
-        if decision is not None:
-            return GateRunResult(
-                decision=decision,
-                debug=_extract_debug_info(parsed_json),
-                raw_response=raw_response,
-                provider=provider,
-                model=model,
-                parse_mode="json_recovered",
-            )
+    if parsed_json is None:
+        raise ValueError(
+            "Could not recover a JSON object containing `decision` from model response"
+        )
 
-    # Keep a text fallback so one malformed JSON response does not force the
-    # entire job run into a failure state.
-    decision_match = re.search(r"\b(APPLY|SKIP)\b", raw_response.upper())
-    if decision_match:
-        recovered_decision = _extract_decision(decision_match.group(1))
-        if recovered_decision is not None:
-            return GateRunResult(
-                decision=recovered_decision,
-                raw_response=raw_response,
-                provider=provider,
-                model=model,
-                parse_mode="text_recovered",
-            )
+    decision = _extract_decision(parsed_json.get("decision"))
+    if decision is None:
+        raise ValueError(
+            "Recovered JSON response did not contain valid decision APPLY or SKIP"
+        )
 
-    raise ValueError("Could not recover APPLY or SKIP from model response")
+    return GateRunResult(
+        decision=decision,
+        debug=_extract_debug_info(parsed_json),
+        raw_response=raw_response,
+        provider=provider,
+        model=model,
+        parse_mode="json_recovered",
+    )
 
 
 def get_decider_provider() -> str:
@@ -174,7 +165,7 @@ def get_decider_model_name() -> str:
     Args:
         None.
     Output:
-        Returns the fully qualified model string `openai/gpt-5-mini`.
+        Returns the fully qualified model string `openai/gpt-5.1-codex-mini`.
     """
 
     return DECIDER_MODEL

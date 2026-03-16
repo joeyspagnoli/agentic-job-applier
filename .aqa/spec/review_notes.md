@@ -12,12 +12,11 @@
 - **LaTeX toolchain dependency**: resume tailoring requires local `latexmk`; page checks prefer `pdfinfo` and fall back to log parsing.
 - **Branch mode assumptions**: `--create-git-branch` requires running inside a git worktree and may fail if branch naming/policy conflicts exist.
 
-## Tailor Worker Risks (New)
-- **YAML baseline race**: concurrent tailor workers share `config/resume_content.yaml` without file locking; current design assumes single-worker operation.
-- **Path traversal**: `job_hash` is used to construct output paths without format validation (see bug report C-001).
-- **Error recovery fragility**: exception handler calls `get_tailor_runs_for_job` without secondary error handling; DB failures in error path mask original errors.
-- **Missing compound index**: `tailor_runs(job_hash, status)` compound index would improve claim query performance.
-- **Config dir writable**: systemd `ReadWritePaths` includes config directory; should be restricted to data/logs only.
+## Tailor/Review Worker Risks
+- **Path traversal guard scope**: workers now validate `job_hash` format before filesystem writes, but future pipeline stages should preserve the same guardrails.
+- **External tool dependencies**: tailor/review workers require `pi`, `latexmk`, and review additionally requires poppler tools; service health depends on those binaries staying available.
+- **Review runtime hard-failure fallback**: hard runtime failures persist base fallback refs; downstream stages must consume those refs consistently to avoid blocked pipelines.
+- **Config dir writable**: systemd units should keep `ReadWritePaths` scoped to `data/` and `logs/` only.
 
 ## Completeness Follow-ups
 - Add explicit operator tooling for requeueing terminal failures (currently SQL/manual API usage; `reset_tailor_failure_state` exists but has no CLI wrapper).
@@ -25,8 +24,8 @@
 - Consider richer alert payloads (company/title/url) with rate limiting.
 - Expand salary normalization and logging for unmatched intervals to aid debugging.
 - Add an explicit wrapper or skill for non-interactive `pi-coding-agent` invocation so operators do not handcraft command strings.
-- Add concurrent tailor claim tests under actual asyncio task contention.
-- Update `deploy/README.md` to document `job-tailor-worker.service`.
+- Add concurrent review claim tests under actual asyncio task contention.
+- Add operator CLI commands for requeueing failed review runs.
 
 ## Data / Config Checks
 - Verify `config/companies.yaml` entries are current and trimmed to desired targets for rate limits.
