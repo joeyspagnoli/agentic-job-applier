@@ -452,7 +452,7 @@ class TailorInvocationContract(BaseModel):
     page_limit: int = 1
     content_readjust_attempts: int = 2
     layout_bounds_profile: Literal["balanced"] = "balanced"
-    pi_model: str | None = None
+    pi_model: str | None = "openai/gpt-5.1-codex-mini"
     pi_coding_agent_command_argv: list[str] | None = None
     pi_coding_agent_command: str | None = None
     pi_coding_agent_workspace_dir: str | None = None

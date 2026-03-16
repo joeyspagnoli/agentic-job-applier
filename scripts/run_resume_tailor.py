@@ -248,7 +248,7 @@ def main() -> int:
             if variable_name.strip() != ""
         ]
 
-    model: str | None = args.model or os.environ.get("RESUME_TAILOR_MODEL") or None
+    model: str | None = args.model or os.environ.get("RESUME_TAILOR_MODEL") or "openai/gpt-5.1-codex-mini"
 
     invocation_payload: dict[str, object] = {
         "job_ref": {"job_hash": args.job_hash, "job_id": args.job_id},

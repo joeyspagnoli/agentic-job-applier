@@ -10,7 +10,7 @@ import os
 from typing import Any
 
 
-def build_openai_litellm_model(*, model_name: str, temperature: float) -> Any:
+def build_openai_litellm_model(*, model_name: str) -> Any:
     """Build an OpenAI-backed LiteLLM model for ADK agents.
 
     Purpose:
@@ -18,7 +18,6 @@ def build_openai_litellm_model(*, model_name: str, temperature: float) -> Any:
         place so each agent package does not duplicate this wiring.
     Args:
         model_name: Fully qualified LiteLLM model string such as `openai/gpt-5-mini`.
-        temperature: Sampling temperature to pass into LiteLLM.
     Output:
         Returns a configured LiteLLM model instance compatible with ADK.
     """
@@ -36,4 +35,4 @@ def build_openai_litellm_model(*, model_name: str, temperature: float) -> Any:
             "`google-adk[extensions]` before running agent workflows."
         ) from exc
 
-    return LiteLlm(model=model_name, temperature=temperature)
+    return LiteLlm(model=model_name)

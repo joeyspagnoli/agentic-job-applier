@@ -17,8 +17,7 @@ from .schemas import GateDebugInfo
 from .schemas import GateRunResult
 
 DECIDER_PROVIDER = "openai"
-DECIDER_MODEL = "openai/gpt-5-mini"
-DECIDER_TEMPERATURE = 0.1
+DECIDER_MODEL = "openai/gpt-5.1-codex-mini"
 
 
 def _extract_decision(value: Any) -> ApplyDecision | None:
@@ -195,7 +194,6 @@ def get_decider_model() -> Any:
 
     return build_openai_litellm_model(
         model_name=get_decider_model_name(),
-        temperature=DECIDER_TEMPERATURE,
     )
 
 

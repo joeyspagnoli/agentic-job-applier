@@ -617,7 +617,7 @@ async def main() -> None:
         DEFAULT_TAILOR_CLAIM_LEASE_SECONDS,
     )
 
-    pi_model: str | None = args.model or os.environ.get("RESUME_TAILOR_MODEL") or None
+    pi_model: str | None = args.model or os.environ.get("RESUME_TAILOR_MODEL") or "openai/gpt-5.1-codex-mini"
 
     # Preflight checks before entering the processing loop.
     try:

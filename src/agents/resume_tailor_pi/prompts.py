@@ -155,21 +155,26 @@ Run context:
 - Content readjust attempts allowed: {invocation.content_readjust_attempts}
 
 Required command sequence:
-1. Query job context from DB:
-   {job_context_command}
-2. Create a rollback snapshot before edits:
+0. Fit analysis (before touching anything):
+   a. Run: {job_context_command}
+   b. Run: {load_yaml_command}
+   c. Score the fit 1-10: how well does the current resume match the role?
+      Consider: skill overlap, role type alignment, seniority match.
+   d. Decide: is tailoring worth doing?
+      - Score >= 8 → SKIP tailoring. Jump straight to step 6 (render the
+        unmodified YAML) and report "TAILORING_SKIPPED: <one-line reason>".
+      - Score < 8 → proceed with steps 1-8 below.
+1. Create a rollback snapshot before edits:
    {backup_yaml_command}
-3. Load current YAML:
-   {load_yaml_command}
-4. Edit YAML under lock constraints. If save tool is flaky, edit the YAML file
+2. Edit YAML under lock constraints. If save tool is flaky, edit the YAML file
    directly on disk and continue.
-5. Save YAML:
+3. Save YAML:
    {save_yaml_command}
-6. Render TeX:
+4. Render TeX:
    {render_command}
-7. Compile PDF:
+5. Compile PDF:
    {compile_command}
-8. Check page count:
+6. Check page count:
    {page_count_command}
 
 Recovery command:
@@ -197,7 +202,7 @@ Phase guidance:
 {phase_guidance}
 
 Output requirements:
-- Return a short summary of edits made.
-- Include exact IDs changed (listing IDs and bullet IDs).
-- Report resulting page count.
+- Return a short summary of edits made (or "TAILORING_SKIPPED: <reason>" if skipped).
+- Include exact IDs changed (listing IDs and bullet IDs), if any.
+- Report the fit score from step 0 and the resulting page count.
 """.strip()

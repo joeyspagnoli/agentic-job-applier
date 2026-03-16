@@ -1,6 +1,16 @@
 # Search criteria and filtering rules for job discovery
 # Note: Filtering is primarily for Phase 2, but criteria is defined here
 
+# Title must match at least one of these patterns to be stored (case-insensitive regex).
+# Remove or leave empty to disable pre-storage title filtering.
+include_title_patterns:
+  - "intern"        # intern, internship, internships
+  - "co-op"         # co-op, co-ops
+  - "coop"          # coop
+  - "new.?grad"     # new grad, new-grad, new graduate
+  - "early.?career" # early career, early-career
+  - "student"       # student researcher, student developer
+
 # Job titles to search for
 target_titles:
   - "Software Engineering Intern"

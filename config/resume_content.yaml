@@ -57,11 +57,12 @@ experience:
     organization: GE Appliances $|$ Louisville, KY
     bullets:
     - id: ai_solutions_engineer_intern_bullet_0
-      text: Building an \textbf{agentic test suite generator} using \textbf{Google ADK, CrewAI, and Playwright MCP} to auto-generate
-        end-to-end tests from codebases.
+      text: Partnered with product, QA, and backend engineers to ship an agentic test suite generator using Google ADK, CrewAI,
+        and Playwright MCP, orchestrating structured data collection pipelines and validation checkpoints to feed distributed
+        services and improve release confidence.
     - id: ai_solutions_engineer_intern_bullet_1
-      text: Developed a \textbf{Python library documentation agent} that aggregates official docs and forum discussions, reducing
-        research time by \textbf{80\%}.
+      text: Built a Python documentation agent that aggregates official docs and forum conversations, cutting research time
+        by \textbf{80\%} and supplying teammates with structured, review-ready knowledge for fast iterations.
   - id: exp_ai_scholars_researcher
     enabled: true
     title: AI Scholars Researcher
@@ -69,13 +70,13 @@ experience:
     organization: M.E. Rinker, Sr. School of Construction Management $|$ University of Florida
     bullets:
     - id: ai_scholars_researcher_bullet_0
-      text: Researching an early-warning ML task to \textbf{reduce occupational noise risk} by predicting whether a construction
-        worker will exceed \textbf{NIOSH recommended} daily noise exposure limits using only the first half of a shift.
+      text: Curated and merged multimodal safety datasets (noise exposure, worker schedules, environmental sensors) to label
+        cohorts likely to exceed NIOSH daily limits, enabling proactive early-warning analytics and model validation.
     - id: ai_scholars_researcher_bullet_1
-      text: Engineering \textbf{time-series} and \textbf{frequency-based features} and comparing candidate models using appropriate
-        evaluation metrics to determine the best approach for practical safety alerts.
+      text: Engineered time-series and frequency-domain features, enforced SQL/Python quality checks, and compared models
+        using precision/recall tuned to practical alert thresholds.
   - id: exp_system_administrator_intern
-    enabled: true
+    enabled: false
     title: System Administrator Intern
     date_range: May 2025 -- Present
     organization: IFAS $|$ University of Florida
@@ -93,13 +94,12 @@ experience:
     organization: Amentum $|$ NASA Johnson Space Center (JSC)
     bullets:
     - id: ai_engineer_intern_bullet_0
-      text: Reduced manual anomaly detection time by \textbf{12 hours} by assisting in the development of an \textbf{autoencoder}
-        using \textbf{PyTorch} to detect anomalies for ISS ARED machine sensor faults, processing over \textbf{11,000} data
-        points per exercise set in \textbf{large-scale time-series data}.
+      text: Reduced manual anomaly detection time by 12 hours by assisting in the development of an autoencoder using PyTorch
+        to detect anomalies for ISS ARED machine sensor faults, processing over 11,000 data points per exercise set in large-scale
+        time-series data.
     - id: ai_engineer_intern_bullet_1
-      text: Engineering a comprehensive dashboard using \textbf{Dash, Plotly, and SciPy}, implemented a \textbf{CI/CD pipeline}
-        with \textbf{PyTest} and GitLab runners to ensure code quality and deployed an \textbf{end-to-end data pipeline} with
-        \textbf{Dagster}.
+      text: Engineered a comprehensive dashboard using Dash, Plotly, and SciPy, implemented a CI/CD pipeline with PyTest and
+        GitLab runners to ensure code quality, and deployed an end-to-end data pipeline with Dagster.
   - id: exp_undergraduate_research_assistant
     enabled: true
     title: Undergraduate Research Assistant
@@ -119,11 +119,11 @@ experience:
     organization: GE Appliances $|$ Louisville, KY
     bullets:
     - id: ai_solutions_engineer_intern_bullet_0
-      text: Building an \textbf{agentic test suite generator} using \textbf{Google ADK, CrewAI, and Playwright MCP} to auto-generate
-        end-to-end tests from codebases.
+      text: Collaborated with product, QA, and backend engineers to ship an agentic test suite generator using Google ADK,
+        CrewAI, and Playwright MCP, enabling rapid creation of production-ready end-to-end tests across distributed services.
     - id: ai_solutions_engineer_intern_bullet_1
-      text: Developed a \textbf{Python library documentation agent} that aggregates official docs and forum discussions, reducing
-        research time by \textbf{80\%}.
+      text: "Built a Python documentation agent that aggregates official docs and forum conversations, cutting research time\
+        \ by \textbf{80\\%} and giving teammates structured, review-ready knowledge for fast iterations."
 projects:
   section_id: projects
   heading: Projects
@@ -163,9 +163,9 @@ projects:
     date_range: Jul. 2024 -- Aug. 2024
     bullets:
     - id: data_driven_resource_optimization_bullet_0
-      text: "Developed a \\textbf{gradient descent} algorithm to minimize \\textbf{Mean Squared Error (MSE)} for predicting\
-        \ event resource needs, achieving an \\textbf{R\xB2 score of 0.958} with \\textbf{Scikit-learn} and reducing costs\
-        \ by \\textbf{20\\%} with an \\textbf{85\\%} decrease in waste."
+      text: "Developed a \textbf{gradient descent} algorithm to minimize \textbf{Mean Squared Error (MSE)} for predicting\
+        \ event resource needs, achieving an \textbf{R\xB2 score of 0.958} with \textbf{Scikit-learn} while modeling cost-per-resource\
+        \ and reducing costs by \textbf{20\\%} with an \textbf{85\\%} decrease in waste."
   - id: proj_experiencecurator_ai_pool
     enabled: false
     title: ExperienceCurator AI

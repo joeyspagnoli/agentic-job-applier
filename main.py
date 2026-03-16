@@ -6,6 +6,7 @@ stores new postings, and records crawl-level metrics for later inspection.
 
 import asyncio
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -198,10 +199,19 @@ def resolve_job_board_default_search_terms(
     return unique_terms
 
 
+def _filter_by_title_patterns(jobs: list, include_patterns: list[str]) -> list:
+    """Keep only jobs whose title matches at least one include pattern."""
+    if not include_patterns:
+        return jobs
+    compiled = [re.compile(p, re.IGNORECASE) for p in include_patterns]
+    return [j for j in jobs if any(rx.search(j.title) for rx in compiled)]
+
+
 async def fetch_greenhouse_jobs(
     companies: dict,
     db: DatabaseManager,
     deduplicator: Deduplicator,
+    title_include_patterns: list[str] | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs for every configured Greenhouse company.
 
@@ -237,6 +247,8 @@ async def fetch_greenhouse_jobs(
 
             async with GreenhouseFetcher(company_name, greenhouse_id) as fetcher:
                 jobs = await fetcher.fetch_jobs()
+                if title_include_patterns:
+                    jobs = _filter_by_title_patterns(jobs, title_include_patterns)
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
@@ -284,6 +296,7 @@ async def fetch_workday_jobs(
     companies: dict,
     db: DatabaseManager,
     deduplicator: Deduplicator,
+    title_include_patterns: list[str] | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs for every configured Workday company via Apify.
 
@@ -325,6 +338,8 @@ async def fetch_workday_jobs(
 
             async with ApifyWorkdayFetcher(company_name, workday_url) as fetcher:
                 jobs = await fetcher.fetch_jobs()
+                if title_include_patterns:
+                    jobs = _filter_by_title_patterns(jobs, title_include_patterns)
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
@@ -374,6 +389,7 @@ async def fetch_jobspy_jobs(
     db: DatabaseManager,
     deduplicator: Deduplicator,
     default_search_terms: list[str] | None = None,
+    title_include_patterns: list[str] | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs from enabled job boards through JobSpy.
 
@@ -450,6 +466,8 @@ async def fetch_jobspy_jobs(
                         results_wanted=results_wanted,
                     )
                     jobs = await fetcher.fetch_jobs()
+                    if title_include_patterns:
+                        jobs = _filter_by_title_patterns(jobs, title_include_patterns)
                     crawl_jobs_found = len(jobs)
                     new_jobs = await deduplicator.filter_new_jobs(jobs)
 
@@ -534,6 +552,11 @@ async def run_job_discovery() -> None:
         search_criteria_config=search_criteria_config,
         candidate_profile_config=candidate_profile_config,
     )
+    title_include_patterns = _normalize_string_list(
+        search_criteria_config.get("include_title_patterns"),
+        field_name="include_title_patterns",
+        source_name="search_criteria",
+    )
 
     # The database layer owns schema creation and lightweight migrations so each
     # run can safely bootstrap a fresh local environment.
@@ -559,7 +582,8 @@ async def run_job_discovery() -> None:
                 f"Fetching from {len(greenhouse_companies)} Greenhouse companies..."
             )
             d, n, s, f = await fetch_greenhouse_jobs(
-                greenhouse_companies, db, deduplicator
+                greenhouse_companies, db, deduplicator,
+                title_include_patterns=title_include_patterns,
             )
             total_discovered += d
             total_new += n
@@ -572,7 +596,10 @@ async def run_job_discovery() -> None:
         workday_companies = companies_config.get("workday_companies", {})
         if workday_companies:
             logger.info(f"Fetching from {len(workday_companies)} Workday companies...")
-            d, n, s, f = await fetch_workday_jobs(workday_companies, db, deduplicator)
+            d, n, s, f = await fetch_workday_jobs(
+                workday_companies, db, deduplicator,
+                title_include_patterns=title_include_patterns,
+            )
             total_discovered += d
             total_new += n
             total_duplicate += d - n
@@ -590,6 +617,7 @@ async def run_job_discovery() -> None:
                 db,
                 deduplicator,
                 default_search_terms=default_search_terms,
+                title_include_patterns=title_include_patterns,
             )
             total_discovered += d
             total_new += n
