@@ -11,3 +11,9 @@
 - [x] Review notes (.aqa/spec/review_notes.md)
 - [x] Knowledge base index (.aqa/spec/index.md)
 - [x] Metadata updated (.aqa/spec/metadata.json)
+
+## Last Sync: 2026-03-24
+- Full sync from source code analysis (5 parallel agents + manual src/agents/ review)
+- Major additions: shared model helper, claim-based queue processing, title filtering, status script, FetchError, paths utility, fit-score analysis, backup/restore tools
+- Model updated to openai/gpt-5.1-codex-mini across all agents
+- All line counts and references updated to match current source

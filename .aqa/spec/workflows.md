@@ -11,9 +11,9 @@ sequenceDiagram
     participant Alert as ntfy.sh
 
     Timer->>Discovery: run every 30 minutes
-    Discovery->>DB: insert NEW jobs
+    Discovery->>DB: insert NEW jobs (after title filtering + dedup)
     loop every poll interval
-        Worker->>DB: get NEW + retry-ready jobs
+        Worker->>DB: claim NEW + retry-ready jobs (BEGIN IMMEDIATE + claim token)
         Worker->>Gate: run decision per job
         alt success
             Worker->>DB: record_agent_decision (QUALIFIED/FILTERED)
@@ -28,7 +28,7 @@ sequenceDiagram
 
 - Producer: `main.py` via `job-discovery.timer`.
 - Consumer: `scripts/process_new_jobs.py --loop` via `job-agent-worker.service`.
-- Queue boundary: `job_postings` rows in status `NEW`.
+- Queue boundary: `job_postings` rows in status `NEW`, claimed via atomic tokens.
 
 ## Job Discovery Cycle
 ```mermaid
@@ -36,6 +36,7 @@ sequenceDiagram
     participant Timer as systemd timer
     participant Main as main.py
     participant Fetchers as Greenhouse/Apify/JobSpy
+    participant Filter as Title filter
     participant Dedup as Deduplicator
     participant DB as DatabaseManager
 
@@ -43,6 +44,8 @@ sequenceDiagram
     Main->>DB: create_tables(), migrate_agent_schema()
     Main->>Fetchers: fetch jobs per source
     Fetchers-->>Main: JobPosting list
+    Main->>Filter: _filter_by_title_patterns(jobs)
+    Filter-->>Main: filtered_jobs
     Main->>Dedup: filter_new_jobs(jobs)
     Dedup-->>Main: new_jobs
     Main->>DB: insert_job(new_jobs)
@@ -50,7 +53,7 @@ sequenceDiagram
     Main->>Main: log summaries
 ```
 - Trigger: systemd timer every 30 minutes.
-- Steps: load configs (`companies`, optional `search_criteria` + `candidate_profile`), fetch per source, dedup, insert NEW rows, update crawl and daily stats.
+- Steps: load configs (`companies`, optional `search_criteria` + `candidate_profile`), resolve board search terms, fetch per source, apply title include-pattern filtering, dedup (in-batch + DB lookup), insert NEW rows, update crawl and daily stats.
 
 ## One-shot Pipeline Workflow
 - Command: `python -m scripts.run_pipeline_once [--limit N]`.
@@ -60,14 +63,15 @@ sequenceDiagram
 - Intended for local ops/debug and deterministic integration tests.
 
 ## Utility CLIs
-- **Query jobs**: filter by company/title/location/remote/new, display results [scripts/query_jobs.py:21-105](scripts/query_jobs.py:21-105).
-- **Find/verify Greenhouse ID**: try common patterns or verify an ID [scripts/find_greenhouse_id.py:19-105](scripts/find_greenhouse_id.py:19-105).
-- **Smoke-test fetchers**: async checks for Greenhouse (Stripe) and JobSpy (Indeed) [scripts/test_fetchers.py:18-78](scripts/test_fetchers.py:18-78).
-- **Single-job decider**: run agent against one job hash, optionally persist [scripts/decide_job.py:32-79](scripts/decide_job.py:32-79).
+- **Query jobs**: filter by company/title/location/remote/new, display results.
+- **Find/verify Greenhouse ID**: try common patterns or verify an ID.
+- **Smoke-test fetchers**: async checks for Greenhouse (Stripe) and JobSpy (Indeed).
+- **Single-job decider**: run agent against one job hash, optionally persist.
 - **Resume migration**: convert LaTeX source to canonical YAML (`scripts/migrate_resume_tex_to_yaml.py`).
-- **Resume tailor tools**: DB/YAML/render/compile/page-count commands (`scripts/resume_tailor_tools.py`).
+- **Resume tailor tools**: DB/YAML/render/compile/page-count/backup/restore commands (`scripts/resume_tailor_tools.py`).
 - **Resume review tools**: tailor-equivalent commands plus geometry/log/text/report commands (`scripts/resume_review_tools.py`).
 - **Resume tailor runner**: one-job pi-mono tailoring loop with one-page enforcement (`scripts/run_resume_tailor.py`).
+- **Database status**: terminal summary of pipeline state (`scripts/status.py`).
 
 ## Resume Tailor Workflow (On-Demand)
 ```mermaid
@@ -79,27 +83,32 @@ sequenceDiagram
     participant Build as renderer/compiler
 
     Operator->>DB: db-get-job-context (job_hash|job_id)
-    Operator->>Pi: content pass prompt + tool commands
-    Pi->>YAML: targeted listing/bullet edits below Education
-    Operator->>Build: render .tex + compile PDF + page count
-    alt page_count <= 1
-        Operator-->>Operator: success
-    else overflow
-        loop max 2 content readjust retries
-            Operator->>Pi: content retry prompt
-            Pi->>YAML: shorter targeted edits / listing swaps
-            Operator->>Build: render + compile + count
-        end
-        alt still overflow
-            Operator->>YAML: apply balanced layout compression bounds
-            Operator->>Build: render + compile + count
+    Operator->>Pi: fit-score analysis (score 1-10)
+    alt score >= 8
+        Operator-->>Operator: TAILORING_SKIPPED
+    else score < 8
+        Operator->>Pi: content pass prompt + tool commands
+        Pi->>YAML: targeted listing/bullet edits below Education
+        Operator->>Build: render .tex + compile PDF + page count
+        alt page_count <= 1
+            Operator-->>Operator: success
+        else overflow
+            loop max 2 content readjust retries
+                Operator->>Pi: content retry prompt
+                Pi->>YAML: shorter targeted edits / listing swaps
+                Operator->>Build: render + compile + count
+            end
             alt still overflow
-                Operator-->>Operator: explicit failure
+                Operator->>YAML: apply balanced layout compression bounds
+                Operator->>Build: render + compile + count
+                alt still overflow
+                    Operator-->>Operator: explicit failure
+                else fit
+                    Operator-->>Operator: success
+                end
             else fit
                 Operator-->>Operator: success
             end
-        else fit
-            Operator-->>Operator: success
         end
     end
 ```

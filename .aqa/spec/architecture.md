@@ -2,8 +2,8 @@
 
 ## Overview
 The runtime is a producer/consumer pipeline on a shared SQLite queue:
-- `main.py` (producer) discovers jobs and inserts rows with `status='NEW'`.
-- `scripts/process_new_jobs.py` (consumer) drains NEW backlog, calls the root gate agent, and persists `QUALIFIED`/`FILTERED` decisions.
+- `main.py` (producer) discovers jobs, applies title filtering, and inserts rows with `status='NEW'`.
+- `scripts/process_new_jobs.py` (consumer) claims NEW backlog via atomic claim tokens, calls the root gate agent, and persists `QUALIFIED`/`FILTERED` decisions.
 - Retry metadata (`agent_retry_count`, `agent_next_retry_at`) allows bounded retries before terminal failure (`agent_failed_at`), with optional ntfy alerts.
 - `scripts/process_qualified_jobs.py` runs autonomous tailoring for QUALIFIED jobs and stores artifact metadata in `tailor_runs`.
 - `scripts/process_reviewed_resumes.py` runs autonomous post-tailor review and stores verdict/diagnostics in `review_runs`.
@@ -16,13 +16,13 @@ flowchart TD
     tailor["process_qualified_jobs.py --loop tailor"]
     review["process_reviewed_resumes.py --loop review"]
     db["SQLite job_postings + tailor_runs + review_runs"]
-    gate["RootApplyDecider (ADK)"]
+    gate["RootApplyDecider (ADK + LiteLLM)"]
     pi["pi-mono coding agent"]
     ntfy["ntfy.sh (optional alerts)"]
 
     timer --> discovery
     discovery -->|insert NEW jobs| db
-    worker -->|load pending NEW/retry-ready| db
+    worker -->|claim pending NEW/retry-ready| db
     worker --> gate
     gate -->|APPLY/SKIP| worker
     worker -->|persist QUALIFIED/FILTERED| db
@@ -40,23 +40,32 @@ flowchart TD
 ```
 
 ## Discovery Side
-- `main.py` loads `companies.yaml` and optional `search_criteria.yaml` + `candidate_profile.yaml`, resolves default board search terms, fetches Greenhouse/Workday/JobSpy jobs, deduplicates, and inserts into SQLite.
-- Job board terms are now config-driven with fallback defaults derived from profile/search config rather than hardcoded senior-role terms.
+- `main.py` loads `companies.yaml` and optional `search_criteria.yaml` + `candidate_profile.yaml`, resolves default board search terms, fetches Greenhouse/Workday/JobSpy jobs, applies title include-pattern filtering, deduplicates, and inserts into SQLite.
+- Job board terms are config-driven with fallback defaults derived from profile/search config rather than hardcoded senior-role terms.
+- Title filtering is driven by `include_title_patterns` in `candidate_profile.yaml` and `search_criteria.yaml`.
+
+## Shared Agent Infrastructure
+- `src/agents/shared/model.py` provides `build_openai_litellm_model(model_name)` which centralizes OpenAI credential validation and LiteLLM import handling for all ADK agent packages.
+- All agent packages use the model `openai/gpt-5.1-codex-mini` by default.
 
 ## Queue + Persistence
-- `src/database/schema.sql` defines queue and stats tables and now includes retry columns:
-  - `agent_retry_count`
-  - `agent_next_retry_at`
-- `DatabaseManager` owns:
-  - queue selection (`get_jobs_pending_agent_processing`)
+- `src/database/schema.sql` defines queue and stats tables and includes:
+  - retry columns: `agent_retry_count`, `agent_next_retry_at`
+  - claim columns: `agent_claim_token`, `agent_claimed_at`
+- `DatabaseManager` (1784 lines) owns:
+  - claim-based queue selection (`get_jobs_pending_agent_processing` with `BEGIN IMMEDIATE` + claim tokens)
   - success persistence (`record_agent_decision`)
   - transient retry persistence (`record_agent_retry`)
   - terminal failure marking (`mark_job_agent_terminal_failed`)
   - manual requeue support (`reset_agent_failure_state`)
+  - job context retrieval (`get_resume_tailor_job_context`, `get_job_by_id`, `get_job_by_hash`)
+  - batch dedup lookup (`get_existing_job_hashes` with chunked IN-clauses)
 
 ## Gate Worker
 - `scripts/process_new_jobs.py`:
+  - claims pending jobs via atomic claim tokens (BEGIN IMMEDIATE)
   - processes full pending backlog (bounded by per-cycle `--limit`)
+  - uses `run_decider_for_job` from `src/agents/root_apply_decider/runtime.py`
   - retries per job using configurable backoff
   - marks terminal failure after max retries
   - sends optional ntfy alerts for terminal failures and startup config failures
@@ -88,9 +97,11 @@ flowchart TD
 - Tools-first command surface lives in `scripts/resume_tailor_tools.py`:
   - `db-get-job-context`
   - `load-resume-yaml` / `save-resume-yaml`
+  - `backup-resume-yaml` / `restore-resume-yaml`
   - `render-resume-tex`
   - `compile-resume`
   - `get-page-count`
+- Tailor prompts include a fit-score analysis step (score 1-10); tailoring is skipped when score >= 8.
 - Runtime loop in `src/agents/resume_tailor_pi/runtime.py`:
   - initial content pass
   - exactly two content readjust retries on overflow
