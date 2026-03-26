@@ -1,0 +1,33 @@
+[Unit]
+Description=Chrome with CDP for Apply Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+Environment="DISPLAY=:99"
+Environment="CDP_PORT=9222"
+ExecStart=/path/to/agentic-job-applier/deploy/start-chrome-cdp.sh
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Relaxed hardening: Chrome needs access to the user profile and X11 socket.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/tmp/.X11-unix /home/YOUR_USERNAME/.config/google-chrome /home/YOUR_USERNAME/.cache
+
+Restart=always
+RestartSec=10
+MemoryMax=4G
+CPUQuota=200%
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

@@ -146,3 +146,48 @@ CREATE INDEX IF NOT EXISTS idx_review_runs_started_at ON review_runs(started_at)
 CREATE INDEX IF NOT EXISTS idx_review_runs_tailor_run_id ON review_runs(tailor_run_id);
 CREATE INDEX IF NOT EXISTS idx_review_runs_tailor_status
     ON review_runs(tailor_run_id, status);
+
+-- Apply run tracking (browser-based job application submissions)
+CREATE TABLE IF NOT EXISTS apply_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_hash TEXT NOT NULL,
+    review_run_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING, SUCCESS, FAILED
+
+    -- Resume used
+    resume_pdf_path TEXT,
+    resume_source TEXT,                      -- 'TAILORED' or 'BASE'
+
+    -- Outcome
+    outcome TEXT,                            -- Application result independent of run status
+    confidence_score REAL,                   -- 0.0-1.0 weighted form-completion score
+    confidence_report_json TEXT,             -- Serialized ConfidenceReport payload
+
+    -- Diagnostics
+    screenshot_path TEXT,                    -- Full-page screenshot before submit
+    dom_snapshot_path TEXT,                  -- Raw page HTML for post-mortem inspection
+    unresolved_fields_json TEXT,             -- Rich field metadata for future agent repair
+    simplify_autofill_detected BOOLEAN,      -- Whether Simplify extension activated
+    ats_platform TEXT,                       -- Detected ATS (greenhouse, lever, workday, etc.)
+    page_url TEXT,                           -- Final URL after any redirects
+
+    -- Error / retry
+    error TEXT,
+    next_retry_at TIMESTAMP,
+
+    -- Timestamps
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    claim_token TEXT,
+
+    CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+    CHECK (outcome IS NULL OR outcome IN (
+        'NEEDS_REVIEW', 'SUBMITTED',
+        'FAILED_PREFILL', 'FAILED_UPLOAD', 'FAILED_NAVIGATION', 'FAILED_OTHER'
+    ))
+);
+CREATE INDEX IF NOT EXISTS idx_apply_runs_job_hash ON apply_runs(job_hash);
+CREATE INDEX IF NOT EXISTS idx_apply_runs_status ON apply_runs(status);
+CREATE INDEX IF NOT EXISTS idx_apply_runs_started_at ON apply_runs(started_at);
+CREATE INDEX IF NOT EXISTS idx_apply_runs_review_run_id ON apply_runs(review_run_id);
+CREATE INDEX IF NOT EXISTS idx_apply_runs_outcome ON apply_runs(outcome);

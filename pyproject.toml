@@ -18,6 +18,7 @@ dependencies = [
     "loguru>=0.7.3,<1",
     "markdownify>=0.14.1,<1",
     "protobuf>=6.33.5,<7",
+    "playwright>=1.52.0,<2",
     "pydantic>=2.12.5,<3",
     "python-dotenv>=1.2.1,<2",
     "python-jobspy>=1.1.82,<2",

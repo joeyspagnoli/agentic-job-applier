@@ -1,0 +1,38 @@
+[Unit]
+Description=Job Apply Worker Service (Browser Automation)
+After=network-online.target job-apply-chrome.service
+Wants=network-online.target
+Requires=job-apply-chrome.service
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/agentic-job-applier
+Environment="PATH=/path/to/agentic-job-applier/.venv/bin"
+Environment="DISPLAY=:99"
+Environment="CHROME_CDP_URL=http://localhost:9222"
+EnvironmentFile=/path/to/agentic-job-applier/.env
+ExecStart=/path/to/agentic-job-applier/.venv/bin/python -m scripts.process_apply_jobs --loop
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Relaxed hardening: needs X11 socket for CDP and write access for artifacts.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/path/to/agentic-job-applier/data /path/to/agentic-job-applier/logs /tmp/.X11-unix
+
+# Keep the worker alive and draining apply backlog continuously.
+Restart=always
+RestartSec=60
+MemoryMax=4G
+CPUQuota=200%
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

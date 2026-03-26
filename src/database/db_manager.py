@@ -16,6 +16,7 @@ from loguru import logger
 DEFAULT_AGENT_CLAIM_LEASE_SECONDS = 900
 DEFAULT_TAILOR_CLAIM_LEASE_SECONDS = 7200
 DEFAULT_REVIEW_CLAIM_LEASE_SECONDS = 7200
+DEFAULT_APPLY_CLAIM_LEASE_SECONDS = 1800  # Browser ops are slower than agent runs
 
 _JOURNAL_MODE_SQL: dict[str, str] = {
     "DELETE": "PRAGMA journal_mode = DELETE",
@@ -47,6 +48,7 @@ class DatabaseManager:
         self._agent_schema_ready = False
         self._tailor_schema_ready = False
         self._review_schema_ready = False
+        self._apply_schema_ready = False
 
     def _require_conn(self) -> aiosqlite.Connection:
         """Return the active SQLite connection or fail fast.
@@ -88,6 +90,7 @@ class DatabaseManager:
         self._agent_schema_ready = False
         self._tailor_schema_ready = False
         self._review_schema_ready = False
+        self._apply_schema_ready = False
 
         # These pragmas reduce lock contention during timer-driven runs while
         # still keeping the database simple and file-backed.
@@ -1734,6 +1737,407 @@ class DatabaseManager:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Apply-run schema and claim methods
+    # ------------------------------------------------------------------
+
+    async def migrate_apply_schema(self) -> None:
+        """Create apply_runs table and indexes when missing.
+
+        Purpose:
+            Bootstrap browser apply-run tracking idempotently so workers
+            can run against databases that predate the apply stage.
+        Args:
+            self: The database manager performing the migration.
+        Output:
+            Returns `None` after ensuring apply schema exists.
+        """
+
+        conn = self._require_conn()
+        await conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS apply_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_hash TEXT NOT NULL,
+                review_run_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                resume_pdf_path TEXT,
+                resume_source TEXT,
+                outcome TEXT,
+                confidence_score REAL,
+                confidence_report_json TEXT,
+                screenshot_path TEXT,
+                dom_snapshot_path TEXT,
+                unresolved_fields_json TEXT,
+                simplify_autofill_detected BOOLEAN,
+                ats_platform TEXT,
+                page_url TEXT,
+                error TEXT,
+                next_retry_at TIMESTAMP,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                claim_token TEXT,
+                CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+                CHECK (outcome IS NULL OR outcome IN (
+                    'NEEDS_REVIEW', 'SUBMITTED',
+                    'FAILED_PREFILL', 'FAILED_UPLOAD',
+                    'FAILED_NAVIGATION', 'FAILED_OTHER'
+                ))
+            );
+            CREATE INDEX IF NOT EXISTS idx_apply_runs_job_hash
+                ON apply_runs(job_hash);
+            CREATE INDEX IF NOT EXISTS idx_apply_runs_status
+                ON apply_runs(status);
+            CREATE INDEX IF NOT EXISTS idx_apply_runs_started_at
+                ON apply_runs(started_at);
+            CREATE INDEX IF NOT EXISTS idx_apply_runs_review_run_id
+                ON apply_runs(review_run_id);
+            CREATE INDEX IF NOT EXISTS idx_apply_runs_outcome
+                ON apply_runs(outcome);
+            """
+        )
+        await conn.commit()
+        self._apply_schema_ready = True
+
+    async def _ensure_apply_schema_ready(self) -> None:
+        """Ensure apply_runs table exists before apply queries run.
+
+        Purpose:
+            Prevent runtime SQL failures when callers use apply-specific query
+            paths on databases that predate the apply schema.
+        Args:
+            self: The database manager validating apply-schema readiness.
+        Output:
+            Returns `None` after ensuring the apply schema exists.
+        """
+
+        if self._apply_schema_ready:
+            return
+
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='apply_runs'"
+        )
+        row = await cursor.fetchone()
+        if row is not None:
+            self._apply_schema_ready = True
+            return
+
+        await self.migrate_apply_schema()
+
+    async def claim_next_apply_job(
+        self,
+        *,
+        max_retries: int,
+        lease_seconds: int = DEFAULT_APPLY_CLAIM_LEASE_SECONDS,
+    ) -> Optional[dict]:
+        """Atomically claim one eligible reviewed job for browser application.
+
+        Purpose:
+            Insert a PENDING apply_runs row in a BEGIN IMMEDIATE transaction so
+            concurrent apply workers cannot double-claim the same review run.
+        Args:
+            self: The database manager performing the atomic claim.
+            max_retries: Maximum FAILED apply runs allowed per review run.
+            lease_seconds: Seconds a PENDING apply claim stays valid.
+        Output:
+            Returns merged job/review row with apply metadata keys, or `None`
+            when no eligible apply candidate exists.
+        Raises:
+            ValueError: When `max_retries` is less than 1.
+        """
+
+        if max_retries < 1:
+            raise ValueError(f"max_retries must be at least 1, got {max_retries}")
+
+        await self._ensure_review_schema_ready()
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        claim_token = os.urandom(32).hex()
+        lease_modifier = f"-{max(lease_seconds, 1)} seconds"
+
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+
+            candidate_cursor = await conn.execute(
+                """
+                SELECT
+                    jp.job_hash,
+                    jp.source_url,
+                    jp.title,
+                    jp.company,
+                    jp.description,
+                    rr.id AS review_run_id,
+                    rr.verdict AS review_verdict,
+                    rr.selected_pdf_path,
+                    rr.selected_yaml_path,
+                    rr.fallback_base_pdf_path
+                FROM review_runs rr
+                JOIN job_postings jp
+                  ON jp.job_hash = rr.job_hash
+                WHERE rr.status = 'SUCCESS'
+                  AND rr.verdict IN ('PASS', 'TAILORED', 'BASE')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM apply_runs ar
+                      WHERE ar.review_run_id = rr.id
+                        AND ar.status = 'SUCCESS'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM apply_runs ar
+                      WHERE ar.review_run_id = rr.id
+                        AND ar.status = 'PENDING'
+                        AND ar.started_at > datetime('now', ?)
+                  )
+                  AND (
+                      SELECT COUNT(*) FROM apply_runs ar
+                      WHERE ar.review_run_id = rr.id
+                        AND ar.status = 'FAILED'
+                  ) < ?
+                  AND COALESCE(
+                      (
+                          SELECT MAX(datetime(ar.next_retry_at))
+                          FROM apply_runs ar
+                          WHERE ar.review_run_id = rr.id
+                            AND ar.status = 'FAILED'
+                      ),
+                      datetime('now', '-1 second')
+                  ) <= datetime('now')
+                ORDER BY COALESCE(rr.completed_at, rr.started_at) ASC, rr.id ASC
+                LIMIT 1
+                """,
+                (lease_modifier, max_retries),
+            )
+            candidate_row = await candidate_cursor.fetchone()
+            if candidate_row is None:
+                await conn.rollback()
+                return None
+
+            insert_cursor = await conn.execute(
+                """
+                INSERT INTO apply_runs (job_hash, review_run_id, status, claim_token)
+                VALUES (?, ?, 'PENDING', ?)
+                RETURNING id, claim_token
+                """,
+                (
+                    candidate_row["job_hash"],
+                    candidate_row["review_run_id"],
+                    claim_token,
+                ),
+            )
+            apply_row = await insert_cursor.fetchone()
+            await conn.commit()
+            logger.info(
+                "Claimed apply job: job_hash={} review_run_id={} apply_run_id={}",
+                candidate_row["job_hash"],
+                candidate_row["review_run_id"],
+                apply_row["id"] if apply_row else None,
+            )
+        except Exception:
+            await conn.rollback()
+            raise
+
+        if apply_row is None:
+            return None
+
+        merged_row = dict(candidate_row)
+        merged_row["_apply_run_id"] = apply_row["id"]
+        merged_row["_apply_claim_token"] = apply_row["claim_token"]
+        return merged_row
+
+    async def record_apply_success(
+        self,
+        *,
+        run_id: int,
+        outcome: str,
+        resume_pdf_path: str | None,
+        resume_source: str | None,
+        confidence_score: float | None,
+        confidence_report_json: str | None,
+        screenshot_path: str | None,
+        dom_snapshot_path: str | None,
+        unresolved_fields_json: str | None,
+        simplify_autofill_detected: bool | None,
+        ats_platform: str | None,
+        page_url: str | None,
+    ) -> None:
+        """Mark an apply run as successful and persist all diagnostics.
+
+        Purpose:
+            Store the full application outcome, confidence report, and captured
+            artifacts for user review and future agent repair.
+        Args:
+            self: The database manager recording apply success.
+            run_id: Primary key of the apply_runs row to update.
+            outcome: Application-level result value.
+            resume_pdf_path: Path to the resume PDF that was uploaded.
+            resume_source: Whether TAILORED or BASE resume was used.
+            confidence_score: Overall confidence score in [0.0, 1.0].
+            confidence_report_json: Serialized ConfidenceReport payload.
+            screenshot_path: Path to the pre-submit screenshot.
+            dom_snapshot_path: Path to the captured page HTML.
+            unresolved_fields_json: Serialized list of unresolved field metadata.
+            simplify_autofill_detected: Whether Simplify extension activated.
+            ats_platform: Detected ATS platform identifier.
+            page_url: Final page URL after any redirects.
+        Output:
+            Returns `None` after updating the apply row and committing.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            UPDATE apply_runs
+            SET status = 'SUCCESS',
+                outcome = ?,
+                resume_pdf_path = ?,
+                resume_source = ?,
+                confidence_score = ?,
+                confidence_report_json = ?,
+                screenshot_path = ?,
+                dom_snapshot_path = ?,
+                unresolved_fields_json = ?,
+                simplify_autofill_detected = ?,
+                ats_platform = ?,
+                page_url = ?,
+                error = NULL,
+                next_retry_at = NULL,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                outcome,
+                resume_pdf_path,
+                resume_source,
+                confidence_score,
+                confidence_report_json,
+                screenshot_path,
+                dom_snapshot_path,
+                unresolved_fields_json,
+                simplify_autofill_detected,
+                ats_platform,
+                page_url,
+                run_id,
+            ),
+        )
+        await conn.commit()
+
+    async def record_apply_failure(
+        self,
+        *,
+        run_id: int,
+        error: str,
+        next_retry_at: str | None,
+        outcome: str | None = None,
+        screenshot_path: str | None = None,
+        dom_snapshot_path: str | None = None,
+        ats_platform: str | None = None,
+        page_url: str | None = None,
+    ) -> None:
+        """Mark an apply run as failed and persist partial diagnostics.
+
+        Purpose:
+            Store failure details and any partial artifacts captured before the
+            error so post-mortem analysis is possible even on failed attempts.
+        Args:
+            self: The database manager recording apply failure.
+            run_id: Primary key of the apply_runs row to update.
+            error: Failure reason text.
+            next_retry_at: Optional UTC timestamp for scheduled retry.
+            outcome: Optional application-level failure classification.
+            screenshot_path: Path to any captured screenshot before failure.
+            dom_snapshot_path: Path to any captured page HTML before failure.
+            ats_platform: Detected ATS platform identifier if available.
+            page_url: Final page URL if available.
+        Output:
+            Returns `None` after updating the apply row and committing.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            UPDATE apply_runs
+            SET status = 'FAILED',
+                error = ?,
+                next_retry_at = ?,
+                outcome = ?,
+                screenshot_path = ?,
+                dom_snapshot_path = ?,
+                ats_platform = ?,
+                page_url = ?,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                error,
+                next_retry_at,
+                outcome,
+                screenshot_path,
+                dom_snapshot_path,
+                ats_platform,
+                page_url,
+                run_id,
+            ),
+        )
+        await conn.commit()
+
+    async def mark_stale_apply_runs_failed(
+        self,
+        *,
+        lease_seconds: int = DEFAULT_APPLY_CLAIM_LEASE_SECONDS,
+    ) -> int:
+        """Convert stale PENDING apply runs to FAILED on startup.
+
+        Purpose:
+            Handle worker crash recovery by marking orphaned PENDING apply runs
+            failed so they become retry-eligible.
+        Args:
+            self: The database manager performing stale-run cleanup.
+            lease_seconds: Age threshold in seconds for stale PENDING rows.
+        Output:
+            Returns number of rows converted to FAILED.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        lease_modifier = f"-{max(lease_seconds, 1)} seconds"
+        cursor = await conn.execute(
+            """
+            UPDATE apply_runs
+            SET status = 'FAILED',
+                error = 'stale_pending_on_startup',
+                completed_at = CURRENT_TIMESTAMP
+            WHERE status = 'PENDING'
+              AND started_at <= datetime('now', ?)
+            """,
+            (lease_modifier,),
+        )
+        await conn.commit()
+        return cursor.rowcount
+
+    async def get_apply_failure_count(self, review_run_id: int) -> int:
+        """Count FAILED apply runs for one review run identifier.
+
+        Purpose:
+            Provide efficient retry-count lookups for apply worker backoff and
+            terminal-failure decisions.
+        Args:
+            self: The database manager querying failure counts.
+            review_run_id: Review run identifier associated with apply attempts.
+        Output:
+            Returns number of FAILED apply_runs rows for the review run.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM apply_runs WHERE review_run_id = ? AND status = 'FAILED'",
+            (review_run_id,),
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
 
     async def close(self) -> None:
         """Close the active SQLite connection if one exists.
