@@ -1,106 +1,91 @@
 # Workflows
 
-## Full Runtime Pipeline
+## 1) Discovery workflow (producer)
+
+`run_job_discovery()` executes one cycle:
+- load configs;
+- create/migrate DB;
+- fetch per-source families;
+- deduplicate and insert;
+- update daily stats;
+- log cycle summary (`main.py:524-656`).
+
 ```mermaid
-sequenceDiagram
-    participant Timer as job-discovery.timer
-    participant Discovery as main.py
-    participant DB as SQLite
-    participant Gate as process_new_jobs.py
-    participant Tailor as process_qualified_jobs.py
-    participant Review as process_reviewed_resumes.py
-    participant Apply as process_apply_jobs.py
-
-    Timer->>Discovery: periodic run
-    Discovery->>DB: insert NEW jobs
-
-    loop gate polling
-        Gate->>DB: claim NEW/retry-ready
-        Gate->>DB: persist QUALIFIED or FILTERED
-    end
-
-    loop tailor polling
-        Tailor->>DB: claim QUALIFIED jobs
-        Tailor->>DB: record tailor_runs SUCCESS/FAILED
-    end
-
-    loop review polling
-        Review->>DB: claim successful tailor runs
-        Review->>DB: record review_runs SUCCESS/FAILED
-    end
-
-    loop apply polling
-        Apply->>DB: claim successful review runs (PASS/TAILORED/BASE)
-        Apply->>DB: record apply_runs SUCCESS/FAILED + diagnostics
-    end
+flowchart TD
+    A[Load .env + logger] --> B[Load companies/search/profile YAML]
+    B --> C[Open DatabaseManager]
+    C --> D[create_tables + migrate_agent_schema]
+    D --> E[Greenhouse fetch loop]
+    E --> F[Workday/Apify fetch loop]
+    F --> G[JobSpy board/term/location fanout]
+    G --> H[Deduplicate + insert_job]
+    H --> I[update_daily_stats]
+    I --> J[log_cycle_summary + DB totals]
 ```
 
-## Discovery Cycle (`main.py`)
-1. Load config files and profile/search defaults.
-2. Initialize DB schema/migrations used by discovery/gate stage.
-3. Fetch from Greenhouse, Apify Workday, JobSpy.
-4. Apply title include-pattern filtering.
-5. Deduplicate in-batch and against DB hashes.
-6. Insert unseen rows with `status='NEW'`.
-7. Record crawl and daily stats.
+Source fan-out implementations: Greenhouse (`main.py:210-293`), Workday (`main.py:295-385`), JobSpy (`main.py:387-521`).
 
-## Gate Worker (`scripts/process_new_jobs.py`)
-1. Claim NEW/retry-ready rows atomically.
-2. Run decider model and parse structured decision.
-3. On success: persist `QUALIFIED` or `FILTERED`.
-4. On transient failure: schedule retry timestamp.
-5. On retry exhaustion: mark terminal gate failure and optionally notify via ntfy.
+## 2) Gate workflow (NEW → QUALIFIED/FILTERED)
 
-## Tailor Worker (`scripts/process_qualified_jobs.py`)
-1. Claim next eligible QUALIFIED job.
-2. Prepare per-run working YAML copy.
-3. Run one-page tailoring pipeline.
-4. Persist SUCCESS/FAILED row in `tailor_runs` with artifacts or error/retry metadata.
+- Worker claims NEW rows atomically (`src/database/db_manager.py:372-455`).
+- Runs root decider per job, parses required JSON decision, maps to status (`scripts/process_new_jobs.py:231-344`, `src/agents/root_apply_decider/agent.py:102-141`, `src/agents/root_apply_decider/runtime.py:46-59`).
+- Retries transient failures with scheduled `agent_next_retry_at`; marks terminal failures and notifies (`scripts/process_new_jobs.py:281-324`, `scripts/process_new_jobs.py:152-181`).
 
-## Review Worker (`scripts/process_reviewed_resumes.py`)
-1. Claim next eligible successful tailor run.
-2. Ensure base comparison artifacts exist.
-3. Run review runtime and validate strict report contract.
-4. Persist SUCCESS/FAILED row in `review_runs`, including selected artifacts and diagnostics.
+## 3) Tailor workflow (QUALIFIED → tailor_runs)
 
-## Apply Worker (`scripts/process_apply_jobs.py`)
-1. Preflight: validate Playwright import and Chrome CDP reachability.
-2. Claim next eligible successful review run with verdict `PASS|TAILORED|BASE`.
-3. Resolve resume PDF source (`TAILORED` or fallback `BASE`).
-4. Connect to Chrome via CDP and run browser flow:
-   - navigate
-   - detect/trigger Simplify
-   - upload resume
-   - scan unresolved fields
-   - compute confidence
-   - capture screenshot and DOM snapshot
-5. Persist `apply_runs` success/failure and retry metadata.
-6. For `NEEDS_REVIEW` outcomes, upsert `apply_handoffs` with operator-facing diagnostics.
+- Claims one QUALIFIED job into `tailor_runs` PENDING row (`src/database/db_manager.py:1047-1156`).
+- Copies canonical YAML to per-job work YAML, then runs pipeline in executor (`scripts/process_qualified_jobs.py:418-451`).
+- On success stores artifact paths/page count; on failure applies retry/backoff/terminal alert logic (`scripts/process_qualified_jobs.py:465-499`, `scripts/process_qualified_jobs.py:289-358`).
 
-### Current Behavior Notes
-- Default mode is dry-run (`APPLY_DRY_RUN=true`).
-- Even with `--no-dry-run`, submit logic is not implemented yet; outcome remains `NEEDS_REVIEW`.
-- Worker closes the page after each run and stores artifacts under `data/apply_runs/<job_hash>/`.
-- `NEEDS_REVIEW` successes are also persisted into `apply_handoffs` for explicit human review queues.
+Tailor runtime internals:
+- content-phase retries;
+- lock checks;
+- compile/page-measure;
+- bounded balanced layout fallback;
+- rollback on failures (`src/agents/resume_tailor_pi/runtime.py:496-639`).
 
-## One-shot Pipeline
-- `python -m scripts.run_pipeline_once --limit N`
-- Runs one discovery cycle followed by one gate batch.
-- Does not execute tailor/review/apply stages.
+## 4) Review workflow (tailor SUCCESS → review_runs)
 
-## Deployment Flow (Linux/systemd)
-1. Configure `.env` and config YAML files.
-2. Install dependencies (`uv sync`) and system tools (`latexmk`, poppler, Chrome/Xvfb for apply).
-3. Edit service placeholders (user/path).
-4. Install units:
-   - `job-discovery.service`, `job-discovery.timer`
-   - `job-agent-worker.service`
-   - `job-tailor-worker.service`
-   - `job-review-worker.service`
-   - `job-apply-chrome.service`
-   - `job-apply-worker.service`
-5. Enable timer and workers.
+- Ensures base reference TeX/PDF exists and is current (`scripts/process_reviewed_resumes.py:306-353`).
+- Claims eligible tailor success run into `review_runs` (`src/database/db_manager.py:1430-1541`).
+- Invokes review runtime and persists success verdict/report or failure diagnostics/fallback refs (`scripts/process_reviewed_resumes.py:530-619`, `src/database/db_manager.py:1543-1664`).
 
-## Operational Checks
-- `python -m scripts.status`: current job/crawl/daily and gate retry visibility.
-- SQL inspection is currently required for tailor/review/apply run summaries.
+Runtime hard-failure boundaries:
+- pi subprocess failure,
+- missing/invalid report,
+- missing selected artifacts for non-FAIL verdicts (`src/agents/resume_review_pi/runtime.py:294-321`, `src/agents/resume_review_pi/runtime.py:230-263`).
+
+## 5) Apply workflow (review SUCCESS verdicts → apply_runs/handoffs)
+
+- Claims eligible review rows where verdict in `PASS|TAILORED|BASE` (`src/database/db_manager.py:1912-1914`).
+- Resolves tailored/base resume path from review verdict (`scripts/process_apply_jobs.py:186-220`).
+- Runs Playwright CDP automation: navigate, detect Simplify, upload resume, scan unresolved fields, compute confidence, capture artifacts (`src/agents/apply_worker/browser.py:236-348`).
+- Persists apply success/failure and creates handoff row for `NEEDS_REVIEW` outcomes (`scripts/process_apply_jobs.py:502-541`, `src/database/db_manager.py:2119-2213`).
+
+## End-to-end stage progression
+
+```mermaid
+stateDiagram-v2
+    [*] --> NEW
+    NEW --> QUALIFIED: gate APPLY
+    NEW --> FILTERED: gate SKIP
+
+    QUALIFIED --> TAILOR_PENDING
+    TAILOR_PENDING --> TAILOR_SUCCESS
+    TAILOR_PENDING --> TAILOR_FAILED
+
+    TAILOR_SUCCESS --> REVIEW_PENDING
+    REVIEW_PENDING --> REVIEW_SUCCESS
+    REVIEW_PENDING --> REVIEW_FAILED
+
+    REVIEW_SUCCESS --> APPLY_PENDING: verdict PASS/TAILORED/BASE
+    APPLY_PENDING --> APPLY_SUCCESS
+    APPLY_PENDING --> APPLY_FAILED
+    APPLY_SUCCESS --> HUMAN_REVIEW_QUEUE: outcome NEEDS_REVIEW
+```
+
+State transitions are represented by table status/verdict/outcome fields (`src/database/schema.sql:36-56`, `src/database/schema.sql:99-149`, `src/database/schema.sql:151-225`).
+
+## Operational loop behavior
+
+All worker scripts support one-shot and continuous polling modes with environment-configurable intervals/retry knobs (`scripts/process_new_jobs.py:395-480`, `scripts/process_qualified_jobs.py:560-709`, `scripts/process_reviewed_resumes.py:636-821`, `scripts/process_apply_jobs.py:627-736`, `.env.example:24-79`).

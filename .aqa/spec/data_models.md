@@ -1,73 +1,88 @@
 # Data Models
 
-## JobPosting (`src/models/job_posting.py`, 222 lines)
-- Core fields: source metadata, company/title/location, job type, salary fields, description/requirements, posted date, raw payload.
-- `job_hash` property: SHA-256 hash of canonical identity parts (source/company/title/location/posted_date/canonical_url/content sub-hashes).
-- URL canonicalization strips tracking params and normalizes ordering/case.
-- `detect_remote` validator infers remote roles from location text.
-- `normalize_job_type` validator maps common variants into constrained values.
-- `to_db_dict()` returns the SQLite-ready payload including JSON-serialized `raw_data`.
+## Canonical application data model
 
-## SQLite Schema (`src/database/schema.sql`, 193 lines)
+### `JobPosting` (in-memory normalization)
 
-### `job_postings`
-- Main workflow table for discovered jobs.
-- `status` check constraint: `NEW`, `FILTERED`, `QUALIFIED`, `APPLIED`, `REJECTED`.
-- Gate fields: `agent_processed_at`, `agent_result`, `agent_failed_at`, `agent_error`, `agent_retry_count`, `agent_next_retry_at`, `agent_claim_token`, `agent_claimed_at`.
-- Other tables reference `job_hash` but no FK constraints are enforced at DB level.
+`JobPosting` is the shared cross-source model that all fetchers must emit (`src/models/job_posting.py:18-50`).
 
-### `crawl_history`
-- Tracks discovery crawl runs (`IN_PROGRESS`, `SUCCESS`, `FAILED`) and per-run job counts/errors.
+Key behaviors:
+- `job_hash` is SHA-256 over normalized source/company/title/location/posted_date + canonical URL + content digests (`src/models/job_posting.py:51-77`).
+- URL canonicalization strips tracking params (`utm_*`, `gh_src`, `gh_jid`) and normalizes query ordering (`src/models/job_posting.py:97-129`).
+- Remote detection and job-type normalization happen via validators (`src/models/job_posting.py:130-183`).
 
-### `daily_stats`
-- Date-keyed aggregate counters for discovery totals/new/duplicate and source success/failure.
+## SQLite schema model
 
-### `tailor_runs`
-- Retryable run table for resume tailoring.
-- Status enum: `PENDING`, `SUCCESS`, `FAILED`.
-- Artifact paths: YAML/TeX/PDF and `page_count`.
-- Retry metadata: `error`, `next_retry_at`, `claim_token`, timestamps.
+Core schema is in `src/database/schema.sql` and extended idempotently in `DatabaseManager` migrations (`src/database/schema.sql:1-225`, `src/database/db_manager.py:576-704`, `src/database/db_manager.py:967-1020`, `src/database/db_manager.py:1351-1403`, `src/database/db_manager.py:1745-1835`).
 
-### `review_runs`
-- Retryable run table for post-tailor review.
-- Status enum: `PENDING`, `SUCCESS`, `FAILED`.
-- Verdict enum (nullable): `PASS`, `TAILORED`, `BASE`, `FAIL`.
-- Selected artifact refs for non-FAIL verdicts, report JSON, stdout/stderr, fallback base refs.
+### Primary tables
 
-### `apply_runs`
-- Retryable run table for browser apply attempts.
-- Status enum: `PENDING`, `SUCCESS`, `FAILED`.
-- Outcome enum (nullable): `NEEDS_REVIEW`, `SUBMITTED`, `FAILED_PREFILL`, `FAILED_UPLOAD`, `FAILED_NAVIGATION`, `FAILED_OTHER`.
-- Resume attribution: `resume_pdf_path`, `resume_source` (`TAILORED` or `BASE`).
-- Confidence/diagnostics: `confidence_score`, `confidence_report_json`, `unresolved_fields_json`, `simplify_autofill_detected`, `ats_platform`, `page_url`, screenshot/DOM paths.
-- Retry metadata: `error`, `next_retry_at`, `claim_token`, timestamps.
+- `job_postings`: normalized job content + workflow state + gate metadata (`src/database/schema.sql:2-56`).
+- `crawl_history`: per-crawl operational records (`src/database/schema.sql:71-87`).
+- `daily_stats`: per-date aggregate counters (`src/database/schema.sql:89-96`).
 
-### `apply_handoffs`
-- Operator handoff table keyed by `apply_run_id` for non-submitting apply outcomes.
-- Handoff status enum: `PENDING_REVIEW`, `APPROVED`, `REJECTED`.
-- Captures review payload: `apply_outcome`, resume attribution, confidence/diagnostics JSON, screenshot/DOM paths, ATS/page URL.
-- Review annotations: `reviewer_notes`, `reviewed_at`, plus `created_at` and `updated_at`.
+### Stage-run tables
 
-## Gate Agent Output Models
-- `ApplyDecision`: `APPLY` or `SKIP`.
-- `GateDebugInfo`: confidence/explanation/match metadata.
-- `GateRunResult`: normalized decision payload with provider/model metadata and raw response.
+- `tailor_runs` for QUALIFIED job resume generation attempts (`src/database/schema.sql:99-118`).
+- `review_runs` for post-tailor review verdicts and report artifacts (`src/database/schema.sql:120-149`).
+- `apply_runs` for browser automation attempts and diagnostics (`src/database/schema.sql:151-194`).
+- `apply_handoffs` for human review queue when apply outcome is `NEEDS_REVIEW` (`src/database/schema.sql:195-225`).
 
-## Resume Tailor Models
-- `ResumeContent`: canonical YAML schema with locked sections and ordering rules.
-- `TailorInvocationContract`: one-run runtime contract (job selector, paths, model/process settings).
-- `TailorAttemptRecord`: per-attempt stage history.
-- `TailorRunResult`: final tailor output payload.
+## Entity relationship map
 
-## Resume Review Models
-- `ReviewInvocationContract`: review runtime input contract.
-- `ReviewVerdict`: `PASS|TAILORED|BASE|FAIL`.
-- `ReviewReport`: strict completion report with selected artifacts for non-FAIL verdicts.
-- `ReviewRunResult`: runtime result, verdict/report payload, diagnostics.
+```mermaid
+erDiagram
+    job_postings ||--o{ tailor_runs : "job_hash"
+    job_postings ||--o{ review_runs : "job_hash"
+    job_postings ||--o{ apply_runs : "job_hash"
 
-## Browser Apply Models (`src/agents/apply_worker/schemas.py`)
-- `ApplyOutcome`: application-level outcome independent of row lifecycle status.
-- `ATSPlatform`: detected ATS enum.
-- `UnresolvedField`: rich field metadata for unresolved form inputs.
-- `ConfidenceCheck` and `ConfidenceReport`: deterministic weighted scoring payload.
-- `ApplyRunResult`: worker output object used by `process_apply_jobs.py` for persistence.
+    tailor_runs ||--o{ review_runs : "tailor_run_id"
+    review_runs ||--o{ apply_runs : "review_run_id"
+    apply_runs ||--|| apply_handoffs : "apply_run_id(unique)"
+```
+
+Relationship semantics are enforced by query logic in claim methods (not SQL foreign keys) (`src/database/db_manager.py:1472-1475`, `src/database/db_manager.py:1910-1913`, `src/database/db_manager.py:2164-2181`).
+
+## Stage outcome enums and status domains
+
+- Job status domain: `NEW`, `FILTERED`, `QUALIFIED`, `APPLIED`, `REJECTED` (`src/database/schema.sql:36-56`).
+- Tailor/review/apply run statuses: `PENDING`, `SUCCESS`, `FAILED` (`src/database/schema.sql:102-113`, `src/database/schema.sql:124-142`, `src/database/schema.sql:155-188`).
+- Review verdicts: `PASS`, `TAILORED`, `BASE`, `FAIL` (`src/agents/resume_review_pi/schemas.py:21-32`).
+- Apply outcomes: `NEEDS_REVIEW`, `SUBMITTED`, `FAILED_PREFILL`, `FAILED_UPLOAD`, `FAILED_NAVIGATION`, `FAILED_OTHER` (`src/agents/apply_worker/schemas.py:42-58`).
+
+## Resume canonical model (tailor/review)
+
+The resume pipeline uses a YAML-canonical `ResumeContent` model with explicit lock rules and section IDs (`src/agents/resume_tailor_pi/schemas.py:360-376`).
+
+- Lock constraints:
+  - fixed section order and headings (`src/agents/resume_tailor_pi/schemas.py:21-32`, `src/agents/resume_tailor_pi/schemas.py:551-581`)
+  - non-editable sections: `personal`, `education` (`src/agents/resume_tailor_pi/schemas.py:33`, `src/agents/resume_tailor_pi/schemas.py:557-562`)
+  - snapshot digest guard for locked sections (`src/agents/resume_tailor_pi/schemas.py:584-628`)
+
+- Current baseline resume instance is stored in `config/resume_content.yaml` (`config/resume_content.yaml:1-210`).
+
+## Review report model
+
+`ReviewReport` is the required completion artifact for review runtime (`src/agents/resume_review_pi/schemas.py:112-188`).
+
+```mermaid
+classDiagram
+    class ReviewReport {
+      verdict: ReviewVerdict
+      summary: str
+      iteration_count: int
+      selected_yaml_path: str?
+      selected_tex_path: str?
+      selected_pdf_path: str?
+      diagnostics: list[str]
+    }
+```
+
+For non-FAIL verdicts, selected artifact paths are mandatory by schema validator (`src/agents/resume_review_pi/schemas.py:171-187`).
+
+## Apply diagnostics model
+
+`ApplyRunResult` captures end-state plus confidence and unresolved field metadata (`src/agents/apply_worker/schemas.py:173-208`).
+
+- Confidence payload includes weighted checks and hard-blocker flags (`src/agents/apply_worker/schemas.py:139-166`, `src/agents/apply_worker/confidence.py:210-230`).
+- Unresolved field payload captures selector/label/type/required/options context for later repair workflows (`src/agents/apply_worker/schemas.py:82-112`, `src/agents/apply_worker/field_scanner.py:157-172`).

@@ -1,66 +1,53 @@
 # Dependencies
 
-## Python Packages (from `pyproject.toml`)
-- Runtime packages: 18
-  - `aiosqlite`, `httpx`, `apify-client`, `python-jobspy`, `loguru`, `pydantic`, `pyyaml`, `python-dotenv`
-  - `google-adk`, `litellm`
-  - `playwright` (browser automation client)
-  - `aiohttp`, `authlib`, `cryptography`, `markdownify`, `protobuf`, `python-multipart`, `apscheduler`
-- Dev packages: 3 (`pytest`, `pytest-asyncio`, `pip-audit`)
+## Python dependencies (declared)
 
-## External Services / APIs
-- Greenhouse public API (no key).
-- Apify actor (`gooyer.co/myworkdayjobs`) with `APIFY_API_TOKEN`.
-- JobSpy-backed board scraping.
-- OpenAI via LiteLLM/ADK (`OPENAI_API_KEY`) for gate + pi workflows.
-- ntfy (optional alerts) via `NTFY_TOPIC`.
+The project declares runtime dependencies in `pyproject.toml` (`pyproject.toml:8-27`), with dev/test dependencies in `dependency-groups.dev` (`pyproject.toml:29-34`).
 
-## Local System Dependencies
-- Python 3.11+.
-- SQLite runtime via stdlib `sqlite3`.
-- `uv` for environment management.
-- Resume tailor/review: `latexmk` (and typically full TeX install).
-- Resume review: poppler tools (`pdfinfo`, `pdftotext`, `pdftoppm`).
-- Browser apply stage:
-  - Chrome/Chromium with CDP enabled.
-  - X display (typically Xvfb on Linux server).
-  - Playwright Python package installed.
-  - Simplify extension installed/authenticated in the Chrome profile used by the worker.
+## Dependency-to-subsystem mapping
 
-## Environment Variables
+| Dependency | Primary usage in repo | Evidence |
+|---|---|---|
+| `aiosqlite` | Async SQLite connection + row access in persistence layer | `src/database/db_manager.py:13-14`, `src/database/db_manager.py:72-110` |
+| `httpx` | Greenhouse fetch HTTP client and ntfy notification POSTs | `src/fetchers/greenhouse_fetcher.py:6-8`, `src/utils/notifications.py:14-15`, `src/utils/notifications.py:96-103` |
+| `apify-client` | Workday scraping actor integration | `src/fetchers/apify_fetcher.py:7-8`, `src/fetchers/apify_fetcher.py:155-161` |
+| `python-jobspy` | Job board scraping for Indeed/Glassdoor/LinkedIn | `src/fetchers/jobspy_fetcher.py:8`, `src/fetchers/jobspy_fetcher.py:176-183` |
+| `google-adk` | Gate agent construction and runner session execution | `src/agents/root_apply_decider/agent.py:9`, `src/agents/root_apply_decider/runtime.py:8-11` |
+| `litellm` (via ADK extensions) | OpenAI model object for ADK decider | `src/agents/shared/model.py:31-38` |
+| `pydantic` | Schemas for postings, gate/tailor/review/apply contracts | `src/models/job_posting.py:15-16`, `src/agents/resume_tailor_pi/schemas.py:15-19`, `src/agents/resume_review_pi/schemas.py:12-15`, `src/agents/apply_worker/schemas.py:13-14` |
+| `python-dotenv` | `.env` loading in entrypoints/path resolver | `main.py:16`, `scripts/process_new_jobs.py:19`, `src/utils/paths.py:8-9` |
+| `playwright` | Browser application automation via CDP | `src/agents/apply_worker/browser.py:16-18`, `scripts/process_apply_jobs.py:236-242` |
+| `loguru` | Structured logging across orchestrator/workers/utils | `main.py:17`, `scripts/process_qualified_jobs.py:28`, `src/utils/logger.py:6` |
+| `pyyaml` | YAML config + resume content parsing | `main.py:15`, `src/agents/root_apply_decider/prompts.py:11`, `src/agents/resume_tailor_pi/yaml_io.py:8` |
 
-### Core
-- `DATABASE_PATH`, `LOG_LEVEL`, `LOG_FILE`, `SQLITE_JOURNAL_MODE`
+## External binaries/services required at runtime
 
-### Discovery / Gate
-- `APIFY_API_TOKEN`
-- `OPENAI_API_KEY` (required for decider)
-- `AGENT_BATCH_SIZE`, `AGENT_BATCH_LIMIT`, `AGENT_POLL_INTERVAL_SECONDS`
-- `AGENT_MAX_RETRIES`, `AGENT_RETRY_BACKOFF_SECONDS`, `AGENT_RETRY_BACKOFF_MULTIPLIER`
-- `AGENT_CLAIM_LEASE_SECONDS`
-- `CANDIDATE_PROFILE_PATH`
+- `pi` command (or command override env vars) for tailor/review agent subprocesses (`scripts/process_qualified_jobs.py:195-205`, `scripts/process_reviewed_resumes.py:193-202`).
+- LaTeX toolchain (`latexmk`) for resume compilation (`scripts/process_qualified_jobs.py:207-213`, `scripts/process_reviewed_resumes.py:204-208`).
+- PDF analysis tools for review stage: `pdfinfo`, `pdftotext`, `pdftoppm` (`scripts/process_reviewed_resumes.py:205-208`, `src/agents/resume_review_pi/tools.py:71-95`, `src/agents/resume_review_pi/tools.py:349-373`).
+- Chrome with CDP for apply worker (`scripts/process_apply_jobs.py:263-268`, `deploy/job-apply-chrome.service:1-13`, `deploy/start-chrome-cdp.sh:31-38`).
 
-### Tailor
-- `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_RETRY_BACKOFF_SECONDS`, `TAILOR_RETRY_BACKOFF_MULTIPLIER`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`, `TAILOR_RESUME_YAML_PATH`
-- `PI_CODING_AGENT_COMMAND`, `PI_CODING_AGENT_COMMAND_ARGV`
-- `RESUME_TAILOR_MODEL`
+## Configuration dependencies
 
-### Review
-- `REVIEW_POLL_INTERVAL_SECONDS`, `REVIEW_MAX_RETRIES`, `REVIEW_RETRY_BACKOFF_SECONDS`, `REVIEW_RETRY_BACKOFF_MULTIPLIER`, `REVIEW_CLAIM_LEASE_SECONDS`, `REVIEW_OUTPUT_DIR`
-- `REVIEW_BASE_RESUME_YAML_PATH`, `REVIEW_BASE_RESUME_TEX_PATH`, `REVIEW_BASE_RESUME_PDF_PATH`
-- `RESUME_REVIEW_MODEL`
+- Required/optional env keys are documented in `.env.example`, including stage-specific retry knobs and model overrides (`.env.example:1-79`).
+- Discovery source definitions and filters come from YAML config files (`config/companies.yaml:4-143`, `config/search_criteria.yaml:4-92`).
 
-### Apply Worker
-- `CHROME_CDP_URL` (default `http://localhost:9222`)
-- `APPLY_POLL_INTERVAL_SECONDS`, `APPLY_MAX_RETRIES`, `APPLY_RETRY_BACKOFF_SECONDS`, `APPLY_RETRY_BACKOFF_MULTIPLIER`, `APPLY_CLAIM_LEASE_SECONDS`
-- `APPLY_DRY_RUN` (default true)
+## Dependency interaction map
 
-### Alerts
-- `NTFY_TOPIC`, `NTFY_SERVER`, `NTFY_TOKEN`, `NTFY_PRIORITY`
+```mermaid
+graph TB
+    App[Python runtime]
+    App --> SQLite[SQLite/aiosqlite]
+    App --> GH[Greenhouse API via httpx]
+    App --> Apify[Apify actor API]
+    App --> JobSpy[python-jobspy]
+    App --> ADK[google-adk + LiteLLM/OpenAI]
+    App --> Playwright[Playwright + Chrome CDP]
+    App --> Ntfy[ntfy HTTP publish]
+    App --> Latex[latexmk + pdf tools]
+```
 
-## Deployment Dependencies
-- systemd units currently provided for discovery, gate, tailor, review, apply worker, and Chrome CDP.
-- Apply worker unit requires Chrome service and writable paths for artifacts and X socket.
+## Risk notes tied to dependencies
 
-## Noted Config Drift
-- `.env.example` currently documents gate/tailor/review variables but does not yet include the `APPLY_*` and `CHROME_CDP_URL` knobs used by `scripts/process_apply_jobs.py`.
+- Apply preflight checks for Playwright + Chrome reachability fail fast and return without notification, unlike tailor/review preflight flows that page ntfy (`scripts/process_apply_jobs.py:655-667`, `scripts/process_qualified_jobs.py:627-632`, `scripts/process_reviewed_resumes.py:719-724`).
+- Systemd unit files contain placeholder `User` and path values; deployment requires manual replacement before units are valid (`deploy/job-agent-worker.service:9-13`, `deploy/job-tailor-worker.service:8-13`, `deploy/job-review-worker.service:8-13`, `deploy/job-apply-worker.service:9-16`).

@@ -1,35 +1,79 @@
-# Knowledge Base Index
+# Agentic Job Applier Spec Index
 
-Use this file as the primary context for assistants. It links to detailed specs with short summaries and guidance on where to look for specific answers.
+This index is the **primary entrypoint** for AI assistants. Load this file first, then open only the linked docs needed for the question to minimize context cost.
 
-## Snapshot
-- Spec sync date: 2026-03-26
-- Source commit: `5bc956cb6bb5eb6c58087a6d91660466276ca2ce`
-- Prior commit: `9a9a21963754b07ec8d35ddc67c39cfdd8f9620b`
+## How to use this spec (AI assistant workflow)
 
-## How to Use
-- Start here and jump into the relevant file by topic.
-- For runtime flow and queue boundaries, read `architecture.md` then `workflows.md`.
-- For DB fields and state transitions, read `data_models.md` and `interfaces.md`.
-- For operational setup and prerequisites, read `dependencies.md` and `review_notes.md`.
+1. Start with `spec.md` for a narrative overview and cross-file synthesis.
+2. Use the routing table below to select the most relevant deep-dive document.
+3. Validate detailed claims with cited source evidence in `path:line` form.
+4. If docs and code conflict, prefer current source code and update docs accordingly (`AGENTS.md:30-32`).
 
-## Table of Contents
-| File | What it covers | When to read |
-| --- | --- | --- |
-| `architecture.md` | High-level producer/consumer design, queue tables, and all workers (gate, tailor, review, browser apply) | Understanding system shape and control flow |
-| `components.md` | Module-by-module responsibilities with current line counts | Locating implementation by responsibility |
-| `interfaces.md` | Fetcher contracts, DB manager methods (2188 lines), worker CLIs, deployment interfaces | Calling/extending code paths correctly |
-| `data_models.md` | `JobPosting`, SQLite tables (`job_postings`, `crawl_history`, `daily_stats`, `tailor_runs`, `review_runs`, `apply_runs`, `apply_handoffs`), and agent I/O models | Schema questions and persistence mapping |
-| `workflows.md` | End-to-end sequence diagrams and runbooks for discovery, gate, tailor, review, and apply loops | Operational understanding and troubleshooting |
-| `dependencies.md` | Python/runtime/system dependencies, env vars, service assumptions | Host setup and production readiness |
-| `codebase_info.md` | Repository orientation, key directories, entrypoints, and deployment assets | Fast onboarding |
-| `review_notes.md` | Known gaps, risks, and unresolved autonomy issues | Planning hardening work |
+## Repository at a glance
 
-## Quick Answers
-- **Main pipeline stages?** `main.py` (discovery), `scripts/process_new_jobs.py` (gate), `scripts/process_qualified_jobs.py` (tailor), `scripts/process_reviewed_resumes.py` (review), `scripts/process_apply_jobs.py` (browser apply).
-- **Queue boundaries?** `job_postings` (`NEW` -> `QUALIFIED/FILTERED`) and run tables (`tailor_runs`, `review_runs`, `apply_runs`) with claim-token leasing; `apply_handoffs` stores human-review checkpoints for `NEEDS_REVIEW` apply outcomes.
-- **Does apply auto-submit now?** No. Current browser worker records diagnostics and returns `NEEDS_REVIEW`; submit action is intentionally not implemented yet.
-- **Does status CLI show apply/tailor/review metrics?** Not currently. `scripts/status.py` mainly reports job/crawl/daily stats plus gate retry metrics.
+The repo implements a staged job automation pipeline: discovery writes normalized jobs to SQLite, then workers process NEW → QUALIFIED/FILTERED (gate), QUALIFIED → tailored resume runs, tailored runs → review verdicts, and review-success rows → browser apply diagnostics/handoffs (`main.py:524-656`, `scripts/process_new_jobs.py:231-344`, `scripts/process_qualified_jobs.py:360-499`, `scripts/process_reviewed_resumes.py:432-619`, `scripts/process_apply_jobs.py:368-569`).
 
-## Source of Truth
-If code and docs conflict, treat source code as authoritative and update these spec files accordingly.
+## Documentation map (with metadata)
+
+| File | Tags | Purpose | Read when you need |
+|---|---|---|---|
+| `.aqa/spec/spec.md` | `overview`, `synthesis`, `entry-summary` | Cohesive end-to-end narrative, key architecture, risks, and reading guidance. | A full understanding quickly, or a briefing artifact. |
+| `.aqa/spec/codebase_info.md` | `inventory`, `stack`, `languages`, `layout` | Basic codebase identity, stack, supported formats, high-level filesystem map. | Orientation, technology stack, repo shape questions. |
+| `.aqa/spec/architecture.md` | `architecture`, `topology`, `deployment` | Architectural boundaries, stage decomposition, and deployment topology. | “How is the system structured?” |
+| `.aqa/spec/components.md` | `components`, `responsibilities` | Major modules/classes/scripts and ownership boundaries. | “Which component owns X?” |
+| `.aqa/spec/interfaces.md` | `api`, `cli`, `contracts`, `integration` | External integrations, internal queue/worker APIs, deterministic tool contracts. | CLI usage, integration points, contract semantics. |
+| `.aqa/spec/data_models.md` | `schema`, `pydantic`, `sqlite`, `entities` | Canonical models, DB tables, enums, and relationships. | Status transitions, table meanings, payload fields. |
+| `.aqa/spec/workflows.md` | `workflow`, `lifecycle`, `state-machine` | Stage-by-stage operational flows and lifecycle transitions. | Process/lifecycle/debugging flow questions. |
+| `.aqa/spec/dependencies.md` | `deps`, `runtime`, `ops` | Dependency mapping, external binaries/services, env/runtime constraints. | Install/runtime failures, dependency impact analysis. |
+| `.aqa/spec/review_notes.md` | `qa`, `gaps`, `consistency`, `risks` | Consistency/completeness audit, known gaps, recommendations. | Caveats, follow-ups, documentation quality checks. |
+| `.aqa/spec/checklist.md` | `process`, `traceability` | Workflow completion checklist for this spec run. | Verifying generation completeness. |
+
+## Relationship graph
+
+```mermaid
+graph TD
+    IDX[index.md]
+    SPEC[spec.md]
+    CBI[codebase_info.md]
+    ARCH[architecture.md]
+    COMP[components.md]
+    IFACE[interfaces.md]
+    DATA[data_models.md]
+    FLOW[workflows.md]
+    DEPS[dependencies.md]
+    REVIEW[review_notes.md]
+    CHECK[checklist.md]
+
+    IDX --> SPEC
+    IDX --> CBI
+    IDX --> ARCH
+    IDX --> COMP
+    IDX --> IFACE
+    IDX --> DATA
+    IDX --> FLOW
+    IDX --> DEPS
+    IDX --> REVIEW
+    IDX --> CHECK
+
+    SPEC --> ARCH
+    SPEC --> COMP
+    SPEC --> IFACE
+    SPEC --> DATA
+    SPEC --> FLOW
+    SPEC --> DEPS
+    SPEC --> REVIEW
+```
+
+## Query routing guide
+
+- **“How does one job move through the whole system?”** → `workflows.md` then `data_models.md`.
+- **“What tables/columns track retries and claims?”** → `data_models.md` then `interfaces.md`.
+- **“What does the apply worker actually do today?”** → `components.md` + `workflows.md` + `review_notes.md`.
+- **“What dependencies or binaries are required in production?”** → `dependencies.md`.
+- **“Where are known risks or doc gaps?”** → `review_notes.md`.
+
+## Suggested assistant prompts
+
+- “Using `index.md` + `workflows.md`, explain failure recovery semantics for each worker stage.”
+- “Using `index.md` + `data_models.md`, list all status/outcome enums and where they are persisted.”
+- “Using `index.md` + `dependencies.md`, give a production preflight checklist for homeserver deployment.”

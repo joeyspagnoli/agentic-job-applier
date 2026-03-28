@@ -1,25 +1,47 @@
 # Review Notes
 
-## Critical Gaps
-- **Auto-submit is not implemented**: apply worker currently records diagnostics and `NEEDS_REVIEW`; submit click path is still TODO in `src/agents/apply_worker/browser.py`.
-- **No job-level APPLIED transition from apply worker**: `record_apply_success` updates only `apply_runs`; `job_postings.status` is not moved to `APPLIED` by current apply pipeline.
-- **Operational visibility gap**: `scripts/status.py` does not summarize `tailor_runs`, `review_runs`, or `apply_runs`; operators must inspect SQLite directly.
+## Review execution flags
 
-## Deployment/Runtime Risks
-- **Chrome profile dependency**: apply worker expects a real Chrome profile with Simplify extension installed/authenticated.
-- **Headless display dependency**: Linux service requires Xvfb/`DISPLAY` and Chrome CDP health.
-- **Env template drift**: `.env.example` does not currently include `APPLY_*` or `CHROME_CDP_URL` settings used by apply worker.
-- **Service docs drift**: `deploy/README.md` and `QUICKSTART.md` do not yet document enabling `job-apply-chrome.service` and `job-apply-worker.service`.
-- **Credential surface**: gate/tailor/review/apply all depend on stable external credentials/tooling (`OPENAI_API_KEY`, optional `APIFY_API_TOKEN`, pi command, TeX/poppler, Chrome).
+- **Consistency check:** completed.
+- **Completeness check:** completed.
+- Consolidation was not requested for this run and remains reserved in AQA.
 
-## Behavior/Quality Risks
-- **Simplify detection is heuristic**: DOM-marker detection may miss extension activation on some pages.
-- **Confidence model is deterministic but limited**: current checks are generic and do not guarantee form completeness for all ATS variants.
-- **Retry tuning sensitivity**: conservative backoff can delay retries; aggressive settings can thrash.
+## Consistency findings
 
-## Follow-ups
-- Implement explicit submit path gated by confidence + hard-blocker checks.
-- Add persisted handoff state for human-review-required applications (beyond raw artifacts).
-- Add status CLI coverage for tailor/review/apply run tables.
-- Extend deployment docs with apply-stage prerequisites and service enable steps.
-- Add an operator command for requeue/reset across all run tables.
+1. **Model-name documentation drift (minor).**
+   - README says `OPENAI_API_KEY` is required for a `gpt-5-mini` gate (`README.md:50`), while the decider is pinned to `openai/gpt-5.1-codex-mini` (`src/agents/root_apply_decider/agent.py:19`).
+   - Recommendation: align README wording with the current pinned model string.
+
+2. **Deployment README stage coverage lag (minor).**
+   - Deployment runtime model lists handoff queues up to `review_runs` (`deploy/README.md:5-10`), but apply-stage tables (`apply_runs`, `apply_handoffs`) are now part of schema/runtime (`src/database/schema.sql:150-225`, `src/database/db_manager.py:1745-1835`).
+   - Recommendation: update deployment README runtime model bullets.
+
+3. **Apply-stage behavior vs. aspirational submit language (moderate).**
+   - Apply flow currently returns `NEEDS_REVIEW` even when `dry_run=False` (future auto-submit marked TODO) (`src/agents/apply_worker/browser.py:327-335`).
+   - Recommendation: keep docs explicit that v1 is review-first unless auto-submit branch is implemented.
+
+## Completeness findings
+
+1. **Alerting asymmetry across systemd workers (moderate).**
+   - Gate worker has `OnFailure=job-agent-alert@%n.service` (`deploy/job-agent-worker.service:5`), but tailor/review/apply units do not declare equivalent failure hooks (`deploy/job-tailor-worker.service:1-37`, `deploy/job-review-worker.service:1-37`, `deploy/job-apply-worker.service:1-38`).
+   - Recommendation: add consistent OnFailure alerts or document intentional differences.
+
+2. **Preflight-notification asymmetry in scripts (moderate).**
+   - Tailor/review send ntfy on preflight failure (`scripts/process_qualified_jobs.py:627-632`, `scripts/process_reviewed_resumes.py:719-724`), while apply preflight logs and exits without notification (`scripts/process_apply_jobs.py:655-667`).
+   - Recommendation: unify preflight failure signaling policy.
+
+3. **Deployment templates require manual replacement (operational gap).**
+   - Unit files contain placeholders (`YOUR_USERNAME`, `/path/to/agentic-job-applier`) (`deploy/job-discovery.service:8-13`, `deploy/job-agent-worker.service:9-13`, `deploy/job-tailor-worker.service:8-13`, `deploy/job-review-worker.service:8-13`, `deploy/job-apply-worker.service:9-16`).
+   - Recommendation: provide a templating script or documented checklist to reduce setup errors.
+
+## Language/support limitations and evidence gaps
+
+- The implementation is Python-first; systemd/bash/sql/yaml behavior is covered as config/runtime artifacts, not as fully executable typed modules (`main.py:7-26`, `deploy/start-chrome-cdp.sh:1-38`, `src/database/schema.sql:1-225`).
+- This spec run focused on active code paths and did not treat non-runtime note/reference directories as first-class architecture surfaces.
+
+## Recommended follow-up tasks
+
+1. Update README/deploy docs for model string and apply-stage queue additions.
+2. Normalize failure alerting across all worker services/scripts.
+3. Decide and document whether auto-submit in apply worker is in-scope for next milestone.
+4. Add a deployment bootstrap helper to render unit files from environment-aware templates.
