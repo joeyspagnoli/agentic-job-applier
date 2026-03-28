@@ -12,8 +12,8 @@
 - [x] Knowledge base index (.aqa/spec/index.md)
 - [x] Metadata updated (.aqa/spec/metadata.json)
 
-## Last Sync: 2026-03-24
-- Full sync from source code analysis (5 parallel agents + manual src/agents/ review)
-- Major additions: shared model helper, claim-based queue processing, title filtering, status script, FetchError, paths utility, fit-score analysis, backup/restore tools
-- Model updated to openai/gpt-5.1-codex-mini across all agents
-- All line counts and references updated to match current source
+## Last Sync: 2026-03-26
+- Source snapshot commit: `5bc956cb6bb5eb6c58087a6d91660466276ca2ce`
+- Prior snapshot commit: `9a9a21963754b07ec8d35ddc67c39cfdd8f9620b`
+- Full sync includes browser apply stage (`apply_runs`, apply worker, CDP Chrome services) and refreshed line counts
+- Spec corrected where previous docs overstated status-script coverage (status script currently focuses on job/crawl/daily/gate visibility)

@@ -191,3 +191,35 @@ CREATE INDEX IF NOT EXISTS idx_apply_runs_status ON apply_runs(status);
 CREATE INDEX IF NOT EXISTS idx_apply_runs_started_at ON apply_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_apply_runs_review_run_id ON apply_runs(review_run_id);
 CREATE INDEX IF NOT EXISTS idx_apply_runs_outcome ON apply_runs(outcome);
+
+-- Human-review handoff queue for apply-stage dry-run outcomes
+CREATE TABLE IF NOT EXISTS apply_handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apply_run_id INTEGER NOT NULL UNIQUE,
+    job_hash TEXT NOT NULL,
+    review_run_id INTEGER NOT NULL,
+    handoff_status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+    apply_outcome TEXT NOT NULL,
+    resume_source TEXT,
+    resume_pdf_path TEXT,
+    confidence_score REAL,
+    confidence_report_json TEXT,
+    unresolved_fields_json TEXT,
+    screenshot_path TEXT,
+    dom_snapshot_path TEXT,
+    ats_platform TEXT,
+    page_url TEXT,
+    reviewer_notes TEXT,
+    reviewed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')),
+    CHECK (apply_outcome IN (
+        'NEEDS_REVIEW', 'SUBMITTED',
+        'FAILED_PREFILL', 'FAILED_UPLOAD', 'FAILED_NAVIGATION', 'FAILED_OTHER'
+    ))
+);
+CREATE INDEX IF NOT EXISTS idx_apply_handoffs_status ON apply_handoffs(handoff_status);
+CREATE INDEX IF NOT EXISTS idx_apply_handoffs_job_hash ON apply_handoffs(job_hash);
+CREATE INDEX IF NOT EXISTS idx_apply_handoffs_review_run_id
+    ON apply_handoffs(review_run_id);

@@ -2,34 +2,34 @@
 
 Use this file as the primary context for assistants. It links to detailed specs with short summaries and guidance on where to look for specific answers.
 
+## Snapshot
+- Spec sync date: 2026-03-26
+- Source commit: `5bc956cb6bb5eb6c58087a6d91660466276ca2ce`
+- Prior commit: `9a9a21963754b07ec8d35ddc67c39cfdd8f9620b`
+
 ## How to Use
-- Start here. Follow the table below to jump to the right document.
-- For architecture/flow questions, read `architecture.md` and `workflows.md`.
-- For field-level or storage questions, use `data_models.md` and `dependencies.md`.
-- For operational tasks or scripts, see `workflows.md` and `interfaces.md`.
-- For open issues or risks, see `review_notes.md`.
+- Start here and jump into the relevant file by topic.
+- For runtime flow and queue boundaries, read `architecture.md` then `workflows.md`.
+- For DB fields and state transitions, read `data_models.md` and `interfaces.md`.
+- For operational setup and prerequisites, read `dependencies.md` and `review_notes.md`.
 
 ## Table of Contents
 | File | What it covers | When to read |
 | --- | --- | --- |
-| `architecture.md` | System overview (orchestrator, fetchers, DB, agents, deployment) with Mermaid diagram; shared agent infrastructure; claim-based queue processing | Understanding high-level design or data/control flow |
-| `components.md` | Responsibilities of each major module (orchestrator, DB, fetchers, dedup, agents, shared model helper, scripts, config, deployment, test suite) with line counts | Locating code by responsibility |
-| `interfaces.md` | Public interfaces: fetcher contracts, DB manager methods (1784 lines), CLI entrypoints, config inputs, deployment units | Implementing/extending integrations or calling scripts |
-| `data_models.md` | Pydantic JobPosting schema (223 lines), SQLite tables (148 lines schema), agent I/O schema, resume tailor/review models | Schema/field questions and persistence mapping |
-| `workflows.md` | End-to-end discovery cycle (with title filtering), agent decision loop, tailor/review worker loops, utility CLIs, deployment flow (Mermaid sequences) | How processes run in order; operational runbooks |
-| `dependencies.md` | Python deps (26 runtime + 3 dev), external services (Greenhouse, Apify, JobSpy, OpenAI/LiteLLM), env vars, runtime/platform, systemd details | Environment setup, required keys, platform assumptions |
-| `codebase_info.md` | Languages, directories, entrypoints, configs, deployment locations, test suite (33 files) | Quick orientation to repo layout and tools |
-| `review_notes.md` | Gaps/risks (claim lease, credential needs, salary intervals) and follow-ups | Known issues and remediation checklist |
+| `architecture.md` | High-level producer/consumer design, queue tables, and all workers (gate, tailor, review, browser apply) | Understanding system shape and control flow |
+| `components.md` | Module-by-module responsibilities with current line counts | Locating implementation by responsibility |
+| `interfaces.md` | Fetcher contracts, DB manager methods (2188 lines), worker CLIs, deployment interfaces | Calling/extending code paths correctly |
+| `data_models.md` | `JobPosting`, SQLite tables (`job_postings`, `crawl_history`, `daily_stats`, `tailor_runs`, `review_runs`, `apply_runs`, `apply_handoffs`), and agent I/O models | Schema questions and persistence mapping |
+| `workflows.md` | End-to-end sequence diagrams and runbooks for discovery, gate, tailor, review, and apply loops | Operational understanding and troubleshooting |
+| `dependencies.md` | Python/runtime/system dependencies, env vars, service assumptions | Host setup and production readiness |
+| `codebase_info.md` | Repository orientation, key directories, entrypoints, and deployment assets | Fast onboarding |
+| `review_notes.md` | Known gaps, risks, and unresolved autonomy issues | Planning hardening work |
 
 ## Quick Answers
-- **Where is the main pipeline?** Discovery producer is `main.py` (693 lines); gate consumer is `scripts/process_new_jobs.py` (483 lines); queue boundary is SQLite `job_postings` NEW rows claimed via atomic tokens [architecture.md](architecture.md).
-- **How are jobs stored?** SQLite schema (148 lines) includes `job_postings` (with claim columns), `crawl_history`, `daily_stats`, `tailor_runs`, and `review_runs`; JobPosting maps via `to_db_dict()` [data_models.md](data_models.md).
-- **How to run it autonomously?** Enable `job-discovery.timer`, `job-agent-worker.service`, `job-tailor-worker.service`, and `job-review-worker.service`; see deployment workflow docs [workflows.md](workflows.md).
-- **How to decide apply/skip?** Configure `OPENAI_API_KEY` and run `scripts/process_new_jobs.py`; uses `openai/gpt-5.1-codex-mini` via LiteLLM; retries and terminal alerts are env-configurable.
-- **How to run resume tailoring?** Use `scripts/migrate_resume_tex_to_yaml.py` to bootstrap YAML, then either `scripts/run_resume_tailor.py` for one-shot or `scripts/process_qualified_jobs.py --loop` for autonomous daemon. Requires pi-mono and latexmk.
-- **How to run resume review?** Use `scripts/process_reviewed_resumes.py --once` for one-shot or `--loop` for autonomous review queue processing. Requires pi-mono, latexmk, and poppler CLIs (`pdfinfo`, `pdftotext`, `pdftoppm`).
-- **How to check pipeline status?** Run `scripts/status.py` for a terminal summary of job counts, crawl history, tailor/review statistics.
-- **What configs matter?** `companies.yaml`, `search_criteria.yaml`, `candidate_profile.yaml`, `resume_content.yaml`, `resume_base.{tex,pdf}`, and `.env` runtime/retry/alert vars [dependencies.md](dependencies.md).
+- **Main pipeline stages?** `main.py` (discovery), `scripts/process_new_jobs.py` (gate), `scripts/process_qualified_jobs.py` (tailor), `scripts/process_reviewed_resumes.py` (review), `scripts/process_apply_jobs.py` (browser apply).
+- **Queue boundaries?** `job_postings` (`NEW` -> `QUALIFIED/FILTERED`) and run tables (`tailor_runs`, `review_runs`, `apply_runs`) with claim-token leasing; `apply_handoffs` stores human-review checkpoints for `NEEDS_REVIEW` apply outcomes.
+- **Does apply auto-submit now?** No. Current browser worker records diagnostics and returns `NEEDS_REVIEW`; submit action is intentionally not implemented yet.
+- **Does status CLI show apply/tailor/review metrics?** Not currently. `scripts/status.py` mainly reports job/crawl/daily stats plus gate retry metrics.
 
 ## Source of Truth
-Citations in each document point to code paths and line numbers. If conflicting, prefer source code over narrative and update `review_notes.md` with discrepancies.
+If code and docs conflict, treat source code as authoritative and update these spec files accordingly.

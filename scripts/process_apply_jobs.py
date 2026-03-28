@@ -47,6 +47,7 @@ DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER = 2
 DEFAULT_APPLY_OUTPUT_DIR = "data/apply_runs"
 DEFAULT_APPLY_DRY_RUN = True
 SQLITE_UTC_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+HUMAN_REVIEW_HANDOFF_OUTCOME = ApplyOutcome.NEEDS_REVIEW.value
 
 _JOB_HASH_RE = re.compile(r"^[a-f0-9]{32,64}$")
 
@@ -481,6 +482,9 @@ async def _apply_once(
 
     # Persist the result
     if result.success:
+        resolved_outcome = (
+            result.outcome.value if result.outcome else HUMAN_REVIEW_HANDOFF_OUTCOME
+        )
         confidence_json = (
             result.confidence_report.model_dump_json()
             if result.confidence_report
@@ -497,7 +501,7 @@ async def _apply_once(
 
         await db.record_apply_success(
             run_id=run_id,
-            outcome=result.outcome.value if result.outcome else "NEEDS_REVIEW",
+            outcome=resolved_outcome,
             resume_pdf_path=str(resume_pdf_path),
             resume_source=resume_source,
             confidence_score=result.confidence_score,
@@ -515,6 +519,26 @@ async def _apply_once(
             ),
             page_url=result.page_url,
         )
+
+        if resolved_outcome == HUMAN_REVIEW_HANDOFF_OUTCOME:
+            await db.record_apply_handoff(
+                apply_run_id=run_id,
+                job_hash=job_hash,
+                review_run_id=review_run_id,
+                apply_outcome=resolved_outcome,
+                resume_source=resume_source,
+                resume_pdf_path=str(resume_pdf_path),
+                confidence_score=result.confidence_score,
+                confidence_report_json=confidence_json,
+                unresolved_fields_json=unresolved_json,
+                screenshot_path=result.screenshot_path,
+                dom_snapshot_path=result.dom_snapshot_path,
+                ats_platform=(
+                    result.ats_platform.value if result.ats_platform else None
+                ),
+                page_url=result.page_url,
+            )
+
         logger.info(
             "Apply run {} completed: outcome={} score={:.4f} for job_hash={}",
             run_id,

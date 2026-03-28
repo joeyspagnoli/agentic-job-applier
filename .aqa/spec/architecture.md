@@ -1,124 +1,73 @@
 # Architecture
 
 ## Overview
-The runtime is a producer/consumer pipeline on a shared SQLite queue:
-- `main.py` (producer) discovers jobs, applies title filtering, and inserts rows with `status='NEW'`.
-- `scripts/process_new_jobs.py` (consumer) claims NEW backlog via atomic claim tokens, calls the root gate agent, and persists `QUALIFIED`/`FILTERED` decisions.
-- Retry metadata (`agent_retry_count`, `agent_next_retry_at`) allows bounded retries before terminal failure (`agent_failed_at`), with optional ntfy alerts.
-- `scripts/process_qualified_jobs.py` runs autonomous tailoring for QUALIFIED jobs and stores artifact metadata in `tailor_runs`.
-- `scripts/process_reviewed_resumes.py` runs autonomous post-tailor review and stores verdict/diagnostics in `review_runs`.
+The runtime is a staged producer/consumer pipeline coordinated through SQLite.
+
+- `main.py` discovers and inserts `NEW` jobs.
+- `scripts/process_new_jobs.py` claims NEW/retry-ready jobs and writes gate decisions (`QUALIFIED` or `FILTERED`).
+- `scripts/process_qualified_jobs.py` claims QUALIFIED jobs and persists tailoring attempts in `tailor_runs`.
+- `scripts/process_reviewed_resumes.py` claims successful tailor runs and persists review verdicts in `review_runs`.
+- `scripts/process_apply_jobs.py` claims successful review runs and persists browser apply diagnostics in `apply_runs`.
 
 ```mermaid
 flowchart TD
     timer["job-discovery.timer"]
-    discovery["main.py discovery producer"]
-    worker["process_new_jobs.py --loop consumer"]
-    tailor["process_qualified_jobs.py --loop tailor"]
-    review["process_reviewed_resumes.py --loop review"]
-    db["SQLite job_postings + tailor_runs + review_runs"]
-    gate["RootApplyDecider (ADK + LiteLLM)"]
-    pi["pi-mono coding agent"]
-    ntfy["ntfy.sh (optional alerts)"]
+    discovery["main.py discovery"]
+    gate["process_new_jobs.py --loop"]
+    tailor["process_qualified_jobs.py --loop"]
+    review["process_reviewed_resumes.py --loop"]
+    apply["process_apply_jobs.py --loop"]
+    chrome["job-apply-chrome.service\nChrome + CDP + Simplify profile"]
+    db["SQLite: job_postings + tailor_runs + review_runs + apply_runs"]
+    adk["RootApplyDecider (ADK/LiteLLM)"]
+    pi["pi-mono runtime"]
+    pw["Playwright CDP browser worker"]
 
     timer --> discovery
-    discovery -->|insert NEW jobs| db
-    worker -->|claim pending NEW/retry-ready| db
-    worker --> gate
-    gate -->|APPLY/SKIP| worker
-    worker -->|persist QUALIFIED/FILTERED| db
-    worker -->|terminal failure alert| ntfy
-    tailor -->|claim QUALIFIED jobs| db
+    discovery -->|insert NEW| db
+
+    gate -->|claim NEW/retry-ready| db
+    gate --> adk
+    adk -->|APPLY/SKIP| gate
+    gate -->|persist QUALIFIED/FILTERED + retry metadata| db
+
+    tailor -->|claim QUALIFIED| db
     tailor --> pi
-    pi -->|tailored resume| tailor
+    pi --> tailor
     tailor -->|record SUCCESS/FAILED| db
-    tailor -->|failure alert| ntfy
-    review -->|claim SUCCESS tailor runs| db
+
+    review -->|claim tailor SUCCESS| db
     review --> pi
-    pi -->|review verdict + report| review
-    review -->|record SUCCESS/FAILED + fallback refs| db
-    review -->|terminal failure alert| ntfy
+    pi --> review
+    review -->|record verdict/report| db
+
+    apply -->|claim review SUCCESS verdict PASS/TAILORED/BASE| db
+    apply --> pw
+    chrome --> pw
+    pw -->|screenshot + DOM + confidence + unresolved fields| apply
+    apply -->|record SUCCESS/FAILED in apply_runs| db
 ```
 
-## Discovery Side
-- `main.py` loads `companies.yaml` and optional `search_criteria.yaml` + `candidate_profile.yaml`, resolves default board search terms, fetches Greenhouse/Workday/JobSpy jobs, applies title include-pattern filtering, deduplicates, and inserts into SQLite.
-- Job board terms are config-driven with fallback defaults derived from profile/search config rather than hardcoded senior-role terms.
-- Title filtering is driven by `include_title_patterns` in `candidate_profile.yaml` and `search_criteria.yaml`.
+## Persistence Design
+- Queue state is split between coarse `job_postings.status` and per-stage run tables.
+- Claiming is transaction-based (`BEGIN IMMEDIATE`) with lease windows to avoid double-processing.
+- Stage retries are tracked per stage table/columns (gate on `job_postings`, tailor/review/apply in run tables).
 
-## Shared Agent Infrastructure
-- `src/agents/shared/model.py` provides `build_openai_litellm_model(model_name)` which centralizes OpenAI credential validation and LiteLLM import handling for all ADK agent packages.
-- All agent packages use the model `openai/gpt-5.1-codex-mini` by default.
+## Gate Stage
+- Uses shared model bootstrap in `src/agents/shared/model.py`.
+- Default model is `openai/gpt-5.1-codex-mini`.
+- Parsed decision is strict JSON recovery; no plain-text fallback path.
 
-## Queue + Persistence
-- `src/database/schema.sql` defines queue and stats tables and includes:
-  - retry columns: `agent_retry_count`, `agent_next_retry_at`
-  - claim columns: `agent_claim_token`, `agent_claimed_at`
-- `DatabaseManager` (1784 lines) owns:
-  - claim-based queue selection (`get_jobs_pending_agent_processing` with `BEGIN IMMEDIATE` + claim tokens)
-  - success persistence (`record_agent_decision`)
-  - transient retry persistence (`record_agent_retry`)
-  - terminal failure marking (`mark_job_agent_terminal_failed`)
-  - manual requeue support (`reset_agent_failure_state`)
-  - job context retrieval (`get_resume_tailor_job_context`, `get_job_by_id`, `get_job_by_hash`)
-  - batch dedup lookup (`get_existing_job_hashes` with chunked IN-clauses)
+## Tailor + Review Stages
+- Tailor stage enforces one-page output from canonical YAML resume content.
+- Review stage enforces strict report schema and artifact selection semantics.
+- Review success verdicts (`PASS`, `TAILORED`, `BASE`) feed apply-stage eligibility.
 
-## Gate Worker
-- `scripts/process_new_jobs.py`:
-  - claims pending jobs via atomic claim tokens (BEGIN IMMEDIATE)
-  - processes full pending backlog (bounded by per-cycle `--limit`)
-  - uses `run_decider_for_job` from `src/agents/root_apply_decider/runtime.py`
-  - retries per job using configurable backoff
-  - marks terminal failure after max retries
-  - sends optional ntfy alerts for terminal failures and startup config failures
-- `scripts/run_pipeline_once.py` provides a one-shot orchestrator (`discovery -> one gate batch`) for operations and testing.
-
-## Resume Tailor Worker (Autonomous)
-- `scripts/process_qualified_jobs.py` is the autonomous tailor worker daemon.
-- Claims QUALIFIED jobs from SQLite via atomic `BEGIN IMMEDIATE` transactions with claim tokens.
-- State tracked in a separate `tailor_runs` table (PENDING -> SUCCESS/FAILED) with retry backoff.
-- Invokes `run_resume_tailor_pipeline` from `src/agents/resume_tailor_pi/` for each claimed job.
-- Copies `config/resume_content.yaml` into a per-run YAML work file and never mutates the canonical baseline.
-- Preflight checks validate `pi` command, `latexmk`, and database path before entering the loop.
-- Generated artifacts land in `data/tailored_resumes/<job_hash>/resume_tailored.{tex,pdf}` plus `resume_content_work.yaml`.
-- Supports both `--once` (one-shot) and `--loop` (persistent daemon) modes.
-- Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_RETRY_BACKOFF_SECONDS`, `TAILOR_RETRY_BACKOFF_MULTIPLIER`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`.
-
-## Resume Review Worker (Autonomous)
-- `scripts/process_reviewed_resumes.py` is the autonomous review worker daemon.
-- Claims successful tailor runs via atomic `BEGIN IMMEDIATE` transactions and tracks attempts in `review_runs`.
-- Invokes `run_resume_review_pipeline` from `src/agents/resume_review_pi/` for each claimed run.
-- Runtime is hard-error only (timeout/crash/missing-report/invalid-schema/missing-selected-artifacts); verdict quality judgment is agent-authored.
-- Persists agent diagnostics (`agent_stdout`, `agent_stderr`) and base fallback refs on hard runtime failures.
-- Uses base reference artifacts (`resume_base.{tex,pdf}`) generated from `config/resume_content.yaml` for compare-to-base checks.
-- Supports `--once` and `--loop` modes with retry backoff.
-- Environment knobs: `REVIEW_POLL_INTERVAL_SECONDS`, `REVIEW_MAX_RETRIES`, `REVIEW_RETRY_BACKOFF_SECONDS`, `REVIEW_RETRY_BACKOFF_MULTIPLIER`, `REVIEW_CLAIM_LEASE_SECONDS`, `REVIEW_OUTPUT_DIR`.
-
-## Resume Tailor Pipeline (Pi-Mono)
-- Canonical source of truth is `config/resume_content.yaml`; generated `.tex` is an artifact.
-- Tools-first command surface lives in `scripts/resume_tailor_tools.py`:
-  - `db-get-job-context`
-  - `load-resume-yaml` / `save-resume-yaml`
-  - `backup-resume-yaml` / `restore-resume-yaml`
-  - `render-resume-tex`
-  - `compile-resume`
-  - `get-page-count`
-- Tailor prompts include a fit-score analysis step (score 1-10); tailoring is skipped when score >= 8.
-- Runtime loop in `src/agents/resume_tailor_pi/runtime.py`:
-  - initial content pass
-  - exactly two content readjust retries on overflow
-  - bounded balanced layout compression fallback
-  - explicit failure if output still exceeds one page
-- Optional per-run branch isolation is supported through `--create-git-branch`.
-
-## Prompt/Profile
-- Gate prompt candidate context is config-backed:
-  - primary source: `config/candidate_profile.yaml`
-  - optional override: `CANDIDATE_PROFILE_PATH`
-  - fallback: built-in context string in prompts module
-- Gate parser no longer uses plain-text decision fallback; APPLY/SKIP must be recovered from structured JSON.
+## Apply Stage
+- Apply worker requires reachable Chrome CDP endpoint and Playwright.
+- Browser flow: navigate, detect Simplify, attempt autofill trigger, upload resume, scan unresolved fields, compute deterministic confidence, persist artifacts.
+- Current behavior does not execute final submit click; outcomes currently remain review-required (`NEEDS_REVIEW`) even when run is technically successful.
 
 ## Deployment Topology
-- `deploy/job-discovery.timer` + `deploy/job-discovery.service` for periodic producer runs.
-- `deploy/job-agent-worker.service` for continuous gate queue draining.
-- `deploy/job-tailor-worker.service` for continuous tailor queue draining (persistent daemon, `Restart=always`, 30s backoff). Requires pi-mono and latexmk.
-- `deploy/job-review-worker.service` for continuous review queue draining (persistent daemon, `Restart=always`, 30s backoff). Requires pi-mono, latexmk, and poppler CLIs.
-- Optional `deploy/job-agent-alert@.service` as a systemd `OnFailure` hook.
+- systemd unit set includes discovery timer, gate worker, tailor worker, review worker, apply worker, and a dedicated Chrome CDP unit for browser automation.
+- Apply worker service depends on Chrome CDP unit and X display (`DISPLAY=:99`).

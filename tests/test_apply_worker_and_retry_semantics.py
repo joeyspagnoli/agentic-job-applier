@@ -774,6 +774,140 @@ async def test_mark_stale_apply_runs_failed_releases_claim_for_retry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_apply_once_persists_handoff_when_outcome_needs_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify apply loop persists handoff rows for NEEDS_REVIEW outcomes.
+
+    Purpose:
+        Ensure operator-review persistence is written whenever a successful
+        apply attempt stops at NEEDS_REVIEW (dry-run or submit-not-implemented).
+    Args:
+        monkeypatch: Fixture used to inject deterministic browser responses.
+        tmp_path: Temporary directory for deterministic resume artifact paths.
+    Output:
+        Returns `None`; test passes when handoff persistence is invoked once.
+    """
+
+    selected_pdf = tmp_path / "selected.pdf"
+    selected_pdf.write_bytes(b"%PDF-1.4")
+
+    class FakeDB:
+        """Capture apply persistence calls for one deterministic apply cycle.
+
+        Purpose:
+            Keep `_apply_once` tests focused on orchestration behavior without
+            creating a full SQLite database fixture.
+        """
+
+        def __init__(self) -> None:
+            """Initialize deterministic claim payload and call collectors.
+
+            Purpose:
+                Seed one eligible claimed row and empty call history lists.
+            Args:
+                None.
+            Output:
+                Returns `None`.
+            """
+
+            self.success_calls: list[dict[str, object]] = []
+            self.handoff_calls: list[dict[str, object]] = []
+
+        async def claim_next_apply_job(self, **_: object) -> dict[str, object]:
+            """Return one pre-claimed apply candidate row.
+
+            Purpose:
+                Simulate queue claim behavior needed by `_apply_once`.
+            Args:
+                **_: Ignored keyword arguments from production call site.
+            Output:
+                Returns a single claimed-row payload.
+            """
+
+            return {
+                "_apply_run_id": 77,
+                "job_hash": "a" * 32,
+                "review_run_id": 88,
+                "source_url": "https://example.com/jobs/77",
+                "review_verdict": "PASS",
+                "selected_pdf_path": str(selected_pdf),
+                "fallback_base_pdf_path": str(selected_pdf),
+            }
+
+        async def record_apply_success(self, **kwargs: object) -> None:
+            """Store apply-success payload for later assertions.
+
+            Purpose:
+                Verify `_apply_once` writes expected success persistence data.
+            Args:
+                **kwargs: Keyword payload forwarded from `_apply_once`.
+            Output:
+                Returns `None` after recording one call.
+            """
+
+            self.success_calls.append(dict(kwargs))
+
+        async def record_apply_handoff(self, **kwargs: object) -> None:
+            """Store handoff payload for later assertions.
+
+            Purpose:
+                Verify `_apply_once` emits operator handoff persistence.
+            Args:
+                **kwargs: Keyword payload forwarded from `_apply_once`.
+            Output:
+                Returns `None` after recording one call.
+            """
+
+            self.handoff_calls.append(dict(kwargs))
+
+    async def fake_apply_to_job(**_: object) -> browser.ApplyRunResult:
+        """Return deterministic NEEDS_REVIEW run result for orchestration tests.
+
+        Purpose:
+            Isolate `_apply_once` persistence behavior from browser internals.
+        Args:
+            **_: Ignored keyword args from production call site.
+        Output:
+            Returns a successful `ApplyRunResult` with NEEDS_REVIEW outcome.
+        """
+
+        return browser.ApplyRunResult(
+            success=True,
+            outcome=ApplyOutcome.NEEDS_REVIEW,
+            confidence_score=0.82,
+            confidence_report=_build_confidence_report(),
+            screenshot_path=str(tmp_path / "screenshot.png"),
+            dom_snapshot_path=str(tmp_path / "dom.html"),
+            unresolved_fields=[],
+            ats_platform=ATSPlatform.GREENHOUSE,
+            page_url="https://boards.greenhouse.io/example/jobs/77",
+        )
+
+    monkeypatch.setattr(process_apply_jobs, "apply_to_job", fake_apply_to_job)
+
+    fake_db = FakeDB()
+    processed_count = await process_apply_jobs._apply_once(
+        db=fake_db,  # type: ignore[arg-type]
+        output_base_dir=tmp_path,
+        cdp_url="http://localhost:9222",
+        max_retries=2,
+        lease_seconds=60,
+        backoff_seconds=5,
+        backoff_multiplier=2,
+        dry_run=True,
+    )
+
+    assert processed_count == 1
+    assert len(fake_db.success_calls) == 1
+    assert len(fake_db.handoff_calls) == 1
+    assert fake_db.handoff_calls[0]["apply_run_id"] == 77
+    assert fake_db.handoff_calls[0]["review_run_id"] == 88
+    assert fake_db.handoff_calls[0]["apply_outcome"] == "NEEDS_REVIEW"
+
+
+@pytest.mark.asyncio
 async def test_scan_unresolved_fields_logs_iframe_scan_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1795,6 +1795,39 @@ class DatabaseManager:
                 ON apply_runs(review_run_id);
             CREATE INDEX IF NOT EXISTS idx_apply_runs_outcome
                 ON apply_runs(outcome);
+            CREATE TABLE IF NOT EXISTS apply_handoffs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                apply_run_id INTEGER NOT NULL UNIQUE,
+                job_hash TEXT NOT NULL,
+                review_run_id INTEGER NOT NULL,
+                handoff_status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+                apply_outcome TEXT NOT NULL,
+                resume_source TEXT,
+                resume_pdf_path TEXT,
+                confidence_score REAL,
+                confidence_report_json TEXT,
+                unresolved_fields_json TEXT,
+                screenshot_path TEXT,
+                dom_snapshot_path TEXT,
+                ats_platform TEXT,
+                page_url TEXT,
+                reviewer_notes TEXT,
+                reviewed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')),
+                CHECK (apply_outcome IN (
+                    'NEEDS_REVIEW', 'SUBMITTED',
+                    'FAILED_PREFILL', 'FAILED_UPLOAD',
+                    'FAILED_NAVIGATION', 'FAILED_OTHER'
+                ))
+            );
+            CREATE INDEX IF NOT EXISTS idx_apply_handoffs_status
+                ON apply_handoffs(handoff_status);
+            CREATE INDEX IF NOT EXISTS idx_apply_handoffs_job_hash
+                ON apply_handoffs(job_hash);
+            CREATE INDEX IF NOT EXISTS idx_apply_handoffs_review_run_id
+                ON apply_handoffs(review_run_id);
             """
         )
         await conn.commit()
@@ -2082,6 +2115,149 @@ class DatabaseManager:
             ),
         )
         await conn.commit()
+
+    async def record_apply_handoff(
+        self,
+        *,
+        apply_run_id: int,
+        job_hash: str,
+        review_run_id: int,
+        apply_outcome: str,
+        resume_source: str | None,
+        resume_pdf_path: str | None,
+        confidence_score: float | None,
+        confidence_report_json: str | None,
+        unresolved_fields_json: str | None,
+        screenshot_path: str | None,
+        dom_snapshot_path: str | None,
+        ats_platform: str | None,
+        page_url: str | None,
+    ) -> None:
+        """Create or update a human-review handoff row for one apply attempt.
+
+        Purpose:
+            Persist a stable operator-review checkpoint keyed to apply run ID
+            so dry-run outcomes can be audited and approved asynchronously.
+        Args:
+            self: The database manager writing the handoff checkpoint.
+            apply_run_id: Primary key of the associated `apply_runs` row.
+            job_hash: Stable job identifier associated with the run.
+            review_run_id: Source review run that fed apply-stage eligibility.
+            apply_outcome: Apply outcome enum captured from browser execution.
+            resume_source: Whether TAILORED or BASE resume was used.
+            resume_pdf_path: Path to the uploaded resume PDF.
+            confidence_score: Final weighted confidence score.
+            confidence_report_json: Serialized confidence-check breakdown.
+            unresolved_fields_json: Serialized unresolved-field metadata.
+            screenshot_path: Path to pre-submit screenshot artifact.
+            dom_snapshot_path: Path to captured DOM snapshot artifact.
+            ats_platform: Detected ATS platform slug.
+            page_url: Final in-browser URL after automation steps.
+        Output:
+            Returns `None` after upserting handoff persistence state.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            INSERT INTO apply_handoffs (
+                apply_run_id,
+                job_hash,
+                review_run_id,
+                handoff_status,
+                apply_outcome,
+                resume_source,
+                resume_pdf_path,
+                confidence_score,
+                confidence_report_json,
+                unresolved_fields_json,
+                screenshot_path,
+                dom_snapshot_path,
+                ats_platform,
+                page_url
+            )
+            VALUES (?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(apply_run_id) DO UPDATE SET
+                job_hash = excluded.job_hash,
+                review_run_id = excluded.review_run_id,
+                apply_outcome = excluded.apply_outcome,
+                resume_source = excluded.resume_source,
+                resume_pdf_path = excluded.resume_pdf_path,
+                confidence_score = excluded.confidence_score,
+                confidence_report_json = excluded.confidence_report_json,
+                unresolved_fields_json = excluded.unresolved_fields_json,
+                screenshot_path = excluded.screenshot_path,
+                dom_snapshot_path = excluded.dom_snapshot_path,
+                ats_platform = excluded.ats_platform,
+                page_url = excluded.page_url,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                apply_run_id,
+                job_hash,
+                review_run_id,
+                apply_outcome,
+                resume_source,
+                resume_pdf_path,
+                confidence_score,
+                confidence_report_json,
+                unresolved_fields_json,
+                screenshot_path,
+                dom_snapshot_path,
+                ats_platform,
+                page_url,
+            ),
+        )
+        await conn.commit()
+
+    async def get_apply_handoffs(
+        self,
+        *,
+        handoff_status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Fetch persisted apply handoffs for operator review workflows.
+
+        Purpose:
+            Provide deterministic read access to apply-stage handoff records
+            for tooling and test assertions.
+        Args:
+            self: The database manager loading handoff rows.
+            handoff_status: Optional status filter.
+            limit: Maximum number of rows to return, clamped to at least 1.
+        Output:
+            Returns newest-first handoff rows as dictionaries.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        safe_limit = max(limit, 1)
+
+        if handoff_status is None:
+            cursor = await conn.execute(
+                """
+                SELECT *
+                FROM apply_handoffs
+                ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            )
+        else:
+            cursor = await conn.execute(
+                """
+                SELECT *
+                FROM apply_handoffs
+                WHERE handoff_status = ?
+                ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (handoff_status, safe_limit),
+            )
+
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
     async def mark_stale_apply_runs_failed(
         self,
