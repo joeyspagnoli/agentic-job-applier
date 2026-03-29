@@ -15,7 +15,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { FailuresPage } from "@/pages/FailuresPage";
 import { HumanReviewPage } from "@/pages/HumanReviewPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
+import { CostTrackingPage } from "@/pages/CostTrackingPage";
+import { JobsPage } from "@/pages/JobsPage";
 
 /**
  * Root React application component.
@@ -28,10 +29,10 @@ export default function App(): JSX.Element {
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
-          <Route path="jobs" element={<PlaceholderPage name="Jobs" />} />
+          <Route path="jobs" element={<JobsPage />} />
           <Route path="human-review" element={<HumanReviewPage />} />
           <Route path="failures" element={<FailuresPage />} />
-          <Route path="cost-tracking" element={<PlaceholderPage name="Cost Tracking" />} />
+          <Route path="cost-tracking" element={<CostTrackingPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
