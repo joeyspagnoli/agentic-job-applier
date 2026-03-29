@@ -1,0 +1,74 @@
+# Pre-gate filtering rules for job discovery.
+# Hard filters reject jobs before they enter the database.
+# Soft filters auto-categorize jobs to skip the gate agent when the decision is obvious.
+
+hard_filters:
+  # Job types to reject outright (case-insensitive match against normalized job_type).
+  # Valid values: "Full-time", "Part-time", "Contract", "Internship"
+  exclude_job_types:
+    - "Full-time"
+
+  # Regex patterns — a job whose title matches ANY of these is rejected.
+  exclude_title_patterns:
+    - "(?i)senior"
+    - "(?i)staff"
+    - "(?i)principal"
+    - "(?i)manager"
+    - "(?i)director"
+    - "(?i)vp|vice president"
+    - "(?i)head of"
+    - "(?i)chief"
+    - "(?i)recruiter"
+    - "(?i)sales"
+    - "(?i)marketing"
+    - "(?i)support"
+
+  # Regex patterns — a job must match AT LEAST ONE of these to be kept.
+  # Leave empty to disable (all titles pass).
+  require_title_patterns:
+    - "intern"
+    - "co-op"
+    - "coop"
+    - "new.?grad"
+    - "early.?career"
+    - "student"
+
+  # Location strings to reject (case-insensitive substring match).
+  exclude_locations: []
+
+  # When true, only keep jobs flagged as remote or hybrid.
+  require_remote: false
+
+  # Companies to never import jobs from (case-insensitive exact match).
+  exclude_companies: []
+
+  # Reject jobs older than this many days (based on posted_date).
+  # Set to 0 to disable.
+  max_days_old: 30
+
+  # Salary bounds in USD (annual). Jobs outside this range are rejected.
+  # Only applied when the job has salary data. Set to 0 to disable a bound.
+  min_salary_usd: 0
+  max_salary_usd: 0
+
+soft_filters:
+  # If a job description contains ANY of these keywords, auto-FILTER it
+  # (skip the gate agent, mark as FILTERED).
+  negative_keywords:
+    - "clearance required"
+    - "security clearance"
+    - "5+ years"
+    - "7+ years"
+    - "10+ years"
+    - "help desk"
+    - "it support"
+
+  # If a job description contains ALL of these keywords, auto-QUALIFY it
+  # (skip the gate agent, mark as QUALIFIED).
+  positive_keywords:
+    - "intern"
+
+  # Maximum years of experience mentioned in the description.
+  # If the job mentions "X+ years" and X exceeds this, auto-FILTER.
+  # Set to 0 to disable.
+  max_experience_years: 3
