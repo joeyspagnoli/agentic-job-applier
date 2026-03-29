@@ -12,7 +12,7 @@
 
 ## Major Subsystems
 - `src/fetchers/`: Source-specific integrations for Greenhouse, Workday via Apify, and JobSpy-backed sites.
-- `src/utils/`: Cross-cutting logging and deduplication helpers used by the orchestrator and scripts.
+- `src/utils/`: Cross-cutting helpers for logging, deduplication, cost tracking, notifications, and path resolution used across orchestrators and workers.
 - `src/agents/`: Agent schemas and builder code for the apply/skip workflow.
 - `tests/`: Integration-style tests that validate the database lifecycle, deduplication, crawl tracking, and model normalization.
 
@@ -42,7 +42,7 @@
 - Tracks state in a separate `tailor_runs` table (PENDING → SUCCESS/FAILED) with retry backoff.
 - The worker restores `config/resume_content.yaml` to its baseline state after every run (success or failure) so sequential jobs start from a clean YAML.
 - Preflight checks validate `pi` command, `latexmk`, and database path availability before entering the loop.
-- Generated artifacts land in `data/tailored_resumes/<job_hash>/resume_tailored.{tex,pdf}`.
+- Generated artifacts land in `<TAILOR_OUTPUT_DIR>/<job_hash>/resume_tailored.{tex,pdf}` (default `data/tailored_resumes/...`).
 - Systemd unit: `deploy/job-tailor-worker.service`.
 - Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_RETRY_BACKOFF_SECONDS`, `TAILOR_RETRY_BACKOFF_MULTIPLIER`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`.
 

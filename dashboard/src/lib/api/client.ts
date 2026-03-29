@@ -18,8 +18,10 @@ import type {
   JobsResponseDto,
   RetryFailureDto,
   ResumeContentDto,
-  SettingsProfileDto,
   SettingsFilesDto,
+  SettingsProfileDto,
+  SettingsProfileUploadDto,
+  SettingsResumeUploadDto,
   SettingsResumeDto,
   SettingsResumeTexUploadDto,
 } from "@/lib/api/types";
@@ -33,6 +35,28 @@ type ApiError = Error & {
   code: string;
   details: Record<string, unknown>;
 };
+
+const INVALID_RESPONSE_CODE = "INVALID_RESPONSE_FORMAT";
+const EMPTY_RESPONSE_CODE = "EMPTY_RESPONSE_BODY";
+
+/**
+ * Build one normalized API error object for transport and parsing failures.
+ *
+ * @param message - Human-readable error message.
+ * @param code - Stable machine-readable error code.
+ * @param details - Optional structured details payload.
+ * @returns Typed API error instance.
+ */
+function buildApiError(
+  message: string,
+  code: string,
+  details: Record<string, unknown> = {},
+): ApiError {
+  const error = new Error(message) as ApiError;
+  error.code = code;
+  error.details = details;
+  return error;
+}
 
 /**
  * Parse and throw typed API errors for non-2xx responses.
@@ -69,7 +93,33 @@ async function throwIfError(response: Response): Promise<void> {
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   await throwIfError(response);
-  return (await response.json()) as T;
+
+  const responseText = await response.text();
+  if (responseText.trim() === "") {
+    throw buildApiError("Successful response returned an empty body.", EMPTY_RESPONSE_CODE, {
+      url,
+      status: response.status,
+    });
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("application/json")) {
+    throw buildApiError("Successful response did not return JSON content.", INVALID_RESPONSE_CODE, {
+      url,
+      status: response.status,
+      contentType,
+    });
+  }
+
+  try {
+    return JSON.parse(responseText) as T;
+  } catch (error: unknown) {
+    throw buildApiError("Successful response body was not valid JSON.", INVALID_RESPONSE_CODE, {
+      url,
+      status: response.status,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
 }
 
 /**
@@ -388,12 +438,12 @@ export async function uploadResumeTex(file: File): Promise<SettingsResumeTexUplo
  * Upload a replacement resume YAML file.
  *
  * @param file - File object selected by user.
- * @returns Settings files DTO containing updated resume metadata.
+ * @returns Resume upload DTO containing updated resume metadata.
  */
-export async function uploadResume(file: File): Promise<SettingsFilesDto> {
+export async function uploadResume(file: File): Promise<SettingsResumeUploadDto> {
   const formData = new FormData();
   formData.append("file", file);
-  return getJson<SettingsFilesDto>("/api/settings/resume", {
+  return getJson<SettingsResumeUploadDto>("/api/settings/resume", {
     method: "POST",
     body: formData,
   });
@@ -403,15 +453,25 @@ export async function uploadResume(file: File): Promise<SettingsFilesDto> {
  * Upload a replacement candidate profile YAML file.
  *
  * @param file - File object selected by user.
- * @returns Settings files DTO containing updated profile metadata.
+ * @returns Profile upload DTO containing updated profile metadata.
  */
-export async function uploadProfile(file: File): Promise<SettingsFilesDto> {
+export async function uploadProfile(file: File): Promise<SettingsProfileUploadDto> {
   const formData = new FormData();
   formData.append("file", file);
-  return getJson<SettingsFilesDto>("/api/settings/profile", {
+  return getJson<SettingsProfileUploadDto>("/api/settings/profile", {
     method: "POST",
     body: formData,
   });
+}
+
+/**
+ * Build tailored resume PDF endpoint URL for one job row.
+ *
+ * @param jobHash - Stable lowercase hex job hash from jobs payload.
+ * @returns Absolute path for tailored resume download endpoint.
+ */
+export function getTailoredResumeUrl(jobHash: string): string {
+  return `/api/jobs/${encodeURIComponent(jobHash)}/resume`;
 }
 
 /**

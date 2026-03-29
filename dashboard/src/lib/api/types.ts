@@ -229,6 +229,18 @@ export interface SettingsFilesDto {
   readonly profile: SettingsFileMetadataDto;
 }
 
+/** Response payload for resume upload endpoint. */
+export interface SettingsResumeUploadDto {
+  readonly ok: true;
+  readonly resume: SettingsFileMetadataDto;
+}
+
+/** Response payload for profile upload endpoint. */
+export interface SettingsProfileUploadDto {
+  readonly ok: true;
+  readonly profile: SettingsFileMetadataDto;
+}
+
 /** Structured candidate profile fields used by guided settings forms. */
 export interface CandidateProfileSectionDto {
   readonly summary: string;

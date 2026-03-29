@@ -110,3 +110,26 @@ async def record_stage_cost_event(
         run_id=run_id,
         metadata_json=metadata_json,
     )
+
+
+async def check_budget_before_claim(*, db: DatabaseManager, stage: str) -> bool:
+    """Check budget exhaustion before claiming additional stage work.
+
+    Purpose:
+        Enforce the "finish current step, block new step claims" rule by
+        allowing workers to skip claim operations when budget is exhausted.
+    Args:
+        db: Connected database manager used to read budget state.
+        stage: Pipeline stage label emitting the claim guard log line.
+    Output:
+        Returns `True` when workers may continue claiming, else `False`.
+    """
+
+    is_exceeded = await db.is_budget_exceeded()
+    if is_exceeded:
+        logger.warning(
+            "Budget exceeded; pausing new {} claims until budget is increased",
+            stage,
+        )
+        return False
+    return True

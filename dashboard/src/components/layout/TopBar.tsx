@@ -19,6 +19,7 @@ import {
   COLOR_OUTLINE_VARIANT,
   Z_TOPBAR,
 } from "@/lib/design-tokens";
+import { shouldInvalidateOnSync } from "@/components/layout/topbar-sync";
 
 const AUTO_SYNC_SECONDS = 30;
 
@@ -85,7 +86,11 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
   const syncDotColor = hasSyncError ? "bg-red-500" : isSyncing ? "bg-green-500" : "bg-slate-400";
 
   function handleSyncNow(): void {
-    void queryClient.invalidateQueries();
+    void queryClient.invalidateQueries({
+      predicate: (query) => {
+        return shouldInvalidateOnSync(query.queryKey[0]);
+      },
+    });
   }
 
   return (

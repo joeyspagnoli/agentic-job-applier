@@ -140,6 +140,9 @@ export function SettingsPage(): JSX.Element {
   const [resumeDraft, setResumeDraft] = useState<ResumeContentDto | null>(null);
   const [profileYamlDraft, setProfileYamlDraft] = useState("");
   const [resumeYamlDraft, setResumeYamlDraft] = useState("");
+  const [isBudgetDirty, setIsBudgetDirty] = useState(false);
+  const [isProfileDirty, setIsProfileDirty] = useState(false);
+  const [isResumeDirty, setIsResumeDirty] = useState(false);
   const [lastResumeMigrationSummary, setLastResumeMigrationSummary] = useState<string | null>(null);
 
   const budgetQuery = useQuery({
@@ -167,31 +170,34 @@ export function SettingsPage(): JSX.Element {
   });
 
   useEffect(() => {
-    if (budgetQuery.data !== undefined) {
+    if (budgetQuery.data !== undefined && !isBudgetDirty) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setBudgetInput(budgetQuery.data.monthly_budget_usd.toFixed(2));
     }
-  }, [budgetQuery.data]);
+  }, [budgetQuery.data, isBudgetDirty]);
 
   useEffect(() => {
-    if (profileQuery.data !== undefined) {
+    if (profileQuery.data !== undefined && !isProfileDirty) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setProfileDraft(toProfileDraft(profileQuery.data));
       setProfileYamlDraft(profileQuery.data.yaml_text);
     }
-  }, [profileQuery.data]);
+  }, [profileQuery.data, isProfileDirty]);
 
   useEffect(() => {
-    if (resumeQuery.data !== undefined) {
+    if (resumeQuery.data !== undefined && !isResumeDirty) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setResumeDraft(toResumeDraft(resumeQuery.data));
       setResumeYamlDraft(resumeQuery.data.yaml_text);
     }
-  }, [resumeQuery.data]);
+  }, [resumeQuery.data, isResumeDirty]);
 
   const budgetMutation = useMutation({
     mutationFn: updateBudget,
-    onSuccess: async () => {
+    onSuccess: async (response) => {
+      queryClient.setQueryData(["budget"], response);
+      setBudgetInput(response.monthly_budget_usd.toFixed(2));
+      setIsBudgetDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["budget"] });
     },
   });
@@ -202,6 +208,7 @@ export function SettingsPage(): JSX.Element {
       queryClient.setQueryData(["settings", "profile"], response);
       setProfileDraft(toProfileDraft(response));
       setProfileYamlDraft(response.yaml_text);
+      setIsProfileDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "files"] });
     },
   });
@@ -212,6 +219,7 @@ export function SettingsPage(): JSX.Element {
       queryClient.setQueryData(["settings", "profile"], response);
       setProfileDraft(toProfileDraft(response));
       setProfileYamlDraft(response.yaml_text);
+      setIsProfileDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "files"] });
     },
   });
@@ -219,6 +227,7 @@ export function SettingsPage(): JSX.Element {
   const profileUploadMutation = useMutation({
     mutationFn: uploadProfile,
     onSuccess: async () => {
+      setIsProfileDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "profile"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "files"] });
     },
@@ -230,6 +239,7 @@ export function SettingsPage(): JSX.Element {
       queryClient.setQueryData(["settings", "resume"], response);
       setResumeDraft(toResumeDraft(response));
       setResumeYamlDraft(response.yaml_text);
+      setIsResumeDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "files"] });
     },
   });
@@ -240,6 +250,7 @@ export function SettingsPage(): JSX.Element {
       queryClient.setQueryData(["settings", "resume"], response);
       setResumeDraft(toResumeDraft(response));
       setResumeYamlDraft(response.yaml_text);
+      setIsResumeDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "files"] });
     },
   });
@@ -247,6 +258,7 @@ export function SettingsPage(): JSX.Element {
   const resumeUploadMutation = useMutation({
     mutationFn: uploadResume,
     onSuccess: async () => {
+      setIsResumeDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "resume"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "files"] });
     },
@@ -258,6 +270,7 @@ export function SettingsPage(): JSX.Element {
       queryClient.setQueryData(["settings", "resume"], response);
       setResumeDraft(toResumeDraft(response));
       setResumeYamlDraft(response.yaml_text);
+      setIsResumeDirty(false);
       setLastResumeMigrationSummary(
         `${response.migration.experience_listings} experience listings, ` +
           `${response.migration.project_listings} project listings, ` +
@@ -297,6 +310,26 @@ export function SettingsPage(): JSX.Element {
     ].join(" • ");
   }, [resumeQuery.data]);
 
+  function updateProfileDraft(nextDraft: ReturnType<typeof toProfileDraft>): void {
+    setProfileDraft(nextDraft);
+    setIsProfileDirty(true);
+  }
+
+  function updateResumeDraft(nextDraft: ResumeContentDto): void {
+    setResumeDraft(nextDraft);
+    setIsResumeDirty(true);
+  }
+
+  function updateProfileYamlDraft(nextYaml: string): void {
+    setProfileYamlDraft(nextYaml);
+    setIsProfileDirty(true);
+  }
+
+  function updateResumeYamlDraft(nextYaml: string): void {
+    setResumeYamlDraft(nextYaml);
+    setIsResumeDirty(true);
+  }
+
   function handleBudgetSave(): void {
     const parsedBudget = Number.parseFloat(budgetInput);
     if (!Number.isFinite(parsedBudget) || parsedBudget < 0) {
@@ -319,7 +352,7 @@ export function SettingsPage(): JSX.Element {
       fieldName === "hard_filters" ||
       fieldName === "preferences"
     ) {
-      setProfileDraft({
+      updateProfileDraft({
         ...profileDraft,
         profile: {
           ...profileDraft.profile,
@@ -336,7 +369,7 @@ export function SettingsPage(): JSX.Element {
     if (profileDraft === null) {
       return;
     }
-    setProfileDraft({
+    updateProfileDraft({
       ...profileDraft,
       profile: {
         ...profileDraft.profile,
@@ -395,7 +428,7 @@ export function SettingsPage(): JSX.Element {
     if (!Number.isFinite(parsedValue)) {
       return;
     }
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       layout: {
         ...resumeDraft.layout,
@@ -421,7 +454,7 @@ export function SettingsPage(): JSX.Element {
         [fieldName]: value,
       };
     });
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       experience: {
         ...resumeDraft.experience,
@@ -447,7 +480,7 @@ export function SettingsPage(): JSX.Element {
         bullets: nextBullets,
       };
     });
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       experience: {
         ...resumeDraft.experience,
@@ -478,7 +511,7 @@ export function SettingsPage(): JSX.Element {
         ],
       },
     ];
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       experience: {
         ...resumeDraft.experience,
@@ -491,7 +524,7 @@ export function SettingsPage(): JSX.Element {
     if (resumeDraft === null) {
       return;
     }
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       experience: {
         ...resumeDraft.experience,
@@ -517,7 +550,7 @@ export function SettingsPage(): JSX.Element {
         [fieldName]: value,
       };
     });
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       projects: {
         ...resumeDraft.projects,
@@ -543,7 +576,7 @@ export function SettingsPage(): JSX.Element {
         bullets: nextBullets,
       };
     });
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       projects: {
         ...resumeDraft.projects,
@@ -574,7 +607,7 @@ export function SettingsPage(): JSX.Element {
         ],
       },
     ];
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       projects: {
         ...resumeDraft.projects,
@@ -587,7 +620,7 @@ export function SettingsPage(): JSX.Element {
     if (resumeDraft === null) {
       return;
     }
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       projects: {
         ...resumeDraft.projects,
@@ -613,7 +646,7 @@ export function SettingsPage(): JSX.Element {
         [fieldName]: value,
       };
     });
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       skills_achievements: {
         ...resumeDraft.skills_achievements,
@@ -637,7 +670,7 @@ export function SettingsPage(): JSX.Element {
         text: "Skill text",
       },
     ];
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       skills_achievements: {
         ...resumeDraft.skills_achievements,
@@ -650,7 +683,7 @@ export function SettingsPage(): JSX.Element {
     if (resumeDraft === null) {
       return;
     }
-    setResumeDraft({
+    updateResumeDraft({
       ...resumeDraft,
       skills_achievements: {
         ...resumeDraft.skills_achievements,
@@ -705,6 +738,7 @@ export function SettingsPage(): JSX.Element {
               value={budgetInput}
               onChange={(event) => {
                 setBudgetInput(event.target.value);
+                setIsBudgetDirty(true);
               }}
             />
           </label>
@@ -798,7 +832,7 @@ export function SettingsPage(): JSX.Element {
                 label="Search Terms (one per line)"
                 value={listToLines(profileDraft.search_defaults.job_board_search_terms)}
                 onChange={(value) => {
-                  setProfileDraft({
+                  updateProfileDraft({
                     ...profileDraft,
                     search_defaults: { job_board_search_terms: linesToList(value) },
                   });
@@ -810,7 +844,7 @@ export function SettingsPage(): JSX.Element {
               label="Prompt Context Override (optional)"
               value={profileDraft.prompt_context ?? ""}
               onChange={(value) => {
-                setProfileDraft({
+                updateProfileDraft({
                   ...profileDraft,
                   prompt_context: value.trim() === "" ? null : value,
                 });
@@ -836,7 +870,7 @@ export function SettingsPage(): JSX.Element {
             <YamlEditor
               modelPath={PROFILE_EDITOR_MODEL_URI}
               value={profileYamlDraft}
-              onChange={setProfileYamlDraft}
+              onChange={updateProfileYamlDraft}
             />
             <div className="flex justify-end">
               <button
@@ -943,7 +977,7 @@ export function SettingsPage(): JSX.Element {
                 </button>
               </div>
               {resumeDraft.experience.listings.map((listing, index) => (
-                <div key={listing.id} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
+                <div key={`experience-${index}`} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <LabeledInput
                       label="ID"
@@ -996,7 +1030,7 @@ export function SettingsPage(): JSX.Element {
                 </button>
               </div>
               {resumeDraft.projects.listings.map((listing, index) => (
-                <div key={listing.id} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
+                <div key={`project-${index}`} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <LabeledInput
                       label="ID"
@@ -1049,7 +1083,7 @@ export function SettingsPage(): JSX.Element {
                 </button>
               </div>
               {resumeDraft.skills_achievements.listings.map((listing, index) => (
-                <div key={listing.id} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
+                <div key={`skill-${index}`} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <LabeledInput
                       label="ID"
@@ -1099,7 +1133,11 @@ export function SettingsPage(): JSX.Element {
 
         {resumeTab === "yaml" && (
           <div className="space-y-4">
-            <YamlEditor modelPath={RESUME_EDITOR_MODEL_URI} value={resumeYamlDraft} onChange={setResumeYamlDraft} />
+            <YamlEditor
+              modelPath={RESUME_EDITOR_MODEL_URI}
+              value={resumeYamlDraft}
+              onChange={updateResumeYamlDraft}
+            />
             <div className="flex justify-end">
               <button
                 className="px-4 py-2 rounded-lg text-white text-sm font-semibold"

@@ -815,6 +815,20 @@ async def test_apply_once_persists_handoff_when_outcome_needs_review(
             self.success_calls: list[dict[str, object]] = []
             self.handoff_calls: list[dict[str, object]] = []
 
+        async def is_budget_exceeded(self) -> bool:
+            """Return non-exceeded state for success-path orchestration tests.
+
+            Purpose:
+                Keep this test focused on success/handoff persistence behavior
+                rather than budget-guard branching.
+            Args:
+                self: Fake DB instance.
+            Output:
+                Returns `False`.
+            """
+
+            return False
+
         async def claim_next_apply_job(self, **_: object) -> dict[str, object]:
             """Return one pre-claimed apply candidate row.
 
@@ -861,6 +875,32 @@ async def test_apply_once_persists_handoff_when_outcome_needs_review(
             """
 
             self.handoff_calls.append(dict(kwargs))
+
+        async def record_cost_event(
+            self,
+            *,
+            stage: str,
+            cost_usd: float,
+            job_hash: str | None = None,
+            run_id: str | None = None,
+            metadata_json: str | None = None,
+        ) -> None:
+            """Accept cost writes without side effects in orchestration tests.
+
+            Purpose:
+                Keep this test isolated from cost-persistence details while
+                matching the worker's expected DB interface.
+            Args:
+                stage: Stage label for the cost event.
+                cost_usd: Cost amount emitted by the worker.
+                job_hash: Optional associated job hash.
+                run_id: Optional associated run identifier.
+                metadata_json: Optional serialized metadata payload.
+            Output:
+                Returns `None`.
+            """
+
+            _ = (stage, cost_usd, job_hash, run_id, metadata_json)
 
     async def fake_apply_to_job(**_: object) -> browser.ApplyRunResult:
         """Return deterministic NEEDS_REVIEW run result for orchestration tests.

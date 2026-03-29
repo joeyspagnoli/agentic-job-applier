@@ -29,6 +29,7 @@ export interface KpiCardModel {
 /** One normalized jobs row used by jobs-page table rendering. */
 export interface JobsRowModel {
   readonly id: number;
+  readonly jobHash: string;
   readonly company: string;
   readonly position: string;
   readonly location: string;
@@ -94,6 +95,7 @@ export function toDashboardKpis(dto: DashboardStatsDto): readonly KpiCardModel[]
 export function toJobsRows(dto: JobsResponseDto): readonly JobsRowModel[] {
   return dto.items.map((item: JobsItemDto) => ({
     id: item.id,
+    jobHash: item.job_hash,
     company: item.company,
     position: item.position,
     location: item.location,

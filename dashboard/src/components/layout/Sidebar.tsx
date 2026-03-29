@@ -15,6 +15,9 @@ import { NavLink } from "react-router-dom";
 import { fetchBudget } from "@/lib/api/client";
 import { formatUsd } from "@/lib/api/adapters";
 import {
+  COLOR_ERROR,
+  COLOR_ERROR_CONTAINER,
+  COLOR_ON_ERROR_CONTAINER,
   COLOR_PRIMARY,
   COLOR_PRIMARY_FIXED,
   COLOR_ON_SURFACE_VARIANT,
@@ -76,6 +79,9 @@ export function Sidebar(): JSX.Element {
   const spentText = formatUsd(budgetData?.spent_usd ?? 0);
   const limitText = formatUsd(budgetData?.monthly_budget_usd ?? 0);
   const usedPercent = Math.max(0, Math.min(100, Math.round(budgetData?.utilization_pct ?? 0)));
+  const isBudgetExceeded =
+    budgetData !== undefined &&
+    (budgetData.remaining_usd <= 0 || budgetData.utilization_pct >= 100);
 
   return (
     <aside
@@ -175,12 +181,30 @@ export function Sidebar(): JSX.Element {
           >
             <div
               className="h-full rounded-full"
-              style={{ width: `${usedPercent}%`, backgroundColor: COLOR_PRIMARY }}
+              style={{
+                width: `${usedPercent}%`,
+                backgroundColor: isBudgetExceeded ? COLOR_ERROR : COLOR_PRIMARY,
+              }}
             />
           </div>
-          <p className="text-[10px] mt-2 text-right font-medium" style={{ color: COLOR_OUTLINE }}>
-            {usedPercent}% consumed
-          </p>
+          {isBudgetExceeded ? (
+            <p
+              className="mt-2 rounded-md px-2 py-1 text-[10px] text-right font-bold tracking-wide uppercase"
+              style={{
+                color: COLOR_ON_ERROR_CONTAINER,
+                backgroundColor: COLOR_ERROR_CONTAINER,
+              }}
+            >
+              BUDGET EXCEEDED
+            </p>
+          ) : (
+            <p
+              className="text-[10px] mt-2 text-right font-medium"
+              style={{ color: COLOR_OUTLINE }}
+            >
+              {usedPercent}% consumed
+            </p>
+          )}
         </div>
       </div>
     </aside>

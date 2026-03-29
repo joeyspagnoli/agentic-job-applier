@@ -2,59 +2,64 @@
 
 ## Metadata
 
-- Generated: 2026-03-26T15:29:07Z
+- Generated: 2026-03-29T05:22:29Z
 - Repo Root: /Users/jspags/Projects/agentic-job-applier
-- Detected Test Framework(s): pytest
+- Detected Test Framework(s): pytest (current), unittest.mock (current), Vitest + React Testing Library (recommended for untested frontend)
 - Overall Test Quality Rating: Adequate
 
 ## Existing Test Inventory
 
 | Test File | Framework | Type | Approx. Test Count | Quality | Notes |
 | --------- | --------- | ---- | ------------------ | ------- | ----- |
-| scripts/test_fetchers.py | manual smoke (not collected) | integration | 0 | Minimal | Explicitly excluded from pytest via `__test__ = False`. |
-| tests/test_agent_worker_resilience.py | pytest | integration | 6 | Adequate | Agent worker failure/isolation paths covered. |
-| tests/test_apply_decider.py | pytest | unit | 8 | Strong | Good structural assertions and parse-failure tests. |
-| tests/test_dedup_guardrails.py | pytest | unit | 4 | Adequate | Dedup behavior checks. |
-| tests/test_fetcher_failures.py | pytest | unit | 2 | Adequate | Failure-path fetcher behavior. |
-| tests/test_fetcher_units.py | pytest | unit | 8 | Adequate | Deterministic parser normalization checks. |
+| scripts/test_fetchers.py | pytest | integration | 0 | Minimal | Utility script-style test file; no `test_` funcs discovered. |
+| tests/__init__.py | pytest | support | 0 | Minimal | Package marker only. |
+| tests/conftest.py | pytest | support | 0 | Adequate | Shared fixtures/hooks. |
+| tests/test_agent_worker_resilience.py | pytest | integration | 6 | Adequate | Good resilience/error-path coverage in worker boundaries. |
+| tests/test_apply_chrome_launcher.py | pytest | unit | 1 | Adequate | Focused launcher behavior check. |
+| tests/test_apply_decider.py | pytest | unit | 8 | Adequate | Decider behavior and contracts. |
+| tests/test_apply_schema_parity.py | pytest | unit | 2 | Adequate | Schema alignment checks. |
+| tests/test_apply_worker_and_retry_semantics.py | pytest | integration | 10 | Adequate | Retry semantics covered; missing some telemetry assertions. |
+| tests/test_budget_enforcement.py | pytest | integration | 13 | Adequate | Strong budget guard paths; some logging/order gaps remain. |
+| tests/test_dedup_guardrails.py | pytest | unit | 4 | Adequate | Dedup guard checks. |
+| tests/test_fetcher_failures.py | pytest | integration | 2 | Adequate | Failure path checks. |
+| tests/test_fetcher_units.py | pytest | unit | 8 | Adequate | Source fetcher units. |
 | tests/test_full_pipeline_e2e.py | pytest | e2e | 3 | Adequate | End-to-end flow checks. |
-| tests/test_hygiene_hardening.py | pytest | unit | 4 | Adequate | Meta-guardrail tests. |
-| tests/test_integration.py | pytest | integration | 7 | Adequate | DB lifecycle and integration checks. |
-| tests/test_live_agent_e2e.py | pytest | e2e | 1 | Adequate | Live-model gated test. |
-| tests/test_ops_config_and_notifications.py | pytest | integration | 6 | Adequate | Operational config/notifications behavior. |
-| tests/test_orchestrator_accounting_integrity.py | pytest | unit | 6 | Adequate | Orchestrator accounting invariants. |
-| tests/test_orchestrator_failures.py | pytest | unit | 4 | Adequate | Orchestrator failure paths. |
-| tests/test_pipeline_failure_signaling.py | pytest | unit | 3 | Adequate | Pipeline failure signaling semantics. |
-| tests/test_queue_claim_concurrency_and_fairness.py | pytest | integration | 5 | Adequate | Queue/claim concurrency behavior. |
-| tests/test_resume_review_prompt_contract.py | pytest | unit | 1 | Adequate | Prompt contract assertions. |
-| tests/test_resume_review_runtime.py | pytest | integration | 6 | Strong | Runtime hard-failure boundaries covered. |
-| tests/test_resume_review_tools.py | pytest | unit | 5 | Adequate | Tool-level checks. |
-| tests/test_resume_tailor_cli_integration.py | pytest | integration | 3 | Adequate | CLI integration path. |
-| tests/test_resume_tailor_prompt_contract.py | pytest | unit | 1 | Adequate | Prompt contract assertions. |
-| tests/test_resume_tailor_runtime.py | pytest | integration | 6 | Strong | Retry/order/failure semantics covered. |
-| tests/test_resume_tailor_tools_and_renderer.py | pytest | unit | 4 | Adequate | Renderer/tools checks. |
+| tests/test_hygiene_hardening.py | pytest | integration | 4 | Adequate | Operational hygiene assertions. |
+| tests/test_integration.py | pytest | integration | 7 | Adequate | Integration scenario set. |
+| tests/test_live_agent_e2e.py | pytest | e2e | 1 | Minimal | Live gated test. |
+| tests/test_ops_config_and_notifications.py | pytest | integration | 6 | Adequate | Ops/config notification paths. |
+| tests/test_orchestrator_accounting_integrity.py | pytest | integration | 6 | Adequate | Accounting/integrity checks. |
+| tests/test_orchestrator_failures.py | pytest | integration | 4 | Adequate | Orchestrator failure handling. |
+| tests/test_pipeline_failure_signaling.py | pytest | integration | 3 | Adequate | Pipeline signaling checks. |
+| tests/test_queue_claim_concurrency_and_fairness.py | pytest | integration | 5 | Strong | Concurrency and fairness assertions are specific and useful. |
+| tests/test_resume_review_prompt_contract.py | pytest | unit | 1 | Adequate | Prompt contract check. |
+| tests/test_resume_review_runtime.py | pytest | integration | 6 | Adequate | Runtime edge/failure behavior. |
+| tests/test_resume_review_tools.py | pytest | unit | 5 | Adequate | Tool layer behavior. |
+| tests/test_resume_tailor_cli_integration.py | pytest | integration | 3 | Adequate | CLI integration paths. |
+| tests/test_resume_tailor_prompt_contract.py | pytest | unit | 1 | Adequate | Prompt contract check. |
+| tests/test_resume_tailor_runtime.py | pytest | integration | 6 | Adequate | Runtime checks incl. some hard failures. |
+| tests/test_resume_tailor_tools_and_renderer.py | pytest | unit | 4 | Adequate | Rendering/tool correctness checks. |
 | tests/test_review_worker.py | pytest | integration | 6 | Adequate | Review worker behavior. |
-| tests/test_scraper_to_agent_integration.py | pytest | integration | 4 | Adequate | Scraper-to-agent integration path. |
-| tests/test_security_and_collection.py | pytest | unit | 2 | Adequate | Security guardrail checks are narrow/version-specific. |
-| tests/test_status_command_robustness.py | pytest | integration | 4 | Strong | Robust degraded-schema status behavior checks. |
-| tests/test_tailor_cli_preflight.py | pytest | integration | 6 | Adequate | Preflight/env parsing checks. |
-| tests/test_tailor_concurrent_claims.py | pytest | integration | 4 | Adequate | Tailor claim concurrency behavior. |
-| tests/test_tailor_input_validation.py | pytest | unit | 5 | Adequate | Tailor input validation checks. |
-| tests/test_tailor_worker.py | pytest | integration | 10 | Adequate | Tailor worker core behavior. |
-| tests/test_tailor_worker_error_recovery.py | pytest | integration | 4 | Adequate | Tailor worker recovery checks. |
-| tests/test_tailor_yaml_baseline.py | pytest | unit | 4 | Adequate | YAML baseline restoration behavior. |
-| tests/test_time_and_migrations.py | pytest | integration | 5 | Adequate | Time-window and agent migration checks. |
+| tests/test_scraper_to_agent_integration.py | pytest | integration | 4 | Adequate | Scraper-to-agent path. |
+| tests/test_security_and_collection.py | pytest | integration | 2 | Adequate | Security/collection sanity checks. |
+| tests/test_status_command_robustness.py | pytest | unit | 4 | Adequate | Status command hardening. |
+| tests/test_tailor_cli_preflight.py | pytest | integration | 6 | Weak | One loop test is mislabeled and does not exercise actual loop logic. |
+| tests/test_tailor_concurrent_claims.py | pytest | integration | 4 | Adequate | Tailor claim concurrency. |
+| tests/test_tailor_input_validation.py | pytest | unit | 5 | Adequate | Input validation paths. |
+| tests/test_tailor_worker.py | pytest | integration | 10 | Adequate | Tailor worker operational scenarios. |
+| tests/test_tailor_worker_error_recovery.py | pytest | integration | 4 | Adequate | Error recovery checks. |
+| tests/test_tailor_yaml_baseline.py | pytest | integration | 4 | Adequate | YAML baseline restore behavior. |
+| tests/test_time_and_migrations.py | pytest | integration | 5 | Adequate | Time/migration integrity checks. |
 
 ## Existing Test Quality Assessment
 
-Representative sample reviewed: 10/32 pytest files (>=30%), plus pattern search across full suite.
+Representative sample reviewed: 12/39 files (30.8%).
 
-- Assertion quality is generally specific and behavior-oriented, e.g. payload structure and parse contracts in `tests/test_apply_decider.py:63-69` and `tests/test_apply_decider.py:193-196`, plus explicit status output checks in `tests/test_status_command_robustness.py:68-69` and `tests/test_status_command_robustness.py:220`.
-- Edge-case coverage is good for established subsystems: malformed report/runtime errors in `tests/test_resume_review_runtime.py:215-217` and overflow sequencing in `tests/test_resume_tailor_runtime.py:110-117`.
-- Isolation is generally strong: temp DBs and monkeypatching are consistently used (e.g., `tests/test_time_and_migrations.py:35-39`, `tests/test_integration.py:29-33`).
-- Mocking is mostly appropriate, but some tests assert wiring rather than full behavior (e.g., heavy monkeypatching in `tests/test_agent_worker_resilience.py:123-130`).
-- Naming is clear and scenario-driven in most sampled files.
-- Major gap: no direct tests cover newly staged apply worker modules or apply DB claim/retry flow (see findings H-001, H-002, H-003, M-003).
+- Assertion quality: generally specific and meaningful, especially in concurrency/fairness and runtime tests (`tests/test_queue_claim_concurrency_and_fairness.py:76`, `tests/test_resume_tailor_runtime.py:286`).
+- Edge-case coverage: good in resilience and migration paths (`tests/test_agent_worker_resilience.py:148`, `tests/test_time_and_migrations.py:217`), but missing some newly introduced UI/API and budget-ordering cases.
+- Test isolation: mostly good with mock/fixture isolation; deterministic by default for core suite.
+- Mocking appropriateness: mostly appropriate; one case stubs behavior but omits important assertion (`tests/test_apply_worker_and_retry_semantics.py:879`, `tests/test_apply_worker_and_retry_semantics.py:942`).
+- Naming clarity: generally clear, with one notable mismatch where the test name claims loop behavior but only calls `_tailor_once` directly (`tests/test_tailor_cli_preflight.py:63`, `tests/test_tailor_cli_preflight.py:98`).
 
 ## Coverage Gap Analysis
 
@@ -62,103 +67,103 @@ Representative sample reviewed: 10/32 pytest files (>=30%), plus pattern search 
 
 | Component / Module | File(s) | Risk Level | Justification |
 | ------------------ | ------- | ---------- | ------------- |
-| Browser apply orchestration | `src/agents/apply_worker/browser.py` | High | Contains blocking timeout/argument bug path and submit-mode contract drift (H-001, H-003). |
-| Apply worker loop and retry scheduling | `scripts/process_apply_jobs.py` | High | Core claim/retry scheduling path is untested and has timestamp compatibility defect (H-002). |
-| Apply DB schema/claim persistence | `src/database/db_manager.py` (`migrate_apply_schema`, `claim_next_apply_job`, `record_apply_*`) | High | Critical queue claim/retry semantics introduced without tests (H-002, M-003). |
-| Field scan and upload helpers | `src/agents/apply_worker/field_scanner.py`, `src/agents/apply_worker/resume_upload.py` | Medium | Silent exception swallowing and selector correctness concerns need deterministic coverage (L-001). |
-| Deploy launcher and units | `deploy/start-chrome-cdp.sh`, `deploy/job-apply-*.service` | Medium | Production boot behavior and hardening assumptions currently untested (H-004, M-001, M-002). |
+| Resume download endpoint behavior (artifact-path resolution + access constraints) | api/main.py:1479, api/main.py:1495 | High | No direct tests cover the endpoint’s path resolution behavior or access gating. See H-001, M-002. |
+| Jobs row outbound-link sanitization | dashboard/src/pages/JobsPage.tsx:320 | High | No frontend tests enforce scheme allowlisting for external job links. See M-001. |
+| Settings draft preservation during global sync invalidation | dashboard/src/components/layout/TopBar.tsx:88, dashboard/src/pages/SettingsPage.tsx:176 | High | No tests verify that unsaved guided/YAML drafts survive sync refreshes. See M-004. |
+| Frontend API client success-parse hardening | dashboard/src/lib/api/client.ts:72 | Medium | No tests for empty/non-JSON successful responses and typed error normalization. See L-002. |
 
 ### Undertested Components
 
 | Component / Module | Existing Tests | Gap Description | Risk Level | Justification |
 | ------------------ | -------------- | --------------- | ---------- | ------------- |
-| Migration behavior (DB) | `tests/test_time_and_migrations.py` | Covers agent schema migration but not apply schema migration/claim/retry compatibility | High | Apply migration and retry logic added in staged changes; no parity tests (H-002, M-003). |
-| Dependency security guardrails | `tests/test_security_and_collection.py` | Version-denylist checks miss newly reported lock CVEs | Medium | `pip-audit` flags vulnerable lock entries not asserted by tests (M-004). |
-| Worker CLI contract | No `process_apply_jobs` tests | Missing tests for `--dry-run`/`--no-dry-run` behavior and preflight failure modes | High | Current flag behavior mismatches stated contract (H-003). |
+| Budget guard and budget reads | tests/test_budget_enforcement.py | Missing assertions on logging semantics and read-path write amplification behavior under concurrency | Medium | Current tests cover boolean outcomes but not operational lock/contention implications. See M-003, L-004. |
+| Tailor CLI loop semantics | tests/test_tailor_cli_preflight.py | Loop-mode test does not exercise loop/sleep branch | Medium | Leaves polling behavior regression-prone despite test presence. See L-003. |
+| Apply worker telemetry persistence | tests/test_apply_worker_and_retry_semantics.py | Cost event path mocked but not asserted | Medium | Can miss regressions in cost accounting pipeline. See L-004. |
+| Settings upload API contract typing | No direct contract tests | `SettingsFilesDto` expects both `resume` and `profile`, backend upload endpoints return one key | Medium | Type drift can cause downstream misuse and runtime assumptions. See M-006. |
 
 ## Recommended Test Suites
 
-### Suite 1: Apply Browser Flow Contract
+### Suite 1: Resume Download Contract + Security
 
 - **Priority:** P0
 - **Type:** integration
-- **Target Component:** `src/agents/apply_worker/browser.py`
-- **Framework:** pytest + pytest-asyncio
-- **Justification:** Prevent production hangs and contract regressions in the highest-risk new path (H-001, H-003; `src/agents/apply_worker/browser.py:54`, `src/agents/apply_worker/browser.py:264-267`, `src/agents/apply_worker/browser.py:327-330`).
+- **Target Component:** `api/main.py` (`/api/jobs/{job_hash}/resume`)
+- **Framework:** pytest
+- **Justification:** Endpoint currently uses a fixed filesystem path and lacks explicit access guard behavior under non-default deployment settings (`api/main.py:1479`, `api/main.py:1495`, `api/main.py:1391`). Addresses H-001 and M-002.
 - **Scenarios to Cover:**
-  - Simplify polling exits on timeout when markers are absent.
-  - `page.evaluate` argument plumbing passes deterministic interval/timeout values.
-  - `dry_run=False` behavior matches documented CLI contract.
-  - Failure path still captures screenshot/DOM artifacts.
-- **Estimated Test Count:** 8
+  - Resume is downloadable when `tailor_runs.artifact_pdf_path` points to non-default output directory.
+  - Endpoint returns 404 when DB has no successful artifact row.
+  - Endpoint denies/permits access according to configured auth policy.
+  - Invalid `job_hash` is rejected consistently.
+- **Estimated Test Count:** 6
 
-### Suite 2: Apply Claim And Retry Semantics
-
-- **Priority:** P0
-- **Type:** integration
-- **Target Component:** `scripts/process_apply_jobs.py`, `src/database/db_manager.py`
-- **Framework:** pytest + pytest-asyncio
-- **Justification:** Queue reclaim correctness is core to autonomous operation and currently has a blocking timestamp-format defect (H-002; `scripts/process_apply_jobs.py:180`, `src/database/db_manager.py:1897-1906`).
-- **Scenarios to Cover:**
-  - Failed run schedules retry and becomes claimable at expected UTC time.
-  - Retry cutoff query behaves correctly across timestamp formats.
-  - Max-retry terminal path stops further claims.
-  - Stale PENDING cleanup restores queue progress.
-- **Estimated Test Count:** 10
-
-### Suite 3: Apply Worker CLI And Preflight
+### Suite 2: Jobs Link Sanitization
 
 - **Priority:** P0
 - **Type:** unit
-- **Target Component:** `scripts/process_apply_jobs.py`
-- **Framework:** pytest + monkeypatch
-- **Justification:** Prevent operator-facing behavior mismatches and startup regressions (H-003, H-004; `scripts/process_apply_jobs.py:588-598`, `scripts/process_apply_jobs.py:621-627`, `scripts/process_apply_jobs.py:629-641`).
+- **Target Component:** `dashboard/src/pages/JobsPage.tsx`
+- **Framework:** Vitest + React Testing Library
+- **Justification:** External job URL is rendered directly into `<a href>` from scraped data (`dashboard/src/pages/JobsPage.tsx:320`). Addresses M-001.
 - **Scenarios to Cover:**
-  - `--dry-run` and `--no-dry-run` precedence and effective outcome behavior.
-  - Missing `DISPLAY` or unreachable CDP raises preflight errors cleanly.
-  - Invalid env values fall back safely.
-  - Once vs loop mode processing semantics.
-- **Estimated Test Count:** 8
+  - `https://` URL renders as clickable link.
+  - `http://` URL renders as clickable link.
+  - `javascript:` URL is rejected/neutralized.
+  - `data:` URL is rejected/neutralized.
+  - Missing/invalid URL renders safe fallback text.
+- **Estimated Test Count:** 5
 
-### Suite 4: Deploy Launcher Hardening Contracts
+### Suite 3: Settings Draft Durability During Sync
 
 - **Priority:** P1
 - **Type:** integration
-- **Target Component:** `deploy/start-chrome-cdp.sh`, `deploy/job-apply-chrome.service`, `deploy/job-apply-worker.service`
-- **Framework:** pytest (subprocess/text parsing)
-- **Justification:** Deployment artifacts currently include ambiguous hardening and non-executable placeholders (H-004, M-001, M-002; `deploy/start-chrome-cdp.sh:21-23`, `deploy/start-chrome-cdp.sh:29`, `deploy/job-apply-worker.service:9-15`).
+- **Target Component:** `dashboard/src/components/layout/TopBar.tsx`, `dashboard/src/pages/SettingsPage.tsx`
+- **Framework:** Vitest + React Testing Library
+- **Justification:** Global invalidation plus data-driven draft reset can clobber unsaved edits (`TopBar.tsx:88`, `SettingsPage.tsx:176`, `SettingsPage.tsx:184`). Addresses M-004.
 - **Scenarios to Cover:**
-  - Script starts/validates correct display-specific Xvfb behavior.
-  - Chrome launch flags include explicit localhost CDP bind.
-  - Service files fail validation when placeholders remain.
-  - Service environment paths resolve to existing binaries/files.
+  - Unsaved profile draft remains intact after sync-now click.
+  - Unsaved resume draft remains intact after sync-now click.
+  - Dirty draft prompts before destructive reset.
+  - Non-dirty draft updates safely on query refresh.
 - **Estimated Test Count:** 6
 
-### Suite 5: Dependency Security Gate
+### Suite 4: Budget Read Path and Contention
 
 - **Priority:** P1
 - **Type:** integration
-- **Target Component:** `uv.lock`, CI dependency check step
-- **Framework:** pytest wrapper + pip-audit invocation in CI
-- **Justification:** Current lock reports known CVEs and existing tests do not detect them comprehensively (M-004; `uv.lock:2819-2820`, `uv.lock:2987-2998`, `uv.lock:3247-3248`).
+- **Target Component:** `src/database/db_manager.py`, `src/utils/cost_tracking.py`
+- **Framework:** pytest
+- **Justification:** Budget check path currently performs insert+commit on read calls (`db_manager.py:2459`, `db_manager.py:2489`, `cost_tracking.py:128`). Addresses M-003.
 - **Scenarios to Cover:**
-  - Fails when lock includes vulnerabilities above policy threshold.
-  - Fails when security-critical packages lag fixed versions.
-  - Emits actionable package/version/CVE report artifacts.
-- **Estimated Test Count:** 3
+  - Repeated `is_budget_exceeded()` calls do not mutate DB in steady state.
+  - Concurrent claim checks do not produce avoidable lock contention.
+  - Budget defaults initialize correctly without per-read writes.
+- **Estimated Test Count:** 5
 
-### Suite 6: Field Scanner/Upload Resilience
+### Suite 5: API Contract Shape Tests for Settings Uploads
+
+- **Priority:** P1
+- **Type:** integration
+- **Target Component:** `dashboard/src/lib/api/client.ts`, `dashboard/src/lib/api/types.ts`, `api/main.py`
+- **Framework:** pytest (backend contract) + Vitest (frontend type/runtime contract)
+- **Justification:** Upload client return types and backend payloads are shape-misaligned (`client.ts:393`, `types.ts:226`, `api/main.py:2586`, `api/main.py:2771`). Addresses M-006.
+- **Scenarios to Cover:**
+  - Resume upload response shape matches typed contract.
+  - Profile upload response shape matches typed contract.
+  - Consumer code handles single-metadata payload safely if contract remains split.
+- **Estimated Test Count:** 4
+
+### Suite 6: Tailor Worker Loop + Telemetry Assertions
 
 - **Priority:** P2
-- **Type:** unit
-- **Target Component:** `src/agents/apply_worker/field_scanner.py`, `src/agents/apply_worker/resume_upload.py`
-- **Framework:** pytest + Playwright mocks
-- **Justification:** Improves diagnosability and metadata correctness for repair workflows (L-001; `src/agents/apply_worker/field_scanner.py:117-122`, `src/agents/apply_worker/field_scanner.py:202-204`, `src/agents/apply_worker/resume_upload.py:96-97`).
+- **Type:** integration
+- **Target Component:** `tests/test_tailor_cli_preflight.py`, `tests/test_apply_worker_and_retry_semantics.py`
+- **Framework:** pytest
+- **Justification:** Existing tests have gaps in loop behavior validation and cost telemetry assertions (`test_tailor_cli_preflight.py:63`, `test_apply_worker_and_retry_semantics.py:942`). Addresses L-003 and L-004.
 - **Scenarios to Cover:**
-  - Selector generation matches expected element identity.
-  - Cross-origin iframe errors are logged with context.
-  - Upload fallback strategy ordering and exit behavior.
-- **Estimated Test Count:** 6
+  - Loop mode executes iteration and sleep ordering under controlled break conditions.
+  - Apply worker success path asserts cost event persistence payload.
+  - Budget-warning log path includes stage context.
+- **Estimated Test Count:** 5
 
 ## Suite Priority Definitions
 
@@ -172,31 +177,12 @@ Representative sample reviewed: 10/32 pytest files (>=30%), plus pattern search 
 ## Summary
 
 - Total Recommended Suites: 6
-- Total Estimated New Tests: 41
-- P0 Suites: 3
-- P1 Suites: 2
+- Total Estimated New Tests: 31
+- P0 Suites: 2
+- P1 Suites: 3
 - P2 Suites: 1
 - P3 Suites: 0
 
-Implement in this order: (1) browser flow and retry semantics, then (2) CLI contract/preflight, then (3) deployment and dependency gates. This sequence directly burns down blocking release risk first (H-001/H-002/H-003/H-004), then closes medium-risk operational and security regressions.
+Implement P0 suites first because they cover outbound-link safety and resume-download correctness, both of which affect user-facing trust and core workflow integrity. Then execute P1 suites to close data-loss and budget/concurrency risks introduced by recent settings and budget features.
 
-Before implementing suites, normalize timestamp handling and Simplify polling argument shape so baseline behavior is testable and deterministic. Add CI wiring for `pip-audit` once dependency remediations are applied to keep the risk from re-entering.
-
-## Implementation Status (2026-03-26)
-
-- Implemented `tests/test_apply_worker_and_retry_semantics.py` with coverage for:
-  - Simplify polling argument contract and marker-absent completion behavior.
-  - Navigation failure classification in browser flow.
-  - SQLite-compatible apply retry timestamp formatting.
-  - Apply claim eligibility with legacy ISO retry timestamps (due vs future).
-  - Max-retry cutoff semantics for apply claim eligibility.
-  - Stale PENDING apply-run recovery and re-claim behavior.
-  - Structured warning logging in iframe field scan and direct upload fallbacks.
-- Implemented `tests/test_apply_chrome_launcher.py` with coverage for:
-  - Display-specific Xvfb process and socket checks in `deploy/start-chrome-cdp.sh`.
-- Implemented `tests/test_apply_schema_parity.py` with coverage for:
-  - Parity check between base `schema.sql` apply DDL and runtime
-    `migrate_apply_schema()` DDL output.
-- Test execution completed:
-  - `uv run pytest -q tests/test_apply_worker_and_retry_semantics.py tests/test_apply_chrome_launcher.py tests/test_apply_schema_parity.py`
-  - Result: `11 passed`
+Prerequisite: add frontend test harness support (`vitest`, `@testing-library/react`, `jsdom`) because current automated coverage is Python-centric and leaves dashboard behavior largely untested.

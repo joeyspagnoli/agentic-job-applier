@@ -5,13 +5,15 @@
  */
 
 import type { ChangeEvent, JSX } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toJobsRows, type JobsRowModel } from "@/lib/api/adapters";
-import { fetchJobs } from "@/lib/api/client";
+import { fetchJobs, getTailoredResumeUrl } from "@/lib/api/client";
 import { COLOR_OUTLINE_VARIANT, COLOR_PRIMARY, COLOR_SURFACE_CONTAINER_LOW } from "@/lib/design-tokens";
+import { toSafeJobPostingUrl } from "@/pages/jobs-url";
 
 const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * Convert raw discovery timestamp into short display text.
@@ -73,16 +75,26 @@ function statusBadgeClass(status: string): string {
  */
 export function JobsPage(): JSX.Element {
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchQuery]);
+
   const jobsQuery = useQuery({
     queryKey: [
       "jobs",
       {
-        search: searchQuery,
+        search: debouncedSearchQuery,
         status: statusFilter,
         source: sourceFilter,
         page: currentPage,
@@ -91,7 +103,7 @@ export function JobsPage(): JSX.Element {
     ],
     queryFn: () =>
       fetchJobs({
-        search: searchQuery,
+        search: debouncedSearchQuery,
         status: statusFilter,
         source: sourceFilter,
         page: currentPage,
@@ -281,6 +293,8 @@ interface JobRowProps {
  * @returns One row and optional expanded detail row.
  */
 function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
+  const safeJobPostingUrl = toSafeJobPostingUrl(row.jobPostingUrl);
+
   return (
     <>
       <tr className="border-t border-slate-100 hover:bg-slate-50/50 transition-colors">
@@ -315,15 +329,19 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
                 <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">Gate Verdict</p>
                 <p className="text-sm font-semibold text-slate-900">{row.gateVerdict}</p>
                 <p className="text-xs text-slate-600 leading-5">{row.gateReasoning}</p>
-                <a
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:underline"
-                  href={row.jobPostingUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View Job Posting
-                  <span className="material-symbols-outlined text-sm">open_in_new</span>
-                </a>
+                {safeJobPostingUrl !== null ? (
+                  <a
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:underline"
+                    href={safeJobPostingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View Job Posting
+                    <span className="material-symbols-outlined text-sm">open_in_new</span>
+                  </a>
+                ) : (
+                  <p className="text-xs font-semibold text-slate-500">Job posting URL unavailable</p>
+                )}
               </div>
 
               <div className="space-y-2 lg:col-span-2">
@@ -347,7 +365,19 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
                   ))}
                 </div>
                 <p className="text-xs text-slate-600">
-                  Tailored Resume: {row.tailoredResume ?? "Not generated yet"}
+                  Tailored Resume:{" "}
+                  {row.tailoredResume ? (
+                    <a
+                      className="font-semibold text-indigo-700 hover:underline"
+                      href={getTailoredResumeUrl(row.jobHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download PDF
+                    </a>
+                  ) : (
+                    "Not generated yet"
+                  )}
                 </p>
               </div>
             </div>

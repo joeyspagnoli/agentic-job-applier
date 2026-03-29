@@ -18,10 +18,14 @@ import {
   fetchCostByStage,
   fetchCostDailyTrend,
   fetchCostStats,
+  fetchBudget,
   fetchFailures,
   retryFailure,
 } from "@/lib/api/client";
 import {
+  COLOR_ERROR,
+  COLOR_ERROR_CONTAINER,
+  COLOR_ON_ERROR_CONTAINER,
   COLOR_ON_SURFACE_VARIANT,
   COLOR_PRIMARY,
   COLOR_PRIMARY_CONTAINER,
@@ -86,6 +90,10 @@ export function CostTrackingPage(): JSX.Element {
     queryKey: ["costs", "daily-trend", spendFilter],
     queryFn: () => fetchCostDailyTrend(spendFilter),
   });
+  const budgetQuery = useQuery({
+    queryKey: ["budget"],
+    queryFn: fetchBudget,
+  });
 
   const stageQuery = useQuery({
     queryKey: ["costs", "by-stage"],
@@ -140,6 +148,9 @@ export function CostTrackingPage(): JSX.Element {
   );
 
   const recentFailures = recentFailuresQuery.data?.items ?? [];
+  const isBudgetExceeded =
+    budgetQuery.data !== undefined &&
+    (budgetQuery.data.remaining_usd <= 0 || budgetQuery.data.utilization_pct >= 100);
   const hasError =
     statsQuery.isError ||
     trendQuery.isError ||
@@ -149,6 +160,19 @@ export function CostTrackingPage(): JSX.Element {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
+      {isBudgetExceeded && (
+        <div
+          className="rounded-xl border px-4 py-3 text-sm font-semibold"
+          style={{
+            color: COLOR_ON_ERROR_CONTAINER,
+            backgroundColor: COLOR_ERROR_CONTAINER,
+            borderColor: `${COLOR_ERROR}55`,
+          }}
+        >
+          Monthly budget exceeded — pipeline paused
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <StatCard
           label="Total Spend"
@@ -303,7 +327,11 @@ function DailySpendTrendCard({ bars, activeFilter, onFilterChange }: DailySpendT
         </div>
       </div>
 
-      <div className="h-64 flex items-end justify-between gap-4 px-4 border-b border-slate-100">
+      <div
+        className={`h-64 flex items-end justify-between px-4 border-b border-slate-100 overflow-x-auto ${
+          bars.length > 14 ? "gap-1" : "gap-4"
+        }`}
+      >
         {bars.map((bar) => (
           <div key={`${bar.label}-${bar.spendUsd}`} className="flex-1 flex flex-col items-center gap-2 group">
             <div

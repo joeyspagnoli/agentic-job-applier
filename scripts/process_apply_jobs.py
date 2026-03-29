@@ -37,6 +37,7 @@ from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
 from src.database.db_manager import DEFAULT_APPLY_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_APPLY
+from src.utils.cost_tracking import check_budget_before_claim
 from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
@@ -216,8 +217,7 @@ def _resolve_resume_path(claimed_row: dict[str, object]) -> tuple[Path, str]:
         return Path(str(fallback)), "BASE"
 
     raise FileNotFoundError(
-        f"No resume PDF found for review_run "
-        f"{claimed_row.get('review_run_id')}"
+        f"No resume PDF found for review_run {claimed_row.get('review_run_id')}"
     )
 
 
@@ -414,6 +414,9 @@ async def _apply_once(
         Returns 1 if a job was processed, 0 if no eligible jobs found.
     """
 
+    if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_APPLY):
+        return 0
+
     claimed_row = await db.claim_next_apply_job(
         max_retries=max_retries,
         lease_seconds=lease_seconds,
@@ -490,7 +493,9 @@ async def _apply_once(
         )
     except Exception as exc:
         logger.exception(
-            "Browser automation failed for job_hash={}: {}", job_hash, exc,
+            "Browser automation failed for job_hash={}: {}",
+            job_hash,
+            exc,
         )
         await _handle_apply_failure(
             db=db,
@@ -539,9 +544,7 @@ async def _apply_once(
                 if result.confidence_report
                 else None
             ),
-            ats_platform=(
-                result.ats_platform.value if result.ats_platform else None
-            ),
+            ats_platform=(result.ats_platform.value if result.ats_platform else None),
             page_url=result.page_url,
         )
         await record_stage_cost_event(
@@ -590,17 +593,13 @@ async def _apply_once(
             review_run_id=review_run_id,
             job_hash=job_hash,
             error=result.failure_reason or "Unknown failure",
-            outcome=(
-                result.outcome.value if result.outcome else None
-            ),
+            outcome=(result.outcome.value if result.outcome else None),
             max_retries=max_retries,
             backoff_seconds=backoff_seconds,
             backoff_multiplier=backoff_multiplier,
             screenshot_path=result.screenshot_path,
             dom_snapshot_path=result.dom_snapshot_path,
-            ats_platform=(
-                result.ats_platform.value if result.ats_platform else None
-            ),
+            ats_platform=(result.ats_platform.value if result.ats_platform else None),
             page_url=result.page_url,
         )
 

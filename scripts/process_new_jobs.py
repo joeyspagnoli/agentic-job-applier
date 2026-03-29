@@ -31,6 +31,7 @@ from src.agents.root_apply_decider import (
 )
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_GATE
+from src.utils.cost_tracking import check_budget_before_claim
 from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
@@ -261,6 +262,9 @@ async def _process_once(
         raise ModelConfigurationError(str(exc)) from exc
 
     agent = build_root_agent(model=model)
+    if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_GATE):
+        return 0
+
     jobs = await db.get_jobs_pending_agent_processing(limit=limit)
     if not jobs:
         logger.info("No NEW jobs pending agent processing")

@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
+import shutil
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC
@@ -24,6 +26,7 @@ from fastapi import FastAPI
 from fastapi import File
 from fastapi import HTTPException
 from fastapi import Query
+from fastapi import Request
 from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
@@ -55,10 +58,24 @@ DASHBOARD_INDEX_FILE = DASHBOARD_DIST_DIR / "index.html"
 SETTINGS_RESUME_PATH = resolve_repo_root() / "config" / "resume_content.yaml"
 SETTINGS_PROFILE_PATH = resolve_repo_root() / "config" / "candidate_profile.yaml"
 SETTINGS_RESUME_TEX_PATH = resolve_repo_root() / "config" / "resume_base.tex"
-
-TEX_SECTION_HEADER_PATTERN = re.compile(
-    r"\\section\{\\textbf\{(?P<heading>[^}]+)\}\}"
+SETTINGS_BACKUPS_DIR = resolve_repo_root() / "config" / "backups"
+TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
+TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
+TAILORED_RESUME_TOKEN_ENV_KEY = "TAILORED_RESUME_DOWNLOAD_TOKEN"
+TAILORED_RESUME_TOKEN_HEADER = "x-tailored-resume-token"
+LOCAL_TAILORED_RESUME_CLIENT_HOSTS = frozenset(
+    {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        "testclient",
+    }
 )
+JOB_HASH_PATTERN = re.compile(r"^[a-f0-9]{32,64}$")
+SETTINGS_BACKUP_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
+SETTINGS_BACKUP_FILE_LIMIT = 10
+
+TEX_SECTION_HEADER_PATTERN = re.compile(r"\\section\{\\textbf\{(?P<heading>[^}]+)\}\}")
 TEX_SECTION_HEADING_ALIASES: dict[str, str] = {
     "work experience": "Experience",
     "professional experience": "Experience",
@@ -352,6 +369,176 @@ def _parse_gate_result(agent_result: str | None) -> tuple[str, str]:
     decision = str(payload.get("decision") or "UNKNOWN").upper()
     explanation = str(payload.get("explanation") or "No explanation provided.")
     return decision, explanation
+
+
+def _validate_job_hash(job_hash: str) -> str:
+    """Validate one job-hash path parameter used for artifact file access.
+
+    Purpose:
+        Prevent path traversal in job-scoped file endpoints by enforcing a
+        strict lowercase-hex hash format.
+    Args:
+        job_hash: Raw path parameter from the incoming API request.
+    Output:
+        Returns the validated hash string.
+    Raises:
+        HTTPException: When hash format is invalid.
+    """
+
+    normalized_hash = job_hash.strip()
+    if not JOB_HASH_PATTERN.fullmatch(normalized_hash):
+        _raise_api_error(
+            status_code=400,
+            code="INVALID_JOB_HASH",
+            message="job_hash must be 32-64 lowercase hexadecimal characters.",
+            details={"job_hash": job_hash},
+        )
+    return normalized_hash
+
+
+def _require_tailored_resume_access(request: Request) -> None:
+    """Require local-only access or token-authenticated access to resume PDFs.
+
+    Purpose:
+        Reduce accidental resume exposure by limiting default access to local
+        clients, while supporting explicit remote access via a shared secret.
+    Args:
+        request: Incoming request used to inspect client host and auth header.
+    Output:
+        Returns `None` when request is authorized.
+    Raises:
+        HTTPException: When request does not satisfy access requirements.
+    """
+
+    configured_token = os.getenv(TAILORED_RESUME_TOKEN_ENV_KEY, "").strip()
+    if configured_token:
+        provided_token = request.headers.get(TAILORED_RESUME_TOKEN_HEADER, "").strip()
+        if not secrets.compare_digest(provided_token, configured_token):
+            _raise_api_error(
+                status_code=401,
+                code="UNAUTHORIZED",
+                message="Tailored resume download token is missing or invalid.",
+                details={"header": TAILORED_RESUME_TOKEN_HEADER},
+            )
+        return
+
+    client_host = (request.client.host if request.client is not None else "").lower()
+    if client_host not in LOCAL_TAILORED_RESUME_CLIENT_HOSTS:
+        _raise_api_error(
+            status_code=403,
+            code="FORBIDDEN",
+            message=(
+                "Tailored resume downloads are restricted to local clients unless "
+                f"{TAILORED_RESUME_TOKEN_ENV_KEY} is configured."
+            ),
+            details={"client_host": client_host or "unknown"},
+        )
+
+
+def _is_safe_tailored_resume_path(*, job_hash: str, candidate_path: Path) -> bool:
+    """Check whether a resolved resume path matches expected artifact shape.
+
+    Purpose:
+        Prevent arbitrary file serving by enforcing job-scoped resume artifact
+        naming and directory conventions.
+    Args:
+        job_hash: Validated job hash for the requested artifact.
+        candidate_path: Filesystem path candidate resolved from DB metadata.
+    Output:
+        Returns `True` when the path shape is acceptable, else `False`.
+    """
+
+    return (
+        candidate_path.name == TAILORED_RESUME_FILENAME
+        and candidate_path.suffix.lower() == ".pdf"
+        and candidate_path.parent.name == job_hash
+        and candidate_path.is_file()
+    )
+
+
+def _resolve_artifact_path(raw_path: str) -> Path:
+    """Resolve an artifact path from DB metadata into an absolute filesystem path.
+
+    Purpose:
+        Support both absolute and legacy relative artifact paths while keeping
+        all resolution deterministic.
+    Args:
+        raw_path: Raw artifact path string persisted in the database.
+    Output:
+        Returns a resolved absolute `Path`.
+    Raises:
+        OSError: When the candidate path does not exist.
+    """
+
+    candidate_path = Path(raw_path).expanduser()
+    if not candidate_path.is_absolute():
+        candidate_path = (resolve_repo_root() / candidate_path).resolve(strict=True)
+        return candidate_path
+    return candidate_path.resolve(strict=True)
+
+
+async def _resolve_latest_tailored_resume_pdf_path(job_hash: str) -> Path | None:
+    """Resolve the latest successful tailored resume artifact path for one job.
+
+    Purpose:
+        Use persisted `tailor_runs.artifact_pdf_path` metadata so download
+        behavior remains correct even when tailor output directories are
+        customized by CLI or environment configuration.
+    Args:
+        job_hash: Validated job hash for artifact lookup.
+    Output:
+        Returns a safe resolved `Path` when an artifact exists, otherwise `None`.
+    Raises:
+        HTTPException: When persisted path metadata fails safety validation.
+    """
+
+    db_path = str(resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        await db.migrate_tailor_schema()
+
+        assert db.conn is not None
+        conn = db.conn
+        artifact_cursor = await conn.execute(
+            """
+            SELECT tr.artifact_pdf_path
+            FROM tailor_runs tr
+            WHERE tr.job_hash = ?
+              AND tr.status = 'SUCCESS'
+              AND COALESCE(tr.artifact_pdf_path, '') <> ''
+            ORDER BY COALESCE(tr.completed_at, tr.started_at) DESC, tr.id DESC
+            LIMIT 1
+            """,
+            (job_hash,),
+        )
+        artifact_row = await artifact_cursor.fetchone()
+
+    if artifact_row is None:
+        return None
+
+    raw_path = str(artifact_row["artifact_pdf_path"] or "").strip()
+    if raw_path == "":
+        return None
+
+    try:
+        resolved_path = _resolve_artifact_path(raw_path)
+    except OSError:
+        return None
+
+    if not _is_safe_tailored_resume_path(
+        job_hash=job_hash, candidate_path=resolved_path
+    ):
+        _raise_api_error(
+            status_code=500,
+            code="INVALID_ARTIFACT_PATH",
+            message="Tailored resume artifact path failed safety validation.",
+            details={
+                "job_hash": job_hash,
+                "path": raw_path,
+            },
+        )
+
+    return resolved_path
 
 
 def _build_pipeline_steps(
@@ -666,6 +853,91 @@ def _persist_yaml_mapping(path: Path, *, payload: Mapping[str, object]) -> str:
     return yaml_text
 
 
+def _prune_settings_backups(path: Path, *, file_label: str) -> None:
+    """Prune old backup snapshots and keep only the newest files.
+
+    Purpose:
+        Bound disk usage for settings backups while preserving recent restore
+        points for resume/profile rollback safety.
+    Args:
+        path: Source settings file path used to derive backup filename pattern.
+        file_label: Human-readable label used in API error payloads.
+    Output:
+        Returns `None` after deleting stale backup files when needed.
+    Raises:
+        HTTPException: When backup pruning fails.
+    """
+
+    backup_pattern = f"{path.stem}_*{path.suffix}"
+    backup_paths = sorted(
+        SETTINGS_BACKUPS_DIR.glob(backup_pattern),
+        key=lambda candidate: candidate.stat().st_mtime,
+        reverse=True,
+    )
+    stale_paths = backup_paths[SETTINGS_BACKUP_FILE_LIMIT:]
+    for stale_path in stale_paths:
+        try:
+            stale_path.unlink(missing_ok=True)
+        except OSError as exc:
+            _raise_api_error(
+                status_code=500,
+                code="BACKUP_PRUNE_ERROR",
+                message=f"Failed to prune {file_label} backup file.",
+                details={
+                    "source_path": str(path),
+                    "backup_path": str(stale_path),
+                    "error": str(exc),
+                },
+            )
+
+
+def _backup_settings_file(path: Path, *, file_label: str) -> None:
+    """Create a timestamped backup snapshot before overwriting settings files.
+
+    Purpose:
+        Protect against accidental data loss by snapshotting current settings
+        files before API endpoints persist updated content.
+    Args:
+        path: Source settings file path to snapshot when it exists.
+        file_label: Human-readable label used in API error payloads.
+    Output:
+        Returns `None` after writing one backup snapshot or when source is absent.
+    Raises:
+        HTTPException: When backup write or pruning fails.
+    """
+
+    if not path.exists():
+        return
+
+    SETTINGS_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(tz=UTC).strftime(SETTINGS_BACKUP_TIMESTAMP_FORMAT)
+    backup_path = SETTINGS_BACKUPS_DIR / f"{path.stem}_{timestamp}{path.suffix}"
+
+    # Add a numeric suffix when multiple writes land within one second.
+    suffix_index = 1
+    while backup_path.exists():
+        backup_path = SETTINGS_BACKUPS_DIR / (
+            f"{path.stem}_{timestamp}_{suffix_index:02d}{path.suffix}"
+        )
+        suffix_index += 1
+
+    try:
+        shutil.copy2(path, backup_path)
+    except OSError as exc:
+        _raise_api_error(
+            status_code=500,
+            code="BACKUP_WRITE_ERROR",
+            message=f"Failed to write {file_label} backup file.",
+            details={
+                "source_path": str(path),
+                "backup_path": str(backup_path),
+                "error": str(exc),
+            },
+        )
+
+    _prune_settings_backups(path, file_label=file_label)
+
+
 def _resume_counts(resume_document: ResumeContent) -> dict[str, int]:
     """Compute lightweight resume section counts for API responses.
 
@@ -817,10 +1089,7 @@ def _ensure_tex_required_sections(
         for match in TEX_SECTION_HEADER_PATTERN.finditer(current_text)
     }
 
-    if (
-        "Education" not in section_headings
-        or "\\resumeSubheading{" not in current_text
-    ):
+    if "Education" not in section_headings or "\\resumeSubheading{" not in current_text:
         current_text += "\n" + _build_fallback_education_section(fallback_resume)
         section_headings.add("Education")
 
@@ -1060,7 +1329,17 @@ async def get_dashboard_stats() -> dict[str, object]:
         funnel_row = await funnel_cursor.fetchone()
 
         now_utc = datetime.now(tz=UTC)
-        labels = ["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "NOW"]
+        labels = [
+            "12 AM",
+            "3 AM",
+            "6 AM",
+            "9 AM",
+            "12 PM",
+            "3 PM",
+            "6 PM",
+            "9 PM",
+            "NOW",
+        ]
         applications_over_time: list[dict[str, object]] = []
 
         for hour_index, label in enumerate(labels):
@@ -1170,7 +1449,9 @@ async def get_dashboard_discovery_trend(
     counts_by_day = {str(row["day"]): int(row["count"]) for row in rows}
     points = [
         {
-            "label": date_value.strftime("%a") if range_key == "7d" else date_value.strftime("%m/%d"),
+            "label": date_value.strftime("%a")
+            if range_key == "7d"
+            else date_value.strftime("%m/%d"),
             "date": date_value.isoformat(),
             "count": counts_by_day.get(date_value.isoformat(), 0),
         }
@@ -1303,7 +1584,9 @@ async def get_jobs(
 
     job_items: list[dict[str, object]] = []
     for row in rows:
-        gate_decision, gate_reasoning = _parse_gate_result(str(row["agent_result"] or ""))
+        gate_decision, gate_reasoning = _parse_gate_result(
+            str(row["agent_result"] or "")
+        )
         pipeline_steps = _build_pipeline_steps(
             job_status=str(row["status"]),
             has_tailor_success=bool(row["has_tailor_success"]),
@@ -1349,6 +1632,54 @@ async def get_jobs(
         "total_pages": total_pages,
         "items": job_items,
     }
+
+
+@app.get("/api/jobs/{job_hash}/resume")
+async def download_tailored_resume(job_hash: str, request: Request) -> FileResponse:
+    """Download one tailored resume PDF by job hash.
+
+    Purpose:
+        Provide the jobs table with a safe file-download endpoint for tailored
+        PDFs generated by the tailor worker.
+    Args:
+        job_hash: Job-hash path parameter for tailored artifact lookup.
+        request: Request object used for access control enforcement.
+    Output:
+        Returns a PDF `FileResponse` when the artifact exists.
+    Raises:
+        HTTPException: When hash format is invalid or the PDF is missing.
+    """
+
+    validated_hash = _validate_job_hash(job_hash)
+    _require_tailored_resume_access(request)
+
+    resume_pdf_path = await _resolve_latest_tailored_resume_pdf_path(validated_hash)
+    if resume_pdf_path is None:
+        legacy_path = TAILORED_RESUME_DIR / validated_hash / TAILORED_RESUME_FILENAME
+        if legacy_path.exists() and _is_safe_tailored_resume_path(
+            job_hash=validated_hash,
+            candidate_path=legacy_path,
+        ):
+            resume_pdf_path = legacy_path.resolve()
+
+    if resume_pdf_path is None:
+        _raise_api_error(
+            status_code=404,
+            code="FILE_NOT_FOUND",
+            message="Tailored resume PDF does not exist for this job.",
+            details={
+                "job_hash": validated_hash,
+                "path": str(
+                    TAILORED_RESUME_DIR / validated_hash / TAILORED_RESUME_FILENAME
+                ),
+            },
+        )
+
+    return FileResponse(
+        resume_pdf_path,
+        media_type="application/pdf",
+        filename=f"resume_tailored_{validated_hash}.pdf",
+    )
 
 
 @app.get("/api/human-review")
@@ -1437,7 +1768,9 @@ async def get_human_review_queue(
 
     items: list[dict[str, object]] = []
     for row in rows:
-        unresolved_fields = _parse_unresolved_fields(str(row["unresolved_fields_json"] or ""))
+        unresolved_fields = _parse_unresolved_fields(
+            str(row["unresolved_fields_json"] or "")
+        )
         confidence_score = float(row["confidence_score"] or 0.0)
         confidence_pct = int(round(confidence_score * 100.0))
         items.append(
@@ -1453,7 +1786,9 @@ async def get_human_review_queue(
                     + (f" on {row['ats_platform']}" if row["ats_platform"] else "")
                 ),
                 "job_posting_url": str(row["source_url"]),
-                "resume_file_name": Path(str(row["resume_pdf_path"] or "resume.pdf")).name,
+                "resume_file_name": Path(
+                    str(row["resume_pdf_path"] or "resume.pdf")
+                ).name,
                 "unresolved_fields": unresolved_fields,
             }
         )
@@ -1839,7 +2174,9 @@ async def get_failures(
     if stage is not None and stage.strip() != "":
         normalized_stage = stage.strip().upper()
         filtered_records = [
-            item for item in filtered_records if str(item["stage"]).upper() == normalized_stage
+            item
+            for item in filtered_records
+            if str(item["stage"]).upper() == normalized_stage
         ]
     if status is not None and status.strip() != "":
         normalized_status = status.strip().upper()
@@ -1980,7 +2317,9 @@ async def retry_failure(failure_id: str) -> dict[str, object]:
                     code="FAILURE_NOT_FOUND",
                     message="Review failure record was not found.",
                 )
-            deleted_count = await db.reset_review_failure_state(job_hash=str(row["job_hash"]))
+            deleted_count = await db.reset_review_failure_state(
+                job_hash=str(row["job_hash"])
+            )
             return {
                 "ok": True,
                 "failure_id": failure_id,
@@ -2000,7 +2339,9 @@ async def retry_failure(failure_id: str) -> dict[str, object]:
                     code="FAILURE_NOT_FOUND",
                     message="Apply failure record was not found.",
                 )
-            deleted_count = await db.reset_apply_failure_state(job_hash=str(row["job_hash"]))
+            deleted_count = await db.reset_apply_failure_state(
+                job_hash=str(row["job_hash"])
+            )
             return {
                 "ok": True,
                 "failure_id": failure_id,
@@ -2141,7 +2482,9 @@ async def get_cost_daily_trend(
         day_value = start_day + timedelta(days=offset)
         points.append(
             {
-                "label": day_value.strftime("%a") if range_key == "7d" else day_value.strftime("%m/%d"),
+                "label": day_value.strftime("%a")
+                if range_key == "7d"
+                else day_value.strftime("%m/%d"),
                 "date": day_value.isoformat(),
                 "spend_usd": spend_by_day.get(day_value.isoformat(), 0.0),
             }
@@ -2331,6 +2674,7 @@ async def update_profile_yaml(payload: YamlTextUpdateRequest) -> dict[str, objec
     parsed_payload = _parse_yaml_mapping(yaml_text=payload.yaml_text, context="profile")
     profile_document = _validate_candidate_profile_document(parsed_payload)
 
+    _backup_settings_file(SETTINGS_PROFILE_PATH, file_label="Profile")
     SETTINGS_PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PROFILE_PATH.write_text(payload.yaml_text, encoding="utf-8")
     load_candidate_context.cache_clear()
@@ -2377,6 +2721,7 @@ async def update_profile_structured(
         merged_payload["prompt_context"] = payload.prompt_context
 
     profile_document = _validate_candidate_profile_document(merged_payload)
+    _backup_settings_file(SETTINGS_PROFILE_PATH, file_label="Profile")
     persisted_yaml = _persist_yaml_mapping(
         SETTINGS_PROFILE_PATH,
         payload=merged_payload,
@@ -2406,6 +2751,7 @@ async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, object]:
     text = await _read_uploaded_text(file)
     parsed_payload = _parse_yaml_mapping(yaml_text=text, context="resume")
     resume_document = _validate_resume_document(parsed_payload)
+    _backup_settings_file(SETTINGS_RESUME_PATH, file_label="Resume")
     save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=resume_document)
 
     return {
@@ -2455,6 +2801,7 @@ async def update_resume_yaml(payload: YamlTextUpdateRequest) -> dict[str, object
 
     parsed_payload = _parse_yaml_mapping(yaml_text=payload.yaml_text, context="resume")
     resume_document = _validate_resume_document(parsed_payload)
+    _backup_settings_file(SETTINGS_RESUME_PATH, file_label="Resume")
     save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=resume_document)
     persisted_yaml = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
 
@@ -2483,6 +2830,7 @@ async def update_resume_structured(
     """
 
     resume_document = _validate_resume_document(payload.resume)
+    _backup_settings_file(SETTINGS_RESUME_PATH, file_label="Resume")
     save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=resume_document)
     persisted_yaml = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
 
@@ -2513,7 +2861,9 @@ async def upload_resume_tex(file: UploadFile = File(...)) -> dict[str, object]:
     tex_text = await _read_uploaded_text(file)
     prepared_tex_text = tex_text
     if SETTINGS_RESUME_PATH.exists():
-        fallback_yaml_text = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
+        fallback_yaml_text = _read_settings_text(
+            SETTINGS_RESUME_PATH, file_label="Resume"
+        )
         fallback_payload = _parse_yaml_mapping(
             yaml_text=fallback_yaml_text,
             context="resume",
@@ -2528,14 +2878,18 @@ async def upload_resume_tex(file: UploadFile = File(...)) -> dict[str, object]:
 
     SETTINGS_RESUME_TEX_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_RESUME_TEX_PATH.write_text(prepared_tex_text, encoding="utf-8")
+    migrated_output_path = SETTINGS_RESUME_PATH.with_name(
+        f"{SETTINGS_RESUME_PATH.stem}.migrated.tmp{SETTINGS_RESUME_PATH.suffix}"
+    )
 
     try:
         migrated_resume = migrate_resume_tex_to_yaml(
             resume_tex_path=SETTINGS_RESUME_TEX_PATH,
-            output_yaml_path=SETTINGS_RESUME_PATH,
+            output_yaml_path=migrated_output_path,
         )
         validate_locked_structure(migrated_resume)
     except ResumeMigrationError as exc:
+        migrated_output_path.unlink(missing_ok=True)
         _raise_api_error(
             status_code=422,
             code="RESUME_TEX_MIGRATION_FAILED",
@@ -2543,11 +2897,26 @@ async def upload_resume_tex(file: UploadFile = File(...)) -> dict[str, object]:
             details={"error": str(exc)},
         )
     except ValueError as exc:
+        migrated_output_path.unlink(missing_ok=True)
         _raise_api_error(
             status_code=422,
             code="INVALID_RESUME_SHAPE",
             message="Converted resume YAML did not satisfy lock constraints.",
             details={"error": str(exc)},
+        )
+    _backup_settings_file(SETTINGS_RESUME_PATH, file_label="Resume")
+    try:
+        migrated_output_path.replace(SETTINGS_RESUME_PATH)
+    except OSError as exc:
+        _raise_api_error(
+            status_code=500,
+            code="RESUME_REPLACE_FAILED",
+            message="Failed to persist converted resume YAML file.",
+            details={
+                "output_yaml_path": str(SETTINGS_RESUME_PATH),
+                "temporary_yaml_path": str(migrated_output_path),
+                "error": str(exc),
+            },
         )
 
     persisted_yaml = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
@@ -2582,6 +2951,7 @@ async def upload_profile_file(file: UploadFile = File(...)) -> dict[str, object]
     text = await _read_uploaded_text(file)
     parsed_payload = _parse_yaml_mapping(yaml_text=text, context="profile")
     _validate_candidate_profile_document(parsed_payload)
+    _backup_settings_file(SETTINGS_PROFILE_PATH, file_label="Profile")
     SETTINGS_PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PROFILE_PATH.write_text(text, encoding="utf-8")
 

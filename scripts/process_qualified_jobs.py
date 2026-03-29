@@ -34,6 +34,7 @@ from src.agents.resume_tailor_pi import (
 )
 from src.database.db_manager import DEFAULT_TAILOR_CLAIM_LEASE_SECONDS, DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_TAILOR
+from src.utils.cost_tracking import check_budget_before_claim
 from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path, resolve_repo_root
@@ -399,6 +400,9 @@ async def _tailor_once(
     Output:
         Returns `1` when a job was successfully tailored, `0` otherwise.
     """
+
+    if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_TAILOR):
+        return 0
 
     job = await db.claim_next_tailor_job(
         max_retries=max_retries,

@@ -115,12 +115,14 @@ curl -sS "http://127.0.0.1:8000/api/jobs?page=1&page_size=20"
 ## API Surface (Current)
 
 - Dashboard: `GET /api/dashboard/stats`, `GET /api/dashboard/discovery-trend`
-- Jobs: `GET /api/jobs`
+- Jobs: `GET /api/jobs`, `GET /api/jobs/{job_hash}/resume`
 - Human review: `GET /api/human-review`, `POST /api/human-review/{handoff_id}/complete`, `POST /api/human-review/{handoff_id}/dismiss`
 - Failures: `GET /api/failures`, `POST /api/failures/{failure_id}/retry`
 - Costs: `GET /api/costs/stats`, `GET /api/costs/daily-trend`, `GET /api/costs/by-stage`
 - Budget: `GET /api/budget`, `PUT /api/budget`
-- Settings files: `GET /api/settings/files`, `POST /api/settings/resume`, `POST /api/settings/profile`, `GET /api/settings/resume/download`, `GET /api/settings/profile/download`
+- Settings files: `GET /api/settings/files`, `GET /api/settings/profile`, `PUT /api/settings/profile`, `PUT /api/settings/profile/structured`, `POST /api/settings/profile`
+- Resume settings: `GET /api/settings/resume`, `PUT /api/settings/resume`, `PUT /api/settings/resume/structured`, `POST /api/settings/resume`, `POST /api/settings/resume/tex`
+- Settings downloads: `GET /api/settings/resume/download`, `GET /api/settings/profile/download`
 
 ## Database Tables
 
@@ -139,6 +141,11 @@ Cost events are forward-only and written by workers per execution attempt. Stage
 - `COST_RATE_DISCOVERY_USD`
 
 If unset/invalid, stage cost defaults to `0.0`.
+
+## Tailored Resume Download Access
+
+- By default, `GET /api/jobs/{job_hash}/resume` is restricted to local clients (`127.0.0.1`, `::1`, `localhost`).
+- To allow remote access intentionally, set `TAILORED_RESUME_DOWNLOAD_TOKEN` and send it via `x-tailored-resume-token`.
 
 ## Testing
 

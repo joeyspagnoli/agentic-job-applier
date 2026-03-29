@@ -33,6 +33,7 @@ from src.agents.resume_tailor_pi.renderer import render_resume_yaml_to_tex
 from src.database.db_manager import DEFAULT_REVIEW_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_REVIEW
+from src.utils.cost_tracking import check_budget_before_claim
 from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
@@ -475,6 +476,9 @@ async def _review_once(
     Output:
         Returns `1` when a review run completes successfully, else `0`.
     """
+
+    if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_REVIEW):
+        return 0
 
     claimed_row = await db.claim_next_review_job(
         max_retries=max_retries,

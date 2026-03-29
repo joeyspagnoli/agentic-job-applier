@@ -17,6 +17,7 @@ DEFAULT_AGENT_CLAIM_LEASE_SECONDS = 900
 DEFAULT_TAILOR_CLAIM_LEASE_SECONDS = 7200
 DEFAULT_REVIEW_CLAIM_LEASE_SECONDS = 7200
 DEFAULT_APPLY_CLAIM_LEASE_SECONDS = 1800  # Browser ops are slower than agent runs
+DEFAULT_MONTHLY_BUDGET_USD = 500.0
 
 _JOURNAL_MODE_SQL: dict[str, str] = {
     "DELETE": "PRAGMA journal_mode = DELETE",
@@ -2456,14 +2457,6 @@ class DatabaseManager:
         await self._ensure_cost_schema_ready()
         conn = self._require_conn()
 
-        await conn.execute(
-            """
-            INSERT INTO budget_settings (id, monthly_budget_usd)
-            VALUES (1, 500.0)
-            ON CONFLICT(id) DO NOTHING
-            """
-        )
-
         budget_cursor = await conn.execute(
             """
             SELECT monthly_budget_usd
@@ -2473,7 +2466,9 @@ class DatabaseManager:
         )
         budget_row = await budget_cursor.fetchone()
         budget_value = (
-            float(budget_row["monthly_budget_usd"]) if budget_row else 500.0
+            float(budget_row["monthly_budget_usd"])
+            if budget_row
+            else DEFAULT_MONTHLY_BUDGET_USD
         )
 
         spend_cursor = await conn.execute(
@@ -2488,13 +2483,28 @@ class DatabaseManager:
         remaining_value = max(budget_value - spent_value, 0.0)
         utilization = 0.0 if budget_value <= 0 else (spent_value / budget_value) * 100.0
 
-        await conn.commit()
         return {
             "monthly_budget_usd": budget_value,
             "spent_usd": spent_value,
             "remaining_usd": remaining_value,
             "utilization_pct": utilization,
         }
+
+    async def is_budget_exceeded(self) -> bool:
+        """Return whether the monthly budget has been exhausted.
+
+        Purpose:
+            Provide one reusable guard for workers that must stop claiming new
+            jobs once budget is exhausted while allowing in-flight work to finish.
+        Args:
+            self: The database manager reading the current budget snapshot.
+        Output:
+            Returns `True` when remaining budget is zero, otherwise `False`.
+        """
+
+        budget_snapshot = await self.get_budget_settings()
+        remaining_usd = float(budget_snapshot.get("remaining_usd", 0.0))
+        return remaining_usd <= 0.0
 
     async def set_budget_settings(self, *, monthly_budget_usd: float) -> dict:
         """Persist a new monthly budget value and return the updated snapshot.
@@ -2586,7 +2596,9 @@ class DatabaseManager:
                 (target_status, reviewer_notes, handoff_id),
             )
 
-            resolved_job_status = "APPLIED" if target_status == "APPROVED" else "REJECTED"
+            resolved_job_status = (
+                "APPLIED" if target_status == "APPROVED" else "REJECTED"
+            )
             await conn.execute(
                 """
                 UPDATE job_postings

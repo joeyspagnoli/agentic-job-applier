@@ -59,6 +59,20 @@ async def test_process_once_skips_rows_missing_job_hash(
     class FakeDb:
         """Provide the pending-job API shape required by `_process_once`."""
 
+        async def is_budget_exceeded(self) -> bool:
+            """Return non-exceeded budget state for this malformed-row test.
+
+            Purpose:
+                Keep this test focused on missing-hash handling rather than
+                budget-guard branching.
+            Args:
+                self: Fake DB instance.
+            Output:
+                Returns `False`.
+            """
+
+            return False
+
         async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict]:
             """Return one malformed row that lacks a usable hash.
 
@@ -147,6 +161,19 @@ async def test_process_once_skips_batch_when_model_is_not_configured(
 
     class UnusedDb:
         """Fail fast if pending-job reads are attempted in skip path."""
+
+        async def is_budget_exceeded(self) -> bool:
+            """Return non-exceeded state when model setup should fail first.
+
+            Purpose:
+                Preserve this test's focus on model-configuration errors.
+            Args:
+                self: Fake DB instance.
+            Output:
+                Returns `False`.
+            """
+
+            return False
 
         async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict]:
             """Raise if called during model-not-configured path.

@@ -8,7 +8,6 @@ Purpose:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -38,6 +37,7 @@ async def test_once_mode_processes_one_job_and_exits(tmp_path: Path) -> None:
 
     mock_db = MagicMock()
     mock_db.db_path = str(tmp_path / "test.db")
+    mock_db.is_budget_exceeded = AsyncMock(return_value=False)
     mock_db.claim_next_tailor_job = AsyncMock(return_value=None)
 
     result = await tailor_once(
@@ -85,10 +85,13 @@ async def test_loop_mode_processes_then_sleeps(tmp_path: Path) -> None:
         call_count += 1
         raise KeyboardInterrupt
 
-    with patch(
-        "scripts.process_qualified_jobs._tailor_once",
-        side_effect=fake_tailor_once,
-    ), patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+    with (
+        patch(
+            "scripts.process_qualified_jobs._tailor_once",
+            side_effect=fake_tailor_once,
+        ),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+    ):
         with pytest.raises(KeyboardInterrupt):
             import scripts.process_qualified_jobs as mod
 
@@ -118,13 +121,17 @@ def test_missing_pi_command_triggers_preflight_error() -> None:
         pi coding agent command is not configured or discoverable.
     """
 
-    with patch("shutil.which", return_value=None), patch.dict(
-        "os.environ",
-        {"PI_CODING_AGENT_COMMAND": "", "PI_CODING_AGENT_COMMAND_ARGV": ""},
-        clear=False,
-    ), patch(
-        "scripts.process_qualified_jobs.resolve_database_path",
-        return_value=Path("/tmp/test.db"),
+    with (
+        patch("shutil.which", return_value=None),
+        patch.dict(
+            "os.environ",
+            {"PI_CODING_AGENT_COMMAND": "", "PI_CODING_AGENT_COMMAND_ARGV": ""},
+            clear=False,
+        ),
+        patch(
+            "scripts.process_qualified_jobs.resolve_database_path",
+            return_value=Path("/tmp/test.db"),
+        ),
     ):
         with pytest.raises(TailorPreflightError, match="pi command not found"):
             _check_preflight()
@@ -157,13 +164,17 @@ def test_missing_latexmk_triggers_preflight_error() -> None:
             return "/usr/local/bin/pi"
         return None
 
-    with patch("shutil.which", side_effect=which_side_effect), patch.dict(
-        "os.environ",
-        {"PI_CODING_AGENT_COMMAND": "", "PI_CODING_AGENT_COMMAND_ARGV": ""},
-        clear=False,
-    ), patch(
-        "scripts.process_qualified_jobs.resolve_database_path",
-        return_value=Path("/tmp/test.db"),
+    with (
+        patch("shutil.which", side_effect=which_side_effect),
+        patch.dict(
+            "os.environ",
+            {"PI_CODING_AGENT_COMMAND": "", "PI_CODING_AGENT_COMMAND_ARGV": ""},
+            clear=False,
+        ),
+        patch(
+            "scripts.process_qualified_jobs.resolve_database_path",
+            return_value=Path("/tmp/test.db"),
+        ),
     ):
         with pytest.raises(TailorPreflightError, match="latexmk not found"):
             _check_preflight()
@@ -199,11 +210,16 @@ def test_missing_database_directory_triggers_preflight_error(
         """
         return f"/usr/local/bin/{name}"
 
-    with patch("shutil.which", side_effect=which_side_effect), patch(
-        "scripts.process_qualified_jobs.resolve_database_path",
-        return_value=nonexistent_db_path,
+    with (
+        patch("shutil.which", side_effect=which_side_effect),
+        patch(
+            "scripts.process_qualified_jobs.resolve_database_path",
+            return_value=nonexistent_db_path,
+        ),
     ):
-        with pytest.raises(TailorPreflightError, match="Database parent directory does not exist"):
+        with pytest.raises(
+            TailorPreflightError, match="Database parent directory does not exist"
+        ):
             _check_preflight()
 
 
