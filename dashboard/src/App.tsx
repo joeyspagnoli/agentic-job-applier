@@ -13,6 +13,8 @@ import type { JSX } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { FailuresPage } from "@/pages/FailuresPage";
+import { HumanReviewPage } from "@/pages/HumanReviewPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 
 /**
@@ -27,8 +29,8 @@ export default function App(): JSX.Element {
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="jobs" element={<PlaceholderPage name="Jobs" />} />
-          <Route path="human-review" element={<PlaceholderPage name="Human Review" />} />
-          <Route path="failures" element={<PlaceholderPage name="Failures" />} />
+          <Route path="human-review" element={<HumanReviewPage />} />
+          <Route path="failures" element={<FailuresPage />} />
           <Route path="cost-tracking" element={<PlaceholderPage name="Cost Tracking" />} />
         </Route>
       </Routes>
