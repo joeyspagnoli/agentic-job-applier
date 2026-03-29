@@ -229,6 +229,185 @@ export interface SettingsFilesDto {
   readonly profile: SettingsFileMetadataDto;
 }
 
+/** Structured candidate profile fields used by guided settings forms. */
+export interface CandidateProfileSectionDto {
+  readonly summary: string;
+  readonly education: string;
+  readonly citizenship: string;
+  readonly target_roles: readonly string[];
+  readonly strongest_areas: readonly string[];
+  readonly experience_highlights: readonly string[];
+  readonly hard_filters: readonly string[];
+  readonly preferences: readonly string[];
+}
+
+/** Search defaults subsection for candidate profile settings. */
+export interface CandidateSearchDefaultsDto {
+  readonly job_board_search_terms: readonly string[];
+}
+
+/** Candidate profile settings response payload. */
+export interface SettingsProfileDto {
+  readonly ok: true;
+  readonly metadata: SettingsFileMetadataDto;
+  readonly yaml_text: string;
+  readonly profile: CandidateProfileSectionDto;
+  readonly search_defaults: CandidateSearchDefaultsDto;
+  readonly prompt_context: string | null;
+}
+
+/** Resume link entry for personal section. */
+export interface ResumeLinkDto {
+  readonly id: string;
+  readonly label: string;
+  readonly url: string;
+}
+
+/** Resume bullet row shared by entries and listings. */
+export interface ResumeBulletDto {
+  readonly id: string;
+  readonly text: string;
+}
+
+/** Locked personal section payload. */
+export interface ResumePersonalSectionDto {
+  readonly section_id: "personal";
+  readonly name: string;
+  readonly phone: string;
+  readonly email: string;
+  readonly links: readonly ResumeLinkDto[];
+}
+
+/** Locked education entry payload. */
+export interface ResumeEducationEntryDto {
+  readonly id: string;
+  readonly institution: string;
+  readonly date_range: string;
+  readonly degree: string;
+  readonly detail: string;
+  readonly bullets: readonly ResumeBulletDto[];
+}
+
+/** Locked education section payload. */
+export interface ResumeEducationSectionDto {
+  readonly section_id: "education";
+  readonly heading: string;
+  readonly entries: readonly ResumeEducationEntryDto[];
+}
+
+/** Editable experience listing row. */
+export interface ResumeExperienceListingDto {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly title: string;
+  readonly date_range: string;
+  readonly organization: string;
+  readonly bullets: readonly ResumeBulletDto[];
+}
+
+/** Editable experience section payload. */
+export interface ResumeExperienceSectionDto {
+  readonly section_id: "experience";
+  readonly heading: string;
+  readonly listings: readonly ResumeExperienceListingDto[];
+}
+
+/** Editable project listing row. */
+export interface ResumeProjectListingDto {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly title: string;
+  readonly tech_stack: string;
+  readonly date_range: string;
+  readonly bullets: readonly ResumeBulletDto[];
+}
+
+/** Editable projects section payload. */
+export interface ResumeProjectsSectionDto {
+  readonly section_id: "projects";
+  readonly heading: string;
+  readonly listings: readonly ResumeProjectListingDto[];
+}
+
+/** Editable skills row payload. */
+export interface ResumeSkillListingDto {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly category: string;
+  readonly text: string;
+}
+
+/** Editable skills and achievements section payload. */
+export interface ResumeSkillsAchievementsSectionDto {
+  readonly section_id: "skills_achievements";
+  readonly heading: string;
+  readonly listings: readonly ResumeSkillListingDto[];
+}
+
+/** Resume layout knobs payload. */
+export interface ResumeLayoutDto {
+  readonly margin_in: number;
+  readonly top_vspace_in: number;
+  readonly section_heading_font_size_pt: number;
+  readonly section_heading_line_height_pt: number;
+  readonly section_spacing_before_pt: number;
+  readonly section_spacing_after_pt: number;
+  readonly subheading_itemsep_pt: number;
+  readonly bullet_itemsep_pt: number;
+}
+
+/** Resume lock rules payload. */
+export interface ResumeLockRulesDto {
+  readonly section_order: readonly string[];
+  readonly section_headings: Record<string, string>;
+  readonly non_editable_sections: readonly string[];
+}
+
+/** Full canonical resume payload used by structured settings APIs. */
+export interface ResumeContentDto {
+  readonly schema_version: number;
+  readonly lock_rules: ResumeLockRulesDto;
+  readonly layout: ResumeLayoutDto;
+  readonly personal: ResumePersonalSectionDto;
+  readonly education: ResumeEducationSectionDto;
+  readonly experience: ResumeExperienceSectionDto;
+  readonly projects: ResumeProjectsSectionDto;
+  readonly skills_achievements: ResumeSkillsAchievementsSectionDto;
+}
+
+/** Resume section counts returned with read/write settings responses. */
+export interface ResumeCountsDto {
+  readonly education_entries: number;
+  readonly experience_listings: number;
+  readonly project_listings: number;
+  readonly skill_rows: number;
+}
+
+/** Resume settings response payload. */
+export interface SettingsResumeDto {
+  readonly ok: true;
+  readonly metadata: SettingsFileMetadataDto;
+  readonly yaml_text: string;
+  readonly resume: ResumeContentDto;
+  readonly counts: ResumeCountsDto;
+}
+
+/** Resume TeX conversion summary returned after migration upload. */
+export interface ResumeTexMigrationDto {
+  readonly source_tex_path: string;
+  readonly output_yaml_path: string;
+  readonly normalized_input: boolean;
+  readonly education_entries: number;
+  readonly experience_listings: number;
+  readonly project_listings: number;
+  readonly skill_rows: number;
+}
+
+/** Resume TeX upload response payload. */
+export interface SettingsResumeTexUploadDto extends SettingsResumeDto {
+  readonly migration: ResumeTexMigrationDto;
+}
+
 /** Mutation response payload for retry endpoint. */
 export interface RetryFailureDto {
   readonly ok: true;

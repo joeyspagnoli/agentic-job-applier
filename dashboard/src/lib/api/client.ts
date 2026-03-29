@@ -17,7 +17,11 @@ import type {
   HumanReviewResponseDto,
   JobsResponseDto,
   RetryFailureDto,
+  ResumeContentDto,
+  SettingsProfileDto,
   SettingsFilesDto,
+  SettingsResumeDto,
+  SettingsResumeTexUploadDto,
 } from "@/lib/api/types";
 
 const JSON_HEADERS = {
@@ -274,6 +278,110 @@ export async function updateBudget(monthlyBudgetUsd: number): Promise<BudgetDto>
  */
 export async function fetchSettingsFiles(): Promise<SettingsFilesDto> {
   return getJson<SettingsFilesDto>("/api/settings/files");
+}
+
+/**
+ * Request candidate profile settings payload for guided and YAML editors.
+ *
+ * @returns Candidate profile settings DTO.
+ */
+export async function fetchProfileSettings(): Promise<SettingsProfileDto> {
+  return getJson<SettingsProfileDto>("/api/settings/profile");
+}
+
+/**
+ * Persist candidate profile settings from raw YAML text.
+ *
+ * @param yamlText - YAML text content to validate and save.
+ * @returns Candidate profile settings DTO after save.
+ */
+export async function updateProfileYaml(yamlText: string): Promise<SettingsProfileDto> {
+  return getJson<SettingsProfileDto>("/api/settings/profile", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ yaml_text: yamlText }),
+  });
+}
+
+/**
+ * Persist candidate profile settings from structured guided form fields.
+ *
+ * @param payload - Structured profile payload.
+ * @returns Candidate profile settings DTO after save.
+ */
+export async function updateProfileStructured(payload: {
+  readonly profile: {
+    readonly summary: string;
+    readonly education: string;
+    readonly citizenship: string;
+    readonly target_roles: readonly string[];
+    readonly strongest_areas: readonly string[];
+    readonly experience_highlights: readonly string[];
+    readonly hard_filters: readonly string[];
+    readonly preferences: readonly string[];
+  };
+  readonly search_defaults: {
+    readonly job_board_search_terms: readonly string[];
+  };
+  readonly prompt_context: string | null;
+}): Promise<SettingsProfileDto> {
+  return getJson<SettingsProfileDto>("/api/settings/profile/structured", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Request resume settings payload for guided and YAML editors.
+ *
+ * @returns Resume settings DTO.
+ */
+export async function fetchResumeSettings(): Promise<SettingsResumeDto> {
+  return getJson<SettingsResumeDto>("/api/settings/resume");
+}
+
+/**
+ * Persist resume settings from raw YAML text.
+ *
+ * @param yamlText - YAML text content to validate and save.
+ * @returns Resume settings DTO after save.
+ */
+export async function updateResumeYaml(yamlText: string): Promise<SettingsResumeDto> {
+  return getJson<SettingsResumeDto>("/api/settings/resume", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ yaml_text: yamlText }),
+  });
+}
+
+/**
+ * Persist resume settings from structured guided form fields.
+ *
+ * @param resume - Full canonical resume payload.
+ * @returns Resume settings DTO after save.
+ */
+export async function updateResumeStructured(resume: ResumeContentDto): Promise<SettingsResumeDto> {
+  return getJson<SettingsResumeDto>("/api/settings/resume/structured", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ resume }),
+  });
+}
+
+/**
+ * Upload one LaTeX resume file and migrate it into canonical YAML.
+ *
+ * @param file - Uploaded `.tex` file.
+ * @returns Resume settings DTO including migration summary.
+ */
+export async function uploadResumeTex(file: File): Promise<SettingsResumeTexUploadDto> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return getJson<SettingsResumeTexUploadDto>("/api/settings/resume/tex", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 /**

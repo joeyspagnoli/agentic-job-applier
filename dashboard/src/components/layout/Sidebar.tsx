@@ -47,7 +47,7 @@ interface NavItem {
  *
  * @remarks
  * Rendered top-to-bottom in the sidebar. Order here defines the visual order.
- * Do not add Settings or Support here — those are accessed via the avatar dropdown.
+ * Add new first-class pages here so navigation and routing stay centralized.
  */
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true },
@@ -55,13 +55,14 @@ const NAV_ITEMS = [
   { to: "/human-review", label: "Human Review", icon: "visibility", end: false },
   { to: "/failures", label: "Failures", icon: "error", end: false },
   { to: "/cost-tracking", label: "Cost Tracking", icon: "payments", end: false },
+  { to: "/settings", label: "Settings", icon: "settings", end: false },
 ] as const satisfies readonly NavItem[];
 
 /**
  * Fixed left-side navigation sidebar for the AutoApply dashboard.
  *
  * @remarks
- * Renders the AutoApply logo, five navigation links, and a read-only
+ * Renders the AutoApply logo, six navigation links, and a read-only
  * monthly budget widget at the bottom. Active route highlighting is
  * handled automatically via React Router's {@link NavLink}.
  *

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC
 from datetime import datetime
@@ -27,9 +29,16 @@ from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import ValidationError
 import yaml
 
+from scripts.migrate_resume_tex_to_yaml import ResumeMigrationError
+from scripts.migrate_resume_tex_to_yaml import migrate_resume_tex_to_yaml
+from src.agents.resume_tailor_pi.schemas import ResumeContent
+from src.agents.resume_tailor_pi.schemas import validate_locked_structure
+from src.agents.resume_tailor_pi.yaml_io import save_resume_yaml
 from src.agents.root_apply_decider.prompts import load_candidate_context
 from src.database.db_manager import DatabaseManager
 from src.utils.paths import resolve_database_path
@@ -45,6 +54,36 @@ DASHBOARD_INDEX_FILE = DASHBOARD_DIST_DIR / "index.html"
 
 SETTINGS_RESUME_PATH = resolve_repo_root() / "config" / "resume_content.yaml"
 SETTINGS_PROFILE_PATH = resolve_repo_root() / "config" / "candidate_profile.yaml"
+SETTINGS_RESUME_TEX_PATH = resolve_repo_root() / "config" / "resume_base.tex"
+
+TEX_SECTION_HEADER_PATTERN = re.compile(
+    r"\\section\{\\textbf\{(?P<heading>[^}]+)\}\}"
+)
+TEX_SECTION_HEADING_ALIASES: dict[str, str] = {
+    "work experience": "Experience",
+    "professional experience": "Experience",
+    "employment": "Experience",
+    "internships": "Experience",
+    "project experience": "Projects",
+    "selected projects": "Projects",
+    "technical projects": "Projects",
+    "skills": "Skills and Achievements",
+    "technical skills": "Skills and Achievements",
+    "skills and technologies": "Skills and Achievements",
+    "education & coursework": "Education",
+    "academic background": "Education",
+}
+REQUIRED_TEX_SECTION_HEADINGS: tuple[str, ...] = (
+    "Education",
+    "Experience",
+    "Projects",
+    "Skills and Achievements",
+)
+PERSONAL_NAME_PATTERN = re.compile(r"\\bfseries\s+([^}]+)\}\\\\")
+PERSONAL_CONTACT_PATTERN = re.compile(
+    r"\{\\normalsize\s*(.+?)\}\s*\\end\{center\}",
+    flags=re.DOTALL,
+)
 
 
 class ReviewerActionRequest(BaseModel):
@@ -71,6 +110,97 @@ class BudgetUpdateRequest(BaseModel):
         ge=0,
         description="New monthly budget limit in USD.",
     )
+
+
+class YamlTextUpdateRequest(BaseModel):
+    """Request payload for raw YAML text save operations.
+
+    Attributes:
+        yaml_text: UTF-8 YAML content to validate and persist.
+    """
+
+    yaml_text: str = Field(
+        min_length=1,
+        description="UTF-8 YAML content to validate and persist.",
+    )
+
+
+class CandidateProfileSectionPayload(BaseModel):
+    """Structured candidate profile subsection used by guided settings forms.
+
+    Attributes:
+        summary: One-line candidate summary for gate prompt context.
+        education: Education summary line used by gate prompt context.
+        citizenship: Work authorization/citizenship summary line.
+        target_roles: Preferred role titles for matching.
+        strongest_areas: Primary technical strengths.
+        experience_highlights: Experience highlights for prompt grounding.
+        hard_filters: Hard exclusions that should trigger skip behavior.
+        preferences: Positive preferences used for gate ranking.
+    """
+
+    summary: str = ""
+    education: str = ""
+    citizenship: str = ""
+    target_roles: list[str] = Field(default_factory=list)
+    strongest_areas: list[str] = Field(default_factory=list)
+    experience_highlights: list[str] = Field(default_factory=list)
+    hard_filters: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+
+
+class CandidateSearchDefaultsPayload(BaseModel):
+    """Structured search-default fields used for job-board query defaults.
+
+    Attributes:
+        job_board_search_terms: Search term list for discovery polling.
+    """
+
+    job_board_search_terms: list[str] = Field(default_factory=list)
+
+
+class CandidateProfileDocumentPayload(BaseModel):
+    """Structured candidate profile document persisted as YAML.
+
+    Attributes:
+        profile: Candidate profile section.
+        search_defaults: Default search term section.
+        prompt_context: Optional full prompt override string.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    profile: CandidateProfileSectionPayload = Field(
+        default_factory=CandidateProfileSectionPayload
+    )
+    search_defaults: CandidateSearchDefaultsPayload = Field(
+        default_factory=CandidateSearchDefaultsPayload
+    )
+    prompt_context: str | None = None
+
+
+class ProfileStructuredUpdateRequest(BaseModel):
+    """Request payload for guided candidate-profile save operations.
+
+    Attributes:
+        profile: Guided profile fields from settings form.
+        search_defaults: Guided search defaults from settings form.
+        prompt_context: Optional prompt-context override.
+    """
+
+    profile: CandidateProfileSectionPayload
+    search_defaults: CandidateSearchDefaultsPayload
+    prompt_context: str | None = None
+
+
+class ResumeStructuredUpdateRequest(BaseModel):
+    """Request payload for guided resume save operations.
+
+    Attributes:
+        resume: Full resume JSON payload to validate and persist as YAML.
+    """
+
+    resume: dict[str, object]
 
 
 def _error_response(
@@ -362,6 +492,383 @@ def _resolve_settings_file_metadata(path: Path) -> dict[str, object]:
         "size_bytes": size_bytes,
         "modified_at": modified_at,
     }
+
+
+def _read_settings_text(path: Path, *, file_label: str) -> str:
+    """Read one settings-managed text file from disk.
+
+    Purpose:
+        Centralize settings file reads so endpoints return consistent errors
+        when the canonical file is missing or unreadable.
+    Args:
+        path: Absolute filesystem path to read.
+        file_label: Human-readable file label for error messages.
+    Output:
+        Returns decoded UTF-8 file text.
+    Raises:
+        HTTPException: When file does not exist or cannot be read as UTF-8.
+    """
+
+    if not path.exists():
+        _raise_api_error(
+            status_code=404,
+            code="FILE_NOT_FOUND",
+            message=f"{file_label} file does not exist.",
+            details={"path": str(path)},
+        )
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _raise_api_error(
+            status_code=500,
+            code="FILE_READ_ERROR",
+            message=f"Failed to read {file_label} file.",
+            details={"path": str(path), "error": str(exc)},
+        )
+
+
+def _parse_yaml_mapping(*, yaml_text: str, context: str) -> dict[str, object]:
+    """Parse YAML text and assert a mapping root value.
+
+    Purpose:
+        Keep YAML parsing behavior deterministic for all settings endpoints and
+        surface field-level validation with stable API error payloads.
+    Args:
+        yaml_text: Raw YAML text submitted by request or loaded from disk.
+        context: Context label used in error details.
+    Output:
+        Returns parsed root mapping payload.
+    Raises:
+        HTTPException: When YAML is invalid or the root is not a mapping.
+    """
+
+    try:
+        parsed_payload = yaml.safe_load(yaml_text)
+    except yaml.YAMLError as exc:
+        _raise_api_error(
+            status_code=400,
+            code="INVALID_YAML",
+            message="YAML payload is invalid.",
+            details={"context": context, "error": str(exc)},
+        )
+
+    if not isinstance(parsed_payload, dict):
+        _raise_api_error(
+            status_code=422,
+            code="INVALID_SETTINGS_ROOT",
+            message="YAML root must be a mapping.",
+            details={"context": context},
+        )
+    return parsed_payload
+
+
+def _validate_candidate_profile_document(
+    payload: Mapping[str, object],
+) -> CandidateProfileDocumentPayload:
+    """Validate candidate profile mapping payload.
+
+    Purpose:
+        Enforce one structured shape for profile fields so guided settings
+        forms and prompt-context rendering always receive deterministic types.
+    Args:
+        payload: Parsed candidate-profile YAML mapping.
+    Output:
+        Returns validated `CandidateProfileDocumentPayload`.
+    Raises:
+        HTTPException: When payload shape or field types are invalid.
+    """
+
+    try:
+        return CandidateProfileDocumentPayload.model_validate(payload)
+    except ValidationError as exc:
+        _raise_api_error(
+            status_code=422,
+            code="INVALID_PROFILE_SHAPE",
+            message="Candidate profile settings payload is invalid.",
+            details={"errors": exc.errors()},
+        )
+
+
+def _normalize_candidate_profile_output(
+    payload: CandidateProfileDocumentPayload,
+) -> dict[str, object]:
+    """Build API-friendly candidate-profile payload from validated document.
+
+    Purpose:
+        Return one stable response shape for candidate profile settings reads
+        and writes, independent of how data was supplied.
+    Args:
+        payload: Validated candidate profile document model.
+    Output:
+        Returns JSON-serializable profile payload for API responses.
+    """
+
+    return {
+        "profile": payload.profile.model_dump(mode="json"),
+        "search_defaults": payload.search_defaults.model_dump(mode="json"),
+        "prompt_context": payload.prompt_context,
+    }
+
+
+def _validate_resume_document(payload: Mapping[str, object]) -> ResumeContent:
+    """Validate one resume mapping against canonical schema and lock rules.
+
+    Purpose:
+        Ensure every resume write path enforces the same Pydantic schema and
+        immutable section lock constraints before persistence.
+    Args:
+        payload: Parsed resume mapping payload from YAML or structured request.
+    Output:
+        Returns validated `ResumeContent` model.
+    Raises:
+        HTTPException: When schema or lock validation fails.
+    """
+
+    try:
+        resume_document = ResumeContent.model_validate(payload)
+        validate_locked_structure(resume_document)
+        return resume_document
+    except (ValidationError, ValueError) as exc:
+        details: dict[str, object]
+        if isinstance(exc, ValidationError):
+            details = {"errors": exc.errors()}
+        else:
+            details = {"error": str(exc)}
+        _raise_api_error(
+            status_code=422,
+            code="INVALID_RESUME_SHAPE",
+            message="Resume settings payload is invalid.",
+            details=details,
+        )
+
+
+def _persist_yaml_mapping(path: Path, *, payload: Mapping[str, object]) -> str:
+    """Persist mapping payload to YAML with deterministic serialization.
+
+    Purpose:
+        Keep profile settings writes stable and diff-friendly while preserving
+        unknown keys included in the top-level payload mapping.
+    Args:
+        path: Destination YAML file path.
+        payload: Mapping to serialize and write.
+    Output:
+        Returns the serialized YAML text that was written to disk.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_text = yaml.safe_dump(
+        dict(payload),
+        sort_keys=False,
+        allow_unicode=False,
+        width=120,
+    )
+    path.write_text(yaml_text, encoding="utf-8")
+    return yaml_text
+
+
+def _resume_counts(resume_document: ResumeContent) -> dict[str, int]:
+    """Compute lightweight resume section counts for API responses.
+
+    Purpose:
+        Return concise migration/save diagnostics that help settings UI confirm
+        the persisted resume structure at a glance.
+    Args:
+        resume_document: Validated resume model.
+    Output:
+        Returns per-section listing count values.
+    """
+
+    return {
+        "education_entries": len(resume_document.education.entries),
+        "experience_listings": len(resume_document.experience.listings),
+        "project_listings": len(resume_document.projects.listings),
+        "skill_rows": len(resume_document.skills_achievements.listings),
+    }
+
+
+def _normalize_tex_section_headings(tex_text: str) -> str:
+    """Normalize common LaTeX resume heading aliases to canonical names.
+
+    Purpose:
+        Allow TeX uploads with varied section names to map into the canonical
+        migration contract without requiring users to hand-edit heading text.
+    Args:
+        tex_text: Raw uploaded TeX source text.
+    Output:
+        Returns TeX text with known heading aliases replaced.
+    """
+
+    def _replace_heading(match: re.Match[str]) -> str:
+        """Return one canonical replacement heading for alias-normalization.
+
+        Purpose:
+            Keep alias replacement logic localized to one callback used by
+            the compiled section-header regex substitution.
+        Args:
+            match: Regex match containing the raw heading text.
+        Output:
+            Returns the canonical section heading replacement text.
+        """
+
+        heading_text = match.group("heading").strip()
+        canonical_heading = TEX_SECTION_HEADING_ALIASES.get(
+            heading_text.lower(),
+            heading_text,
+        )
+        return f"\\section{{\\textbf{{{canonical_heading}}}}}"
+
+    return TEX_SECTION_HEADER_PATTERN.sub(_replace_heading, tex_text)
+
+
+def _build_fallback_personal_header(resume_document: ResumeContent) -> str:
+    """Build one parseable fallback personal header block for TeX migration.
+
+    Purpose:
+        Keep migration resilient when uploaded TeX does not include the exact
+        centered heading pattern expected by the migration parser.
+    Args:
+        resume_document: Current canonical resume document used as fallback.
+    Output:
+        Returns a compact LaTeX header block parseable by migration logic.
+    """
+
+    personal = resume_document.personal
+    links_text = " \\textbar\\ ".join(
+        f"\\href{{{link.url}}}{{{link.label}}}" for link in personal.links
+    )
+    contact_parts = [
+        personal.phone,
+        f"\\href{{mailto:{personal.email}}}{{{personal.email}}}",
+    ]
+    if links_text != "":
+        contact_parts.append(links_text)
+    contact_text = " \\textbar\\ ".join(contact_parts)
+    return (
+        "\\begin{center}\n"
+        f"{{\\bfseries {personal.name}}}\\\\\n"
+        f"{{\\normalsize {contact_text}}}\n"
+        "\\end{center}\n\n"
+    )
+
+
+def _build_fallback_education_section(resume_document: ResumeContent) -> str:
+    """Build one parseable fallback education section for TeX migration.
+
+    Purpose:
+        Guarantee migration has a valid education section when uploaded TeX
+        omits education content or uses incompatible education macros.
+    Args:
+        resume_document: Current canonical resume document used as fallback.
+    Output:
+        Returns TeX text for one canonical education section.
+    """
+
+    education_entry = (
+        resume_document.education.entries[0]
+        if len(resume_document.education.entries) > 0
+        else None
+    )
+    if education_entry is None:
+        institution = "University"
+        date_range = "MM. YYYY -- MM. YYYY"
+        degree = "Degree"
+        detail = "Details"
+        bullet_text = "Education details."
+    else:
+        institution = education_entry.institution
+        date_range = education_entry.date_range
+        degree = education_entry.degree
+        detail = education_entry.detail
+        bullet_text = (
+            education_entry.bullets[0].text
+            if len(education_entry.bullets) > 0
+            else "Education details."
+        )
+
+    return (
+        "\\section{\\textbf{Education}}\n"
+        f"\\resumeSubheading{{{institution}}}{{{date_range}}}{{{degree}}}{{{detail}}}\n"
+        "\\begin{itemize}\n"
+        f"\\item {bullet_text}\n"
+        "\\end{itemize}\n\n"
+    )
+
+
+def _ensure_tex_required_sections(
+    *,
+    tex_text: str,
+    fallback_resume: ResumeContent,
+) -> str:
+    """Ensure canonical section headings exist before TeX-to-YAML migration.
+
+    Purpose:
+        Make migration tolerant of non-standard section naming and partially
+        missing sections while still producing a canonical resume payload.
+    Args:
+        tex_text: Normalized TeX source text.
+        fallback_resume: Existing canonical resume used for fallback sections.
+    Output:
+        Returns TeX text guaranteed to include required canonical headings.
+    """
+
+    current_text = tex_text
+    section_headings = {
+        match.group("heading").strip()
+        for match in TEX_SECTION_HEADER_PATTERN.finditer(current_text)
+    }
+
+    if (
+        "Education" not in section_headings
+        or "\\resumeSubheading{" not in current_text
+    ):
+        current_text += "\n" + _build_fallback_education_section(fallback_resume)
+        section_headings.add("Education")
+
+    if "Experience" not in section_headings:
+        current_text += "\n\\section{\\textbf{Experience}}\n\n"
+        section_headings.add("Experience")
+    if "Projects" not in section_headings:
+        current_text += "\n\\section{\\textbf{Projects}}\n\n"
+        section_headings.add("Projects")
+    if "Skills and Achievements" not in section_headings:
+        current_text += "\n\\section{\\textbf{Skills and Achievements}}\n\n"
+        section_headings.add("Skills and Achievements")
+
+    return current_text
+
+
+def _prepare_resume_tex_for_migration(
+    *,
+    uploaded_tex_text: str,
+    fallback_resume: ResumeContent,
+) -> str:
+    """Prepare uploaded TeX text for robust canonical migration.
+
+    Purpose:
+        Normalize heading aliases and inject fallback personal/section content
+        so migration succeeds for common resume template variations.
+    Args:
+        uploaded_tex_text: Raw uploaded TeX source.
+        fallback_resume: Existing canonical resume for fallback content.
+    Output:
+        Returns normalized TeX text ready for migration.
+    """
+
+    normalized_text = _normalize_tex_section_headings(uploaded_tex_text)
+
+    has_parseable_personal_header = (
+        PERSONAL_NAME_PATTERN.search(normalized_text) is not None
+        and PERSONAL_CONTACT_PATTERN.search(normalized_text) is not None
+    )
+    if not has_parseable_personal_header:
+        normalized_text = (
+            _build_fallback_personal_header(fallback_resume) + normalized_text
+        )
+
+    return _ensure_tex_required_sections(
+        tex_text=normalized_text,
+        fallback_resume=fallback_resume,
+    )
 
 
 async def _run_startup_migrations() -> None:
@@ -1784,6 +2291,106 @@ async def _read_uploaded_text(file: UploadFile) -> str:
         )
 
 
+@app.get("/api/settings/profile")
+async def get_profile_settings() -> dict[str, object]:
+    """Return candidate profile settings with raw YAML and parsed fields.
+
+    Purpose:
+        Power guided and advanced profile editors from one read endpoint.
+    Args:
+        None.
+    Output:
+        Returns metadata, raw YAML text, and parsed profile payload.
+    """
+
+    yaml_text = _read_settings_text(SETTINGS_PROFILE_PATH, file_label="Profile")
+    parsed_payload = _parse_yaml_mapping(yaml_text=yaml_text, context="profile")
+    profile_document = _validate_candidate_profile_document(parsed_payload)
+
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_PROFILE_PATH),
+        "yaml_text": yaml_text,
+        **_normalize_candidate_profile_output(profile_document),
+    }
+
+
+@app.put("/api/settings/profile")
+async def update_profile_yaml(payload: YamlTextUpdateRequest) -> dict[str, object]:
+    """Persist candidate profile settings from raw YAML text.
+
+    Purpose:
+        Support advanced YAML editing while enforcing candidate profile shape
+        validation before writing config to disk.
+    Args:
+        payload: Raw YAML payload wrapper.
+    Output:
+        Returns metadata, canonical YAML text, and parsed profile payload.
+    """
+
+    parsed_payload = _parse_yaml_mapping(yaml_text=payload.yaml_text, context="profile")
+    profile_document = _validate_candidate_profile_document(parsed_payload)
+
+    SETTINGS_PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PROFILE_PATH.write_text(payload.yaml_text, encoding="utf-8")
+    load_candidate_context.cache_clear()
+
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_PROFILE_PATH),
+        "yaml_text": payload.yaml_text,
+        **_normalize_candidate_profile_output(profile_document),
+    }
+
+
+@app.put("/api/settings/profile/structured")
+async def update_profile_structured(
+    payload: ProfileStructuredUpdateRequest,
+) -> dict[str, object]:
+    """Persist candidate profile settings from guided structured fields.
+
+    Purpose:
+        Support form-first editing while preserving unknown top-level YAML keys
+        outside profile/search-defaults/prompt-context.
+    Args:
+        payload: Structured profile update payload.
+    Output:
+        Returns metadata, canonical YAML text, and parsed profile payload.
+    """
+
+    existing_payload: dict[str, object]
+    if SETTINGS_PROFILE_PATH.exists():
+        existing_text = _read_settings_text(SETTINGS_PROFILE_PATH, file_label="Profile")
+        existing_payload = _parse_yaml_mapping(
+            yaml_text=existing_text,
+            context="profile",
+        )
+    else:
+        existing_payload = {}
+
+    merged_payload = dict(existing_payload)
+    merged_payload["profile"] = payload.profile.model_dump(mode="json")
+    merged_payload["search_defaults"] = payload.search_defaults.model_dump(mode="json")
+    if payload.prompt_context is None:
+        merged_payload.pop("prompt_context", None)
+    else:
+        merged_payload["prompt_context"] = payload.prompt_context
+
+    profile_document = _validate_candidate_profile_document(merged_payload)
+    persisted_yaml = _persist_yaml_mapping(
+        SETTINGS_PROFILE_PATH,
+        payload=merged_payload,
+    )
+    load_candidate_context.cache_clear()
+
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_PROFILE_PATH),
+        "yaml_text": persisted_yaml,
+        **_normalize_candidate_profile_output(profile_document),
+    }
+
+
 @app.post("/api/settings/resume")
 async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, object]:
     """Replace the canonical base resume YAML from settings upload.
@@ -1797,21 +2404,165 @@ async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, object]:
     """
 
     text = await _read_uploaded_text(file)
-    try:
-        yaml.safe_load(text)
-    except yaml.YAMLError:
-        _raise_api_error(
-            status_code=400,
-            code="INVALID_YAML",
-            message="Uploaded resume file must be valid YAML.",
-        )
-
-    SETTINGS_RESUME_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_RESUME_PATH.write_text(text, encoding="utf-8")
+    parsed_payload = _parse_yaml_mapping(yaml_text=text, context="resume")
+    resume_document = _validate_resume_document(parsed_payload)
+    save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=resume_document)
 
     return {
         "ok": True,
         "resume": _resolve_settings_file_metadata(SETTINGS_RESUME_PATH),
+    }
+
+
+@app.get("/api/settings/resume")
+async def get_resume_settings() -> dict[str, object]:
+    """Return resume settings with raw YAML text and parsed canonical payload.
+
+    Purpose:
+        Provide one read endpoint for guided resume editing, advanced YAML
+        editing, and post-conversion refresh flows.
+    Args:
+        None.
+    Output:
+        Returns metadata, raw YAML text, and parsed resume payload.
+    """
+
+    yaml_text = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
+    parsed_payload = _parse_yaml_mapping(yaml_text=yaml_text, context="resume")
+    resume_document = _validate_resume_document(parsed_payload)
+
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_RESUME_PATH),
+        "yaml_text": yaml_text,
+        "resume": resume_document.model_dump(mode="json"),
+        "counts": _resume_counts(resume_document),
+    }
+
+
+@app.put("/api/settings/resume")
+async def update_resume_yaml(payload: YamlTextUpdateRequest) -> dict[str, object]:
+    """Persist resume settings from raw YAML text with full schema validation.
+
+    Purpose:
+        Support advanced YAML editing while enforcing canonical resume schema
+        and lock constraints before writing persisted YAML.
+    Args:
+        payload: Raw YAML payload wrapper.
+    Output:
+        Returns metadata, canonical YAML text, and parsed resume payload.
+    """
+
+    parsed_payload = _parse_yaml_mapping(yaml_text=payload.yaml_text, context="resume")
+    resume_document = _validate_resume_document(parsed_payload)
+    save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=resume_document)
+    persisted_yaml = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
+
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_RESUME_PATH),
+        "yaml_text": persisted_yaml,
+        "resume": resume_document.model_dump(mode="json"),
+        "counts": _resume_counts(resume_document),
+    }
+
+
+@app.put("/api/settings/resume/structured")
+async def update_resume_structured(
+    payload: ResumeStructuredUpdateRequest,
+) -> dict[str, object]:
+    """Persist resume settings from guided structured payload.
+
+    Purpose:
+        Support form-first resume editing while preserving strict resume schema
+        and lock validations on every save.
+    Args:
+        payload: Structured resume payload wrapper.
+    Output:
+        Returns metadata, canonical YAML text, and parsed resume payload.
+    """
+
+    resume_document = _validate_resume_document(payload.resume)
+    save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=resume_document)
+    persisted_yaml = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
+
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_RESUME_PATH),
+        "yaml_text": persisted_yaml,
+        "resume": resume_document.model_dump(mode="json"),
+        "counts": _resume_counts(resume_document),
+    }
+
+
+@app.post("/api/settings/resume/tex")
+async def upload_resume_tex(file: UploadFile = File(...)) -> dict[str, object]:
+    """Upload a LaTeX resume source and migrate it into canonical YAML.
+
+    Purpose:
+        Provide a settings-native conversion flow so users can update resume
+        content from `.tex` without manual YAML authoring.
+    Args:
+        file: Uploaded LaTeX `.tex` file.
+    Output:
+        Returns canonical resume payload, metadata, and migration counts.
+    Raises:
+        HTTPException: When conversion fails or produced invalid resume YAML.
+    """
+
+    tex_text = await _read_uploaded_text(file)
+    prepared_tex_text = tex_text
+    if SETTINGS_RESUME_PATH.exists():
+        fallback_yaml_text = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
+        fallback_payload = _parse_yaml_mapping(
+            yaml_text=fallback_yaml_text,
+            context="resume",
+        )
+        fallback_resume = _validate_resume_document(fallback_payload)
+        prepared_tex_text = _prepare_resume_tex_for_migration(
+            uploaded_tex_text=tex_text,
+            fallback_resume=fallback_resume,
+        )
+    else:
+        prepared_tex_text = _normalize_tex_section_headings(tex_text)
+
+    SETTINGS_RESUME_TEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_RESUME_TEX_PATH.write_text(prepared_tex_text, encoding="utf-8")
+
+    try:
+        migrated_resume = migrate_resume_tex_to_yaml(
+            resume_tex_path=SETTINGS_RESUME_TEX_PATH,
+            output_yaml_path=SETTINGS_RESUME_PATH,
+        )
+        validate_locked_structure(migrated_resume)
+    except ResumeMigrationError as exc:
+        _raise_api_error(
+            status_code=422,
+            code="RESUME_TEX_MIGRATION_FAILED",
+            message="LaTeX resume conversion failed.",
+            details={"error": str(exc)},
+        )
+    except ValueError as exc:
+        _raise_api_error(
+            status_code=422,
+            code="INVALID_RESUME_SHAPE",
+            message="Converted resume YAML did not satisfy lock constraints.",
+            details={"error": str(exc)},
+        )
+
+    persisted_yaml = _read_settings_text(SETTINGS_RESUME_PATH, file_label="Resume")
+    return {
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_RESUME_PATH),
+        "yaml_text": persisted_yaml,
+        "resume": migrated_resume.model_dump(mode="json"),
+        "counts": _resume_counts(migrated_resume),
+        "migration": {
+            "source_tex_path": str(SETTINGS_RESUME_TEX_PATH),
+            "output_yaml_path": str(SETTINGS_RESUME_PATH),
+            "normalized_input": prepared_tex_text != tex_text,
+            **_resume_counts(migrated_resume),
+        },
     }
 
 
@@ -1829,15 +2580,8 @@ async def upload_profile_file(file: UploadFile = File(...)) -> dict[str, object]
     """
 
     text = await _read_uploaded_text(file)
-    try:
-        yaml.safe_load(text)
-    except yaml.YAMLError:
-        _raise_api_error(
-            status_code=400,
-            code="INVALID_YAML",
-            message="Uploaded profile file must be valid YAML.",
-        )
-
+    parsed_payload = _parse_yaml_mapping(yaml_text=text, context="profile")
+    _validate_candidate_profile_document(parsed_payload)
     SETTINGS_PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PROFILE_PATH.write_text(text, encoding="utf-8")
 

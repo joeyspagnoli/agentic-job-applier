@@ -4,9 +4,9 @@
  * Root application component — configures the React Router tree.
  *
  * @remarks
- * All five dashboard pages are rendered inside {@link AppLayout}, which
- * provides the shared sidebar, top bar, and settings panel. Add new routes
- * here as additional pages are implemented.
+ * All dashboard pages are rendered inside {@link AppLayout}, which provides
+ * the shared sidebar and top bar shell. Add new routes here as additional
+ * pages are implemented.
  */
 
 import type { JSX } from "react";
@@ -17,6 +17,7 @@ import { FailuresPage } from "@/pages/FailuresPage";
 import { HumanReviewPage } from "@/pages/HumanReviewPage";
 import { CostTrackingPage } from "@/pages/CostTrackingPage";
 import { JobsPage } from "@/pages/JobsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 /**
  * Root React application component.
@@ -33,6 +34,7 @@ export default function App(): JSX.Element {
           <Route path="human-review" element={<HumanReviewPage />} />
           <Route path="failures" element={<FailuresPage />} />
           <Route path="cost-tracking" element={<CostTrackingPage />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
