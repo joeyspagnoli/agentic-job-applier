@@ -491,3 +491,75 @@ export function getResumeDownloadUrl(): string {
 export function getProfileDownloadUrl(): string {
   return "/api/settings/profile/download";
 }
+
+// ── Fetcher Settings ────────────────────────────────────────────────
+
+/** Response shape for filters and sources YAML settings endpoints. */
+interface YamlSettingsResponse {
+  ok: boolean;
+  yaml_text: string;
+  data: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Parse a fetch response as JSON with standard error handling.
+ *
+ * @param response - Fetch response to parse.
+ * @returns Typed YAML settings response payload.
+ * @throws ApiError when the response is not OK or body is not valid JSON.
+ */
+async function parseJsonResponse(response: Response): Promise<YamlSettingsResponse> {
+  await throwIfError(response);
+  return (await response.json()) as YamlSettingsResponse;
+}
+
+/**
+ * Fetch the current filters.yaml configuration.
+ *
+ * @returns Parsed filters config with raw YAML text.
+ */
+export async function fetchFiltersSettings(): Promise<YamlSettingsResponse> {
+  return parseJsonResponse(await fetch("/api/settings/filters"));
+}
+
+/**
+ * Write updated filters.yaml configuration.
+ *
+ * @param yamlText - Raw YAML string to persist.
+ * @returns Confirmation with file metadata.
+ */
+export async function updateFiltersYaml(yamlText: string): Promise<YamlSettingsResponse> {
+  return parseJsonResponse(
+    await fetch("/api/settings/filters", {
+      method: "PUT",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ yaml_text: yamlText }),
+    }),
+  );
+}
+
+/**
+ * Fetch the current companies.yaml source configuration.
+ *
+ * @returns Parsed sources config with raw YAML text.
+ */
+export async function fetchSourcesSettings(): Promise<YamlSettingsResponse> {
+  return parseJsonResponse(await fetch("/api/settings/sources"));
+}
+
+/**
+ * Write updated companies.yaml source configuration.
+ *
+ * @param yamlText - Raw YAML string to persist.
+ * @returns Confirmation with file metadata.
+ */
+export async function updateSourcesYaml(yamlText: string): Promise<YamlSettingsResponse> {
+  return parseJsonResponse(
+    await fetch("/api/settings/sources", {
+      method: "PUT",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ yaml_text: yamlText }),
+    }),
+  );
+}

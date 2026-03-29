@@ -1,0 +1,131 @@
+# ============================================================
+# Compose profiles control which pipeline stages are active:
+#
+#   docker compose up -d                   # core only (fetch + gate)
+#   docker compose --profile tailor up -d  # + tailoring + review
+#   docker compose --profile full up -d    # + tailoring + review + apply
+#
+# Each profile builds only the image layers it needs.
+# Layers from earlier stages are reused from cache.
+# ============================================================
+
+x-base-volumes: &base-volumes
+  volumes:
+    - ./config:/app/config:ro
+    - app-data:/app/data
+    - app-logs:/app/logs
+
+x-base-service: &base-service
+  build:
+    context: .
+    target: base
+  env_file: .env
+  <<: *base-volumes
+  depends_on:
+    api:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  # ----------------------------------------------------------
+  # CORE — always running
+  # ----------------------------------------------------------
+
+  api:
+    build:
+      context: .
+      target: base
+    command: uv run uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    <<: *base-volumes
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  discovery:
+    <<: *base-service
+    command: bash scripts/docker/run_discovery.sh
+
+  gate:
+    <<: *base-service
+    command: uv run python -m scripts.process_new_jobs --loop
+
+  # ----------------------------------------------------------
+  # TAILOR profile — resume tailoring + review
+  # Requires: docker compose --profile tailor up
+  # ----------------------------------------------------------
+
+  tailor:
+    build:
+      context: .
+      target: latex
+    profiles: [tailor, full]
+    command: uv run python -m scripts.process_qualified_jobs --loop
+    env_file: .env
+    <<: *base-volumes
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  review:
+    build:
+      context: .
+      target: latex
+    profiles: [tailor, full]
+    command: uv run python -m scripts.process_reviewed_resumes --loop
+    env_file: .env
+    <<: *base-volumes
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # FULL profile — automated browser apply
+  # Requires: docker compose --profile full up
+  # Note: tailor + review are also included via profiles: [tailor, full]
+  # ----------------------------------------------------------
+
+  apply:
+    build:
+      context: .
+      target: full
+    profiles: [full]
+    # Start Chrome + Xvfb, wait for CDP to be ready, then start worker
+    command: >
+      bash -c "
+        deploy/start-chrome-cdp.sh &
+        until curl -sf http://localhost:${CDP_PORT:-9222}/json/version >/dev/null 2>&1; do
+          sleep 1;
+        done &&
+        echo 'Chrome CDP ready' &&
+        uv run python -m scripts.process_apply_jobs --loop
+      "
+    env_file: .env
+    volumes:
+      - ./config:/app/config:ro
+      - app-data:/app/data
+      - app-logs:/app/logs
+      - chrome-profile:/app/data/chrome-profile
+    environment:
+      - DISPLAY=:99
+      - CDP_PORT=${CDP_PORT:-9222}
+      - CHROME_CDP_URL=http://localhost:${CDP_PORT:-9222}
+      - CHROME_USER_DATA_DIR=/app/data/chrome-profile
+    shm_size: 1gb
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  app-logs:
+  chrome-profile:

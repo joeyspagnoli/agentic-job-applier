@@ -58,6 +58,8 @@ DASHBOARD_INDEX_FILE = DASHBOARD_DIST_DIR / "index.html"
 SETTINGS_RESUME_PATH = resolve_repo_root() / "config" / "resume_content.yaml"
 SETTINGS_PROFILE_PATH = resolve_repo_root() / "config" / "candidate_profile.yaml"
 SETTINGS_RESUME_TEX_PATH = resolve_repo_root() / "config" / "resume_base.tex"
+SETTINGS_FILTERS_PATH = resolve_repo_root() / "config" / "filters.yaml"
+SETTINGS_COMPANIES_PATH = resolve_repo_root() / "config" / "companies.yaml"
 SETTINGS_BACKUPS_DIR = resolve_repo_root() / "config" / "backups"
 TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
 TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
@@ -3011,6 +3013,135 @@ async def download_profile_file() -> FileResponse:
         media_type="application/x-yaml",
         filename=SETTINGS_PROFILE_PATH.name,
     )
+
+
+# ── Fetcher Settings Endpoints ───────────────────────────────────────
+
+
+@app.get("/api/settings/filters")
+async def get_filters() -> JSONResponse:
+    """Read the current filters.yaml configuration.
+
+    Returns:
+        JSON with the parsed filters config and file metadata.
+    """
+    if not SETTINGS_FILTERS_PATH.exists():
+        return JSONResponse({"ok": True, "yaml_text": "", "data": {}})
+
+    yaml_text = SETTINGS_FILTERS_PATH.read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(yaml_text) or {}
+    except yaml.YAMLError:
+        data = {}
+
+    return JSONResponse({
+        "ok": True,
+        "yaml_text": yaml_text,
+        "data": data,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_FILTERS_PATH),
+    })
+
+
+class YamlPayload(BaseModel):
+    """Payload for writing a YAML config file."""
+
+    yaml_text: str
+    model_config = ConfigDict(extra="forbid")
+
+
+@app.put("/api/settings/filters")
+async def put_filters(payload: YamlPayload) -> JSONResponse:
+    """Write the filters.yaml configuration.
+
+    Args:
+        payload: Contains the raw YAML text to persist.
+
+    Returns:
+        JSON confirming the write with updated metadata.
+    """
+    # Validate that the YAML is parseable before saving.
+    try:
+        data = yaml.safe_load(payload.yaml_text)
+        if data is not None and not isinstance(data, dict):
+            _raise_api_error(
+                status_code=400,
+                code="INVALID_YAML",
+                message="Filters config must be a YAML mapping.",
+            )
+    except yaml.YAMLError as exc:
+        _raise_api_error(
+            status_code=400,
+            code="INVALID_YAML",
+            message=f"Invalid YAML: {exc}",
+        )
+
+    _backup_settings_file(SETTINGS_FILTERS_PATH, file_label="Filters")
+    SETTINGS_FILTERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILTERS_PATH.write_text(payload.yaml_text, encoding="utf-8")
+
+    return JSONResponse({
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_FILTERS_PATH),
+    })
+
+
+@app.get("/api/settings/sources")
+async def get_sources() -> JSONResponse:
+    """Read the current companies.yaml source configuration.
+
+    Returns:
+        JSON with the parsed sources config and file metadata.
+    """
+    if not SETTINGS_COMPANIES_PATH.exists():
+        return JSONResponse({"ok": True, "yaml_text": "", "data": {}})
+
+    yaml_text = SETTINGS_COMPANIES_PATH.read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(yaml_text) or {}
+    except yaml.YAMLError:
+        data = {}
+
+    return JSONResponse({
+        "ok": True,
+        "yaml_text": yaml_text,
+        "data": data,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
+    })
+
+
+@app.put("/api/settings/sources")
+async def put_sources(payload: YamlPayload) -> JSONResponse:
+    """Write the companies.yaml source configuration.
+
+    Args:
+        payload: Contains the raw YAML text to persist.
+
+    Returns:
+        JSON confirming the write with updated metadata.
+    """
+    try:
+        data = yaml.safe_load(payload.yaml_text)
+        if data is not None and not isinstance(data, dict):
+            _raise_api_error(
+                status_code=400,
+                code="INVALID_YAML",
+                message="Sources config must be a YAML mapping.",
+            )
+    except yaml.YAMLError as exc:
+        _raise_api_error(
+            status_code=400,
+            code="INVALID_YAML",
+            message=f"Invalid YAML: {exc}",
+        )
+
+    _backup_settings_file(SETTINGS_COMPANIES_PATH, file_label="Sources")
+    SETTINGS_COMPANIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_COMPANIES_PATH.write_text(payload.yaml_text, encoding="utf-8")
+
+    return JSONResponse({
+        "ok": True,
+        "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
+    })
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

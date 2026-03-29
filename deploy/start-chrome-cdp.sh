@@ -30,9 +30,12 @@ export DISPLAY
 
 exec google-chrome \
     --remote-debugging-port="${CDP_PORT}" \
+    --user-data-dir="${CHROME_USER_DATA_DIR:-/tmp/chrome-profile}" \
     --no-first-run \
     --disable-background-timer-throttling \
     --disable-backgrounding-occluded-windows \
     --disable-renderer-backgrounding \
     --disable-features=TranslateUI \
-    --disable-sync
+    --disable-sync \
+    --no-sandbox \
+    --disable-dev-shm-usage

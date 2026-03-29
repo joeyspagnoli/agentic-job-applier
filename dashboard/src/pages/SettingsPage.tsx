@@ -12,16 +12,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd } from "@/lib/api/adapters";
 import {
   fetchBudget,
+  fetchFiltersSettings,
   fetchProfileSettings,
   fetchResumeSettings,
   fetchSettingsFiles,
+  fetchSourcesSettings,
   getProfileDownloadUrl,
   getResumeDownloadUrl,
   updateBudget,
+  updateFiltersYaml,
   updateProfileStructured,
   updateProfileYaml,
   updateResumeStructured,
   updateResumeYaml,
+  updateSourcesYaml,
   uploadProfile,
   uploadResume,
   uploadResumeTex,
@@ -144,6 +148,10 @@ export function SettingsPage(): JSX.Element {
   const [isProfileDirty, setIsProfileDirty] = useState(false);
   const [isResumeDirty, setIsResumeDirty] = useState(false);
   const [lastResumeMigrationSummary, setLastResumeMigrationSummary] = useState<string | null>(null);
+  const [filtersYamlDraft, setFiltersYamlDraft] = useState("");
+  const [sourcesYamlDraft, setSourcesYamlDraft] = useState("");
+  const [isFiltersDirty, setIsFiltersDirty] = useState(false);
+  const [isSourcesDirty, setIsSourcesDirty] = useState(false);
 
   const budgetQuery = useQuery({
     queryKey: ["budget"],
@@ -165,6 +173,18 @@ export function SettingsPage(): JSX.Element {
   const filesQuery = useQuery({
     queryKey: ["settings", "files"],
     queryFn: fetchSettingsFiles,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+  });
+  const filtersQuery = useQuery({
+    queryKey: ["settings", "filters"],
+    queryFn: fetchFiltersSettings,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+  });
+  const sourcesQuery = useQuery({
+    queryKey: ["settings", "sources"],
+    queryFn: fetchSourcesSettings,
     refetchInterval: false,
     refetchOnWindowFocus: false,
   });
@@ -191,6 +211,20 @@ export function SettingsPage(): JSX.Element {
       setResumeYamlDraft(resumeQuery.data.yaml_text);
     }
   }, [resumeQuery.data, isResumeDirty]);
+
+  useEffect(() => {
+    if (filtersQuery.data !== undefined && !isFiltersDirty) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFiltersYamlDraft(filtersQuery.data.yaml_text);
+    }
+  }, [filtersQuery.data, isFiltersDirty]);
+
+  useEffect(() => {
+    if (sourcesQuery.data !== undefined && !isSourcesDirty) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSourcesYamlDraft(sourcesQuery.data.yaml_text);
+    }
+  }, [sourcesQuery.data, isSourcesDirty]);
 
   const budgetMutation = useMutation({
     mutationFn: updateBudget,
@@ -280,11 +314,33 @@ export function SettingsPage(): JSX.Element {
     },
   });
 
+  const filtersYamlMutation = useMutation({
+    mutationFn: updateFiltersYaml,
+    onSuccess: async (response) => {
+      queryClient.setQueryData(["settings", "filters"], response);
+      setFiltersYamlDraft(response.yaml_text);
+      setIsFiltersDirty(false);
+      await queryClient.invalidateQueries({ queryKey: ["settings", "filters"] });
+    },
+  });
+
+  const sourcesYamlMutation = useMutation({
+    mutationFn: updateSourcesYaml,
+    onSuccess: async (response) => {
+      queryClient.setQueryData(["settings", "sources"], response);
+      setSourcesYamlDraft(response.yaml_text);
+      setIsSourcesDirty(false);
+      await queryClient.invalidateQueries({ queryKey: ["settings", "sources"] });
+    },
+  });
+
   const hasAnyError =
     budgetQuery.isError ||
     profileQuery.isError ||
     resumeQuery.isError ||
     filesQuery.isError ||
+    filtersQuery.isError ||
+    sourcesQuery.isError ||
     budgetMutation.isError ||
     profileStructuredMutation.isError ||
     profileYamlMutation.isError ||
@@ -292,7 +348,9 @@ export function SettingsPage(): JSX.Element {
     resumeStructuredMutation.isError ||
     resumeYamlMutation.isError ||
     resumeUploadMutation.isError ||
-    resumeTexMutation.isError;
+    resumeTexMutation.isError ||
+    filtersYamlMutation.isError ||
+    sourcesYamlMutation.isError;
 
   const profileMetadata = profileQuery.data?.metadata ?? filesQuery.data?.profile;
   const resumeMetadata = resumeQuery.data?.metadata ?? filesQuery.data?.resume;
@@ -1198,6 +1256,103 @@ export function SettingsPage(): JSX.Element {
               {resumeUploadMutation.isPending ? "Uploading..." : "Replace Resume YAML"}
             </button>
           </div>
+        )}
+      </section>
+
+      {/* ── Filters YAML Editor ─────────────────────────────────────── */}
+      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+              Job Filters
+            </h2>
+            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+              Hard filters auto-reject obvious non-matches. Soft filters flag ambiguous jobs for review.
+            </p>
+          </div>
+          <button
+            className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            onClick={() => {
+              filtersYamlMutation.mutate(filtersYamlDraft);
+            }}
+            disabled={filtersYamlMutation.isPending || !isFiltersDirty}
+          >
+            {filtersYamlMutation.isPending ? "Saving..." : "Save Filters"}
+          </button>
+        </div>
+
+        {filtersQuery.isLoading && (
+          <p className="text-sm text-slate-400">Loading filters configuration...</p>
+        )}
+        {filtersQuery.isError && (
+          <p className="text-sm text-red-600">Failed to load filters configuration.</p>
+        )}
+        {filtersQuery.data !== undefined && (
+          <YamlEditor
+            modelPath="filters.yaml"
+            value={filtersYamlDraft}
+            onChange={(nextValue) => {
+              setFiltersYamlDraft(nextValue);
+              setIsFiltersDirty(true);
+            }}
+          />
+        )}
+        {filtersYamlMutation.isError && (
+          <p className="text-sm text-red-600">
+            Save failed: {filtersYamlMutation.error instanceof Error ? filtersYamlMutation.error.message : "Unknown error"}
+          </p>
+        )}
+      </section>
+
+      {/* ── Sources & Danger Zone YAML Editor ────────────────────────── */}
+      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+              Job Sources &amp; Danger Zone
+            </h2>
+            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+              Configure company lists, job boards, LinkedIn scraping, GitHub repos, career page watchers, and polling intervals.
+            </p>
+          </div>
+          <button
+            className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            onClick={() => {
+              sourcesYamlMutation.mutate(sourcesYamlDraft);
+            }}
+            disabled={sourcesYamlMutation.isPending || !isSourcesDirty}
+          >
+            {sourcesYamlMutation.isPending ? "Saving..." : "Save Sources"}
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>Danger Zone:</strong> LinkedIn aggressive mode, shorter time ranges, and higher page counts
+          may trigger rate limiting or IP blocks. Use proxy settings for heavy scraping.
+        </div>
+
+        {sourcesQuery.isLoading && (
+          <p className="text-sm text-slate-400">Loading sources configuration...</p>
+        )}
+        {sourcesQuery.isError && (
+          <p className="text-sm text-red-600">Failed to load sources configuration.</p>
+        )}
+        {sourcesQuery.data !== undefined && (
+          <YamlEditor
+            modelPath="companies.yaml"
+            value={sourcesYamlDraft}
+            onChange={(nextValue) => {
+              setSourcesYamlDraft(nextValue);
+              setIsSourcesDirty(true);
+            }}
+          />
+        )}
+        {sourcesYamlMutation.isError && (
+          <p className="text-sm text-red-600">
+            Save failed: {sourcesYamlMutation.error instanceof Error ? sourcesYamlMutation.error.message : "Unknown error"}
+          </p>
         )}
       </section>
 

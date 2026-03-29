@@ -18,8 +18,15 @@ from loguru import logger
 
 from src.database.db_manager import DatabaseManager
 from src.fetchers.apify_fetcher import ApifyWorkdayFetcher
+from src.fetchers.ashby_fetcher import AshbyFetcher
+from src.fetchers.career_page_watcher import CareerPageWatcher
+from src.fetchers.github_repo_fetcher import GitHubRepoFetcher
 from src.fetchers.greenhouse_fetcher import GreenhouseFetcher
 from src.fetchers.jobspy_fetcher import JobSpyFetcher
+from src.fetchers.lever_fetcher import LeverFetcher
+from src.fetchers.linkedin_fetcher import LinkedInFetcher
+from src.filters.job_filter import FilterAction, JobFilter
+from src.models.job_posting import JobPosting
 from src.utils.deduplicator import Deduplicator
 from src.utils.logger import log_crawl_summary, log_cycle_summary, setup_logger
 from src.utils.paths import resolve_database_path
@@ -207,24 +214,87 @@ def _filter_by_title_patterns(jobs: list, include_patterns: list[str]) -> list:
     return [j for j in jobs if any(rx.search(j.title) for rx in compiled)]
 
 
+async def _insert_with_filters(
+    jobs: list[JobPosting],
+    *,
+    db: DatabaseManager,
+    job_filter: JobFilter | None,
+) -> tuple[int, int, int, int]:
+    """Insert jobs after applying pre-gate filters.
+
+    Runs each job through the filter pipeline and inserts according to the
+    resulting action.  Returns counts for downstream crawl accounting.
+
+    Args:
+        jobs: Deduplicated job postings ready for filtering and insertion.
+        db: Connected database manager for persistence.
+        job_filter: Pre-gate filter instance, or ``None`` to skip filtering.
+
+    Returns:
+        A tuple of ``(inserted_new, inserted_qualified, soft_filtered,
+        hard_rejected)`` counts.
+    """
+    inserted_new = 0
+    inserted_qualified = 0
+    soft_filtered = 0
+    hard_rejected = 0
+
+    for job in jobs:
+        if job_filter is not None:
+            action, reason = job_filter.filter_job(job)
+        else:
+            action = FilterAction.ACCEPT_NEW
+            reason = "no filter configured"
+
+        if action == FilterAction.REJECT:
+            logger.debug("Hard-rejected {}: {}", job.title, reason)
+            hard_rejected += 1
+            continue
+
+        db_dict = job.to_db_dict()
+
+        if action == FilterAction.REJECT_FILTERED:
+            db_dict["status"] = "FILTERED"
+            was_inserted = await db.insert_job(db_dict)
+            if was_inserted:
+                soft_filtered += 1
+                logger.debug("Soft-filtered {}: {}", job.title, reason)
+
+        elif action == FilterAction.ACCEPT_QUALIFIED:
+            db_dict["status"] = "QUALIFIED"
+            was_inserted = await db.insert_job(db_dict)
+            if was_inserted:
+                inserted_qualified += 1
+                logger.debug("Auto-qualified {}: {}", job.title, reason)
+
+        else:
+            was_inserted = await db.insert_job(db_dict)
+            if was_inserted:
+                inserted_new += 1
+
+    return inserted_new, inserted_qualified, soft_filtered, hard_rejected
+
+
 async def fetch_greenhouse_jobs(
     companies: dict,
     db: DatabaseManager,
     deduplicator: Deduplicator,
+    *,
     title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs for every configured Greenhouse company.
 
-    Purpose:
-        Iterate the Greenhouse section of the config, run each crawl, and
-        aggregate per-company results into cycle-level counters.
     Args:
         companies: Mapping of company names to their Greenhouse configuration.
         db: Connected database manager used to track crawl metadata and inserts.
         deduplicator: Helper that filters out jobs already present in storage.
-    Output:
-        Returns a tuple of `(total_discovered, total_new, sources_success,
-        sources_failed)` for the Greenhouse portion of the cycle.
+        title_include_patterns: Regex patterns a title must match to be kept.
+        job_filter: Pre-gate filter instance for hard/soft filtering.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)`` for the Greenhouse portion of the cycle.
     """
     total_discovered = 0
     total_new = 0
@@ -252,10 +322,10 @@ async def fetch_greenhouse_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                for job in new_jobs:
-                    was_inserted = await db.insert_job(job.to_db_dict())
-                    if was_inserted:
-                        crawl_jobs_new += 1
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -296,20 +366,22 @@ async def fetch_workday_jobs(
     companies: dict,
     db: DatabaseManager,
     deduplicator: Deduplicator,
+    *,
     title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs for every configured Workday company via Apify.
 
-    Purpose:
-        Run the Workday portion of the discovery cycle while handling the
-        environment requirements of the Apify-backed scraper.
     Args:
         companies: Mapping of company names to their Workday configuration.
         db: Connected database manager used to track crawl metadata and inserts.
         deduplicator: Helper that filters out jobs already present in storage.
-    Output:
-        Returns a tuple of `(total_discovered, total_new, sources_success,
-        sources_failed)` for the Workday portion of the cycle.
+        title_include_patterns: Regex patterns a title must match to be kept.
+        job_filter: Pre-gate filter instance for hard/soft filtering.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)`` for the Workday portion of the cycle.
     """
     total_discovered = 0
     total_new = 0
@@ -343,10 +415,10 @@ async def fetch_workday_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                for job in new_jobs:
-                    was_inserted = await db.insert_job(job.to_db_dict())
-                    if was_inserted:
-                        crawl_jobs_new += 1
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -388,23 +460,24 @@ async def fetch_jobspy_jobs(
     job_boards: dict,
     db: DatabaseManager,
     deduplicator: Deduplicator,
+    *,
     default_search_terms: list[str] | None = None,
     title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs from enabled job boards through JobSpy.
 
-    Purpose:
-        Expand search-term and location combinations for each configured board,
-        run the scrape, and aggregate results back into cycle metrics.
     Args:
-        job_boards: Mapping of job-board settings from `config/companies.yaml`.
+        job_boards: Mapping of job-board settings from ``config/companies.yaml``.
         db: Connected database manager used to track crawl metadata and inserts.
         deduplicator: Helper that filters out jobs already present in storage.
-        default_search_terms: Optional fallback search terms used when a board
-            config omits explicit `search_terms`.
-    Output:
-        Returns a tuple of `(total_discovered, total_new, sources_success,
-        sources_failed)` for all JobSpy-backed board searches.
+        default_search_terms: Fallback search terms when a board config omits them.
+        title_include_patterns: Regex patterns a title must match to be kept.
+        job_filter: Pre-gate filter instance for hard/soft filtering.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)`` for all JobSpy-backed board searches.
     """
     total_discovered = 0
     total_new = 0
@@ -471,12 +544,10 @@ async def fetch_jobspy_jobs(
                     crawl_jobs_found = len(jobs)
                     new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                    # Keeping the persistence loop local makes the success and
-                    # failure accounting line up with the exact crawl variant.
-                    for job in new_jobs:
-                        was_inserted = await db.insert_job(job.to_db_dict())
-                        if was_inserted:
-                            crawl_jobs_new += 1
+                    counts = await _insert_with_filters(
+                        new_jobs, db=db, job_filter=job_filter,
+                    )
+                    crawl_jobs_new = counts[0] + counts[1]
 
                     duration = time.time() - start_time
                     log_crawl_summary(
@@ -521,6 +592,447 @@ async def fetch_jobspy_jobs(
     return total_discovered, total_new, sources_success, sources_failed
 
 
+async def fetch_lever_jobs(
+    companies: dict,
+    db: DatabaseManager,
+    deduplicator: Deduplicator,
+    *,
+    title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
+) -> tuple[int, int, int, int]:
+    """Fetch jobs for every configured Lever company.
+
+    Args:
+        companies: Mapping of company names to their Lever configuration.
+        db: Connected database manager.
+        deduplicator: Dedup helper.
+        title_include_patterns: Regex patterns a title must match.
+        job_filter: Pre-gate filter instance.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)``.
+    """
+    total_discovered = 0
+    total_new = 0
+    sources_success = 0
+    sources_failed = 0
+
+    for company_name, config in companies.items():
+        lever_id = config.get("lever_id")
+        if not lever_id:
+            logger.warning("No lever_id for {}, skipping", company_name)
+            continue
+
+        crawl_id: int | None = None
+        crawl_jobs_found = 0
+        crawl_jobs_new = 0
+        start_time = time.time()
+
+        try:
+            crawl_id = await db.start_crawl("lever", company_name)
+
+            async with LeverFetcher(company_name, lever_id) as fetcher:
+                jobs = await fetcher.fetch_jobs()
+                if title_include_patterns:
+                    jobs = _filter_by_title_patterns(jobs, title_include_patterns)
+                crawl_jobs_found = len(jobs)
+                new_jobs = await deduplicator.filter_new_jobs(jobs)
+
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
+
+                duration = time.time() - start_time
+                log_crawl_summary(
+                    "lever", company_name, crawl_jobs_found, crawl_jobs_new, duration,
+                )
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                )
+                sources_success += 1
+        except Exception as exc:
+            logger.error("Error fetching Lever jobs for {}: {}", company_name, exc)
+            if crawl_id is not None:
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                    error=str(exc),
+                )
+            sources_failed += 1
+        finally:
+            total_discovered += crawl_jobs_found
+            total_new += crawl_jobs_new
+
+    return total_discovered, total_new, sources_success, sources_failed
+
+
+async def fetch_ashby_jobs(
+    companies: dict,
+    db: DatabaseManager,
+    deduplicator: Deduplicator,
+    *,
+    title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
+) -> tuple[int, int, int, int]:
+    """Fetch jobs for every configured Ashby company.
+
+    Args:
+        companies: Mapping of company names to their Ashby configuration.
+        db: Connected database manager.
+        deduplicator: Dedup helper.
+        title_include_patterns: Regex patterns a title must match.
+        job_filter: Pre-gate filter instance.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)``.
+    """
+    total_discovered = 0
+    total_new = 0
+    sources_success = 0
+    sources_failed = 0
+
+    for company_name, config in companies.items():
+        board_id = config.get("board_id")
+        if not board_id:
+            logger.warning("No board_id for {}, skipping", company_name)
+            continue
+
+        crawl_id: int | None = None
+        crawl_jobs_found = 0
+        crawl_jobs_new = 0
+        start_time = time.time()
+
+        try:
+            crawl_id = await db.start_crawl("ashby", company_name)
+
+            async with AshbyFetcher(company_name, board_id) as fetcher:
+                jobs = await fetcher.fetch_jobs()
+                if title_include_patterns:
+                    jobs = _filter_by_title_patterns(jobs, title_include_patterns)
+                crawl_jobs_found = len(jobs)
+                new_jobs = await deduplicator.filter_new_jobs(jobs)
+
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
+
+                duration = time.time() - start_time
+                log_crawl_summary(
+                    "ashby", company_name, crawl_jobs_found, crawl_jobs_new, duration,
+                )
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                )
+                sources_success += 1
+        except Exception as exc:
+            logger.error("Error fetching Ashby jobs for {}: {}", company_name, exc)
+            if crawl_id is not None:
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                    error=str(exc),
+                )
+            sources_failed += 1
+        finally:
+            total_discovered += crawl_jobs_found
+            total_new += crawl_jobs_new
+
+    return total_discovered, total_new, sources_success, sources_failed
+
+
+async def fetch_github_repo_jobs(
+    repos: list[dict],
+    db: DatabaseManager,
+    deduplicator: Deduplicator,
+    *,
+    title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
+) -> tuple[int, int, int, int]:
+    """Fetch job listings from configured GitHub internship repositories.
+
+    Args:
+        repos: List of repo config dicts from ``companies.yaml``.
+        db: Connected database manager.
+        deduplicator: Dedup helper.
+        title_include_patterns: Regex patterns a title must match.
+        job_filter: Pre-gate filter instance.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)``.
+    """
+    total_discovered = 0
+    total_new = 0
+    sources_success = 0
+    sources_failed = 0
+
+    for repo_config in repos:
+        if not repo_config.get("enabled", True):
+            continue
+
+        owner = repo_config.get("owner", "")
+        repo_name = repo_config.get("repo", "")
+        if not owner or not repo_name:
+            logger.warning("GitHub repo config missing owner/repo, skipping")
+            continue
+
+        repo_label = f"{owner}/{repo_name}"
+        crawl_id: int | None = None
+        crawl_jobs_found = 0
+        crawl_jobs_new = 0
+        start_time = time.time()
+
+        try:
+            crawl_id = await db.start_crawl("github_repo", repo_label)
+
+            async with GitHubRepoFetcher(
+                owner,
+                repo_name,
+                branch=repo_config.get("branch", "dev"),
+                json_path=repo_config.get("json_path", ".github/scripts/listings.json"),
+                categories=repo_config.get("categories"),
+            ) as fetcher:
+                jobs = await fetcher.fetch_jobs()
+                if title_include_patterns:
+                    jobs = _filter_by_title_patterns(jobs, title_include_patterns)
+                crawl_jobs_found = len(jobs)
+                new_jobs = await deduplicator.filter_new_jobs(jobs)
+
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
+
+                duration = time.time() - start_time
+                log_crawl_summary(
+                    "github_repo", repo_label,
+                    crawl_jobs_found, crawl_jobs_new, duration,
+                )
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                )
+                sources_success += 1
+        except Exception as exc:
+            logger.error("Error fetching GitHub repo {}: {}", repo_label, exc)
+            if crawl_id is not None:
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                    error=str(exc),
+                )
+            sources_failed += 1
+        finally:
+            total_discovered += crawl_jobs_found
+            total_new += crawl_jobs_new
+
+    return total_discovered, total_new, sources_success, sources_failed
+
+
+async def fetch_linkedin_jobs(
+    linkedin_config: dict,
+    db: DatabaseManager,
+    deduplicator: Deduplicator,
+    *,
+    title_include_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
+) -> tuple[int, int, int, int]:
+    """Fetch jobs from LinkedIn using the guest API.
+
+    Args:
+        linkedin_config: LinkedIn section from ``companies.yaml``.
+        db: Connected database manager.
+        deduplicator: Dedup helper.
+        title_include_patterns: Regex patterns a title must match.
+        job_filter: Pre-gate filter instance.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)``.
+    """
+    total_discovered = 0
+    total_new = 0
+    sources_success = 0
+    sources_failed = 0
+
+    searches = linkedin_config.get("searches", [])
+    time_range = linkedin_config.get("time_range_seconds", 86400)
+    max_pages = linkedin_config.get("max_pages", 4)
+    fetch_descriptions = linkedin_config.get("fetch_descriptions", False)
+
+    # Check for aggressive mode in danger settings.
+    danger = linkedin_config.get("danger", {})
+    if danger.get("aggressive_mode", False):
+        time_range = danger.get("aggressive_time_range", 3600)
+        max_pages = danger.get("aggressive_max_pages", 10)
+
+    proxy_url = danger.get("proxy_url", "") or None
+
+    for search_config in searches:
+        search_term = search_config.get("search_term", "")
+        if not search_term:
+            continue
+
+        location = search_config.get("location", "United States")
+        experience_level = search_config.get("experience_level")
+        work_type = search_config.get("work_type")
+
+        crawl_id: int | None = None
+        crawl_jobs_found = 0
+        crawl_jobs_new = 0
+        start_time = time.time()
+
+        try:
+            crawl_id = await db.start_crawl(
+                "linkedin", f"{search_term}@{location}",
+            )
+
+            async with LinkedInFetcher(
+                search_term,
+                location=location,
+                time_range_seconds=time_range,
+                experience_level=experience_level,
+                work_type=work_type,
+                max_pages=max_pages,
+                proxy_url=proxy_url,
+                fetch_descriptions=fetch_descriptions,
+            ) as fetcher:
+                jobs = await fetcher.fetch_jobs()
+                if title_include_patterns:
+                    jobs = _filter_by_title_patterns(jobs, title_include_patterns)
+                crawl_jobs_found = len(jobs)
+                new_jobs = await deduplicator.filter_new_jobs(jobs)
+
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
+
+                duration = time.time() - start_time
+                log_crawl_summary(
+                    "linkedin", f"{search_term}@{location}",
+                    crawl_jobs_found, crawl_jobs_new, duration,
+                )
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                )
+                sources_success += 1
+        except Exception as exc:
+            logger.error(
+                "Error fetching LinkedIn jobs for '{}': {}", search_term, exc,
+            )
+            if crawl_id is not None:
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                    error=str(exc),
+                )
+            sources_failed += 1
+        finally:
+            total_discovered += crawl_jobs_found
+            total_new += crawl_jobs_new
+
+    return total_discovered, total_new, sources_success, sources_failed
+
+
+async def fetch_career_page_jobs(
+    watched_pages: list[dict],
+    db: DatabaseManager,
+    deduplicator: Deduplicator,
+    *,
+    job_filter: JobFilter | None = None,
+) -> tuple[int, int, int, int]:
+    """Fetch new job links from watched career pages.
+
+    Args:
+        watched_pages: List of career page configs from ``companies.yaml``.
+        db: Connected database manager.
+        deduplicator: Dedup helper.
+        job_filter: Pre-gate filter instance.
+
+    Returns:
+        A tuple of ``(total_discovered, total_new, sources_success,
+        sources_failed)``.
+    """
+    total_discovered = 0
+    total_new = 0
+    sources_success = 0
+    sources_failed = 0
+
+    for page_config in watched_pages:
+        company = page_config.get("company", "Unknown")
+        url = page_config.get("url", "")
+        if not url:
+            continue
+
+        link_selector = page_config.get("link_selector", "a[href*='/jobs/']")
+        link_pattern = page_config.get("link_pattern")
+
+        crawl_id: int | None = None
+        crawl_jobs_found = 0
+        crawl_jobs_new = 0
+        start_time = time.time()
+
+        try:
+            crawl_id = await db.start_crawl("career_page", company)
+
+            async with CareerPageWatcher(
+                company, url,
+                link_selector=link_selector,
+                link_pattern=link_pattern,
+            ) as watcher:
+                jobs = await watcher.fetch_jobs()
+                crawl_jobs_found = len(jobs)
+                new_jobs = await deduplicator.filter_new_jobs(jobs)
+
+                counts = await _insert_with_filters(
+                    new_jobs, db=db, job_filter=job_filter,
+                )
+                crawl_jobs_new = counts[0] + counts[1]
+
+                duration = time.time() - start_time
+                log_crawl_summary(
+                    "career_page", company,
+                    crawl_jobs_found, crawl_jobs_new, duration,
+                )
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                )
+                sources_success += 1
+        except Exception as exc:
+            logger.error("Error watching career page for {}: {}", company, exc)
+            if crawl_id is not None:
+                await db.complete_crawl(
+                    crawl_id=crawl_id,
+                    jobs_found=crawl_jobs_found,
+                    jobs_new=crawl_jobs_new,
+                    error=str(exc),
+                )
+            sources_failed += 1
+        finally:
+            total_discovered += crawl_jobs_found
+            total_new += crawl_jobs_new
+
+    return total_discovered, total_new, sources_success, sources_failed
+
+
 async def run_job_discovery() -> None:
     """Run one complete discovery cycle across every configured source.
 
@@ -548,6 +1060,7 @@ async def run_job_discovery() -> None:
     companies_config = load_yaml(config_dir / "companies.yaml")
     search_criteria_config = load_optional_yaml(config_dir / "search_criteria.yaml")
     candidate_profile_config = load_optional_yaml(config_dir / "candidate_profile.yaml")
+    filters_config = load_optional_yaml(config_dir / "filters.yaml")
     default_search_terms = resolve_job_board_default_search_terms(
         search_criteria_config=search_criteria_config,
         candidate_profile_config=candidate_profile_config,
@@ -557,6 +1070,13 @@ async def run_job_discovery() -> None:
         field_name="include_title_patterns",
         source_name="search_criteria",
     )
+
+    # Pre-gate filters reduce gate agent invocations by auto-rejecting or
+    # auto-qualifying jobs that are obviously outside the user's criteria.
+    job_filter: JobFilter | None = None
+    if filters_config:
+        job_filter = JobFilter(filters_config)
+        logger.info("Pre-gate filters loaded from config/filters.yaml")
 
     # The database layer owns schema creation and lightweight migrations so each
     # run can safely bootstrap a fresh local environment.
@@ -584,6 +1104,7 @@ async def run_job_discovery() -> None:
             d, n, s, f = await fetch_greenhouse_jobs(
                 greenhouse_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
+                job_filter=job_filter,
             )
             total_discovered += d
             total_new += n
@@ -599,6 +1120,7 @@ async def run_job_discovery() -> None:
             d, n, s, f = await fetch_workday_jobs(
                 workday_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
+                job_filter=job_filter,
             )
             total_discovered += d
             total_new += n
@@ -618,6 +1140,91 @@ async def run_job_discovery() -> None:
                 deduplicator,
                 default_search_terms=default_search_terms,
                 title_include_patterns=title_include_patterns,
+                job_filter=job_filter,
+            )
+            total_discovered += d
+            total_new += n
+            total_duplicate += d - n
+            sources_success += s
+            sources_failed += f
+
+        # Lever companies (free public API, same pattern as Greenhouse).
+        lever_companies = companies_config.get("lever_companies", {})
+        if lever_companies:
+            logger.info(
+                "Fetching from {} Lever companies...", len(lever_companies),
+            )
+            d, n, s, f = await fetch_lever_jobs(
+                lever_companies, db, deduplicator,
+                title_include_patterns=title_include_patterns,
+                job_filter=job_filter,
+            )
+            total_discovered += d
+            total_new += n
+            total_duplicate += d - n
+            sources_success += s
+            sources_failed += f
+
+        # Ashby companies (free public API).
+        ashby_companies = companies_config.get("ashby_companies", {})
+        if ashby_companies:
+            logger.info(
+                "Fetching from {} Ashby companies...", len(ashby_companies),
+            )
+            d, n, s, f = await fetch_ashby_jobs(
+                ashby_companies, db, deduplicator,
+                title_include_patterns=title_include_patterns,
+                job_filter=job_filter,
+            )
+            total_discovered += d
+            total_new += n
+            total_duplicate += d - n
+            sources_success += s
+            sources_failed += f
+
+        # GitHub internship repos (SimplifyJobs format).
+        github_repos = companies_config.get("github_repos", [])
+        if github_repos:
+            enabled_repos = [r for r in github_repos if r.get("enabled", True)]
+            if enabled_repos:
+                logger.info(
+                    "Fetching from {} GitHub repos...", len(enabled_repos),
+                )
+                d, n, s, f = await fetch_github_repo_jobs(
+                    enabled_repos, db, deduplicator,
+                    title_include_patterns=title_include_patterns,
+                    job_filter=job_filter,
+                )
+                total_discovered += d
+                total_new += n
+                total_duplicate += d - n
+                sources_success += s
+                sources_failed += f
+
+        # LinkedIn direct scraping (guest API).
+        linkedin_config = companies_config.get("linkedin", {})
+        if linkedin_config.get("enabled", False):
+            logger.info("Fetching from LinkedIn...")
+            d, n, s, f = await fetch_linkedin_jobs(
+                linkedin_config, db, deduplicator,
+                title_include_patterns=title_include_patterns,
+                job_filter=job_filter,
+            )
+            total_discovered += d
+            total_new += n
+            total_duplicate += d - n
+            sources_success += s
+            sources_failed += f
+
+        # Career page watchers (generic HTML scraping).
+        watched_pages = companies_config.get("watched_pages", [])
+        if watched_pages:
+            logger.info(
+                "Watching {} career pages...", len(watched_pages),
+            )
+            d, n, s, f = await fetch_career_page_jobs(
+                watched_pages, db, deduplicator,
+                job_filter=job_filter,
             )
             total_discovered += d
             total_new += n

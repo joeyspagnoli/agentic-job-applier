@@ -167,6 +167,86 @@ Opt-in live model E2E:
 uv run pytest -q --run-live-agent-e2e -m live_agent_e2e
 ```
 
+## Docker
+
+Docker is the recommended way to run this on a server. The image is split into three build targets so you only install what you need.
+
+### Image tiers
+
+| Target | What's included | Compose profile | Approx. build time |
+|---|---|---|---|
+| `base` | Job discovery, gate agent, API + dashboard | *(default)* | ~3–5 min |
+| `latex` | base + LaTeX + poppler + Node + pi CLI | `tailor` | +8–12 min |
+| `full` | latex + Chromium + Xvfb | `full` | +3–5 min |
+
+Each tier inherits from the one above it. Docker's layer cache means opting into a higher tier later only builds the delta — already-built layers are reused.
+
+### Profiles and what they run
+
+```
+docker compose up -d                   # api, discovery, gate
+docker compose --profile tailor up -d  # + tailor, review
+docker compose --profile full up -d    # + tailor, review, apply
+```
+
+### Quick start
+
+```bash
+# 1. Install Docker Engine (Ubuntu)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER   # then log out and back in
+
+# 2. Clone and configure
+git clone <repo-url> && cd agentic-job-applier
+cp .env.docker.example .env     # fill in API keys
+# ensure config/ files are present (candidate_profile.yaml, resume_content.yaml, etc.)
+
+# 3. Start core pipeline
+docker compose up -d
+
+# 4. Opt into tailoring when ready (zero downtime, reuses cached base layers)
+docker compose --profile tailor up -d
+
+# 5. Opt into browser apply when ready
+docker compose --profile full up -d
+```
+
+Dashboard is available at `http://<server-ip>:8000` once `api` is healthy.
+
+### Upgrading an existing stack
+
+Adding a profile to a running stack is safe. Existing containers are left untouched; Compose only starts the new services against the shared data volume.
+
+```bash
+git pull
+docker compose build          # rebuilds only changed layers
+docker compose --profile <current-profile> up -d
+```
+
+### Useful commands
+
+```bash
+docker compose ps                      # status of all services
+docker compose logs -f workers         # tail logs for a service
+docker compose restart gate            # restart one service
+docker compose down                    # stop all (data volumes preserved)
+docker compose down -v                 # stop all and delete volumes (destructive)
+docker compose exec api bash           # shell into a running container
+```
+
+### Chrome profile (apply service only)
+
+The apply service works without a Chrome profile, but the Simplify autofill extension requires one. To import your profile:
+
+```bash
+# On your local machine
+bash scripts/docker/profile_export.sh
+
+# Copy tarball to server, then on the server:
+bash scripts/docker/profile_import.sh chrome-profile.tar.gz
+docker compose --profile full up -d
+```
+
 ## Deployment (Linux/Systemd)
 
 Systemd units live in `deploy/` for discovery timer and continuous workers. See `deploy/README.md` for end-to-end setup, including:

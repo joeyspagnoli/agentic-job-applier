@@ -1,0 +1,16 @@
+.git/
+.venv/
+__pycache__/
+*.pyc
+data/
+logs/
+node_modules/
+dashboard/node_modules/
+reference-repos/
+.codex-review-artifacts/
+.claude/
+*.log
+*.pid
+.env
+.env.*
+!.env.docker.example

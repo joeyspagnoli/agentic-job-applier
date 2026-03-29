@@ -8,7 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
-
+node_modules
 # Environment and secrets
 .env*
 !.env.example

@@ -141,3 +141,74 @@ job_boards:
       - "Remote"
     results_wanted: 25
     priority: 3
+
+
+# ── Lever ATS companies (free public API, no auth) ──────────────────
+lever_companies: {}
+  # Example:
+  # Netflix:
+  #   lever_id: "netflix"
+  #   priority: 1
+
+
+# ── Ashby ATS companies (free public API, no auth) ──────────────────
+ashby_companies: {}
+  # Example:
+  # Notion:
+  #   board_id: "notion"
+  #   priority: 2
+
+
+# ── GitHub internship repos (JSON listing format) ───────────────────
+github_repos:
+  - owner: SimplifyJobs
+    repo: Summer2026-Internships
+    branch: dev
+    json_path: .github/scripts/listings.json
+    enabled: true
+    categories:
+      - "Software"
+
+
+# ── Direct LinkedIn scraping (guest API, no auth) ───────────────────
+# WARNING: LinkedIn rate-limits aggressively.  Use proxies for heavy usage.
+linkedin:
+  enabled: false
+  searches:
+    - search_term: "software engineering internship"
+      location: "United States"
+      experience_level: "internship"
+      work_type: "remote"
+  # Time range in seconds: 3600=1hr, 7200=2hr, 86400=24hr, 604800=7d
+  time_range_seconds: 86400
+  max_pages: 4
+  fetch_descriptions: false
+  # Danger zone — aggressive settings increase block risk
+  danger:
+    aggressive_mode: false       # When true: shorter time range, more pages
+    aggressive_time_range: 3600  # 1 hour
+    aggressive_max_pages: 10
+    proxy_url: ""                # e.g. "http://user:pass@proxy:8080"
+
+
+# ── Career page watchers (generic HTML scraping) ────────────────────
+watched_pages: []
+  # Example:
+  # - company: Anthropic
+  #   url: https://www.anthropic.com/careers
+  #   link_selector: "a[href*='/jobs/']"
+  # - company: Apple
+  #   url: https://jobs.apple.com/en-us/search
+  #   link_pattern: 'href="(/en-us/details/[^"]+)"'
+
+
+# ── Polling intervals (minutes) ─────────────────────────────────────
+polling:
+  greenhouse_interval_minutes: 30
+  lever_interval_minutes: 30
+  ashby_interval_minutes: 30
+  workday_interval_minutes: 60
+  jobspy_interval_minutes: 60
+  linkedin_interval_minutes: 15
+  github_repos_interval_minutes: 360
+  career_pages_interval_minutes: 60
