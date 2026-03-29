@@ -32,6 +32,8 @@ from src.agents.resume_tailor_pi.compiler import compile_resume_tex
 from src.agents.resume_tailor_pi.renderer import render_resume_yaml_to_tex
 from src.database.db_manager import DEFAULT_REVIEW_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
+from src.utils.cost_tracking import PIPELINE_STAGE_REVIEW
+from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
 from src.utils.paths import resolve_repo_root
@@ -427,6 +429,18 @@ async def _handle_review_failure(
         fallback_base_tex_path=str(fallback_base_tex_path),
         fallback_base_pdf_path=str(fallback_base_pdf_path),
     )
+    await record_stage_cost_event(
+        db=db,
+        stage=PIPELINE_STAGE_REVIEW,
+        job_hash=job_hash,
+        run_id=str(run_id),
+        metadata={
+            "status": "FAILED",
+            "tailor_run_id": tailor_run_id,
+            "retry_count": failed_count,
+            "max_retries": max_retries,
+        },
+    )
 
 
 async def _review_once(
@@ -585,6 +599,17 @@ async def _review_once(
             review_report_json=result.review_report.model_dump_json(indent=2),
             agent_stdout=result.agent_stdout,
             agent_stderr=result.agent_stderr,
+        )
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_REVIEW,
+            job_hash=job_hash,
+            run_id=str(run_id),
+            metadata={
+                "status": "SUCCESS",
+                "tailor_run_id": tailor_run_id,
+                "verdict": result.verdict.value,
+            },
         )
         logger.info(
             "Review SUCCESS: job_hash={} tailor_run_id={} verdict={} selected_pdf={}",
@@ -765,6 +790,7 @@ async def main() -> None:
         await db.create_tables()
         await db.migrate_tailor_schema()
         await db.migrate_review_schema()
+        await db.migrate_cost_schema()
 
         stale_count = await db.mark_stale_review_runs_failed(
             lease_seconds=lease_seconds

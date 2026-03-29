@@ -36,6 +36,8 @@ from src.agents.apply_worker.schemas import ApplyOutcome
 from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
 from src.database.db_manager import DEFAULT_APPLY_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
+from src.utils.cost_tracking import PIPELINE_STAGE_APPLY
+from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
 from src.utils.paths import resolve_repo_root
@@ -273,6 +275,7 @@ async def _handle_apply_failure(
     db: DatabaseManager,
     run_id: int,
     review_run_id: int,
+    job_hash: str | None,
     error: str,
     outcome: str | None,
     max_retries: int,
@@ -282,6 +285,7 @@ async def _handle_apply_failure(
     dom_snapshot_path: str | None = None,
     ats_platform: str | None = None,
     page_url: str | None = None,
+    work_executed: bool = True,
 ) -> None:
     """Record an apply failure with retry scheduling.
 
@@ -292,6 +296,7 @@ async def _handle_apply_failure(
         db: Database manager instance.
         run_id: Apply run primary key.
         review_run_id: Review run this apply attempt belongs to.
+        job_hash: Optional stable job hash for this apply run.
         error: Human-readable error description.
         outcome: Optional failure classification.
         max_retries: Maximum retries allowed.
@@ -301,6 +306,7 @@ async def _handle_apply_failure(
         dom_snapshot_path: Path to any captured DOM snapshot.
         ats_platform: Detected ATS platform.
         page_url: Final page URL.
+        work_executed: Whether stage work executed and should incur cost.
     Output:
         Returns `None` after recording the failure.
     """
@@ -329,6 +335,20 @@ async def _handle_apply_failure(
         ats_platform=ats_platform,
         page_url=page_url,
     )
+    if work_executed:
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_APPLY,
+            job_hash=job_hash,
+            run_id=str(run_id),
+            metadata={
+                "status": "FAILED",
+                "review_run_id": review_run_id,
+                "outcome": outcome,
+                "attempt": current_attempt,
+                "max_retries": max_retries,
+            },
+        )
 
     if current_attempt >= max_retries:
         logger.warning(
@@ -422,11 +442,13 @@ async def _apply_once(
             db=db,
             run_id=run_id,
             review_run_id=review_run_id,
+            job_hash=job_hash,
             error=str(exc),
             outcome=ApplyOutcome.FAILED_OTHER.value,
             max_retries=0,  # Terminal, no retry
             backoff_seconds=backoff_seconds,
             backoff_multiplier=backoff_multiplier,
+            work_executed=False,
         )
         return 1
 
@@ -438,11 +460,13 @@ async def _apply_once(
             db=db,
             run_id=run_id,
             review_run_id=review_run_id,
+            job_hash=job_hash,
             error=str(exc),
             outcome=ApplyOutcome.FAILED_UPLOAD.value,
             max_retries=0,  # Terminal, no retry
             backoff_seconds=backoff_seconds,
             backoff_multiplier=backoff_multiplier,
+            work_executed=False,
         )
         return 1
 
@@ -472,6 +496,7 @@ async def _apply_once(
             db=db,
             run_id=run_id,
             review_run_id=review_run_id,
+            job_hash=job_hash,
             error=f"Browser automation error: {exc}",
             outcome=ApplyOutcome.FAILED_OTHER.value,
             max_retries=max_retries,
@@ -519,6 +544,18 @@ async def _apply_once(
             ),
             page_url=result.page_url,
         )
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_APPLY,
+            job_hash=job_hash,
+            run_id=str(run_id),
+            metadata={
+                "status": "SUCCESS",
+                "review_run_id": review_run_id,
+                "outcome": resolved_outcome,
+                "resume_source": resume_source,
+            },
+        )
 
         if resolved_outcome == HUMAN_REVIEW_HANDOFF_OUTCOME:
             await db.record_apply_handoff(
@@ -551,6 +588,7 @@ async def _apply_once(
             db=db,
             run_id=run_id,
             review_run_id=review_run_id,
+            job_hash=job_hash,
             error=result.failure_reason or "Unknown failure",
             outcome=(
                 result.outcome.value if result.outcome else None
@@ -682,6 +720,7 @@ async def main() -> None:
         await db.create_tables()
         await db.migrate_review_schema()
         await db.migrate_apply_schema()
+        await db.migrate_cost_schema()
 
         stale_count = await db.mark_stale_apply_runs_failed(
             lease_seconds=lease_seconds,

@@ -1,397 +1,181 @@
-# Agentic Job Applier - Phase 1: Job Discovery System
+# Agentic Job Applier
 
-Automated job discovery system that monitors multiple sources (Greenhouse, Workday, Indeed, Glassdoor) and stores opportunities in a SQLite database.
+SQLite-backed autonomous job discovery and application pipeline with a live FastAPI + React dashboard.
 
-## Features
+## What The System Does
 
-- **Multi-source job fetching**:
-  - Greenhouse API (free, no auth required)
-  - Workday via Apify scraper (requires API token)
-  - Indeed, Glassdoor via JobSpy library
-- **Intelligent deduplication** based on content hashing
-- **SQLite database** for persistent storage
-- **Comprehensive logging** with rotation
-- **Autonomous runtime** via systemd timer + continuous worker (Linux)
-- **Status dashboard** script for monitoring
-- **YAML-canonical resume tailoring pipeline** with 1-page enforcement
+1. Discovers jobs from Greenhouse, Workday (Apify), and JobSpy-backed boards.
+2. Normalizes and deduplicates postings into `job_postings`.
+3. Runs staged workers:
+- Gate (`NEW -> QUALIFIED/FILTERED`)
+- Resume tailor (`QUALIFIED -> tailor_runs`)
+- Resume review (`tailor_runs SUCCESS -> review_runs`)
+- Apply worker (`review_runs SUCCESS -> apply_runs` + `apply_handoffs`)
+4. Exposes operational state in a FastAPI backend (`api/main.py`) and React dashboard (`dashboard/`).
+5. Tracks per-stage cost telemetry (`cost_events`) and monthly budget (`budget_settings`).
 
-## Installation
+## Runtime Architecture
 
-### Prerequisites
+- Producer: `main.py` discovery cycle.
+- Consumers: `scripts/process_new_jobs.py`, `scripts/process_qualified_jobs.py`, `scripts/process_reviewed_resumes.py`, `scripts/process_apply_jobs.py`.
+- Persistence: `src/database/db_manager.py` + `src/database/schema.sql`.
+- API + static serving: `api/main.py`.
+- Frontend: Vite/React app in `dashboard/`, wired to `/api/*` via React Query.
+
+## Prerequisites
 
 - Python 3.11+
-- `uv` package manager ([installation instructions](https://github.com/astral-sh/uv))
+- `uv`
+- Node.js 20+
+- `latexmk` (tailor/review pipeline)
+- `pi` command (tailor/review runtime)
+- Chrome + Playwright CDP target (apply worker)
 
-### Setup
+## Setup
 
-1. Clone the repository:
 ```bash
 git clone <your-repo-url>
 cd agentic-job-applier
-```
-
-2. Install dependencies:
-```bash
 uv sync
-```
-
-3. Configure environment:
-```bash
 cp .env.example .env
-# Edit .env with your configuration
-nano .env
 ```
 
-Required environment variables:
-- `APIFY_API_TOKEN`: Get from [Apify Console](https://console.apify.com/account/integrations) (optional, for Workday scraping)
-- `DATABASE_PATH`: Path to SQLite database (default: `data/jobs.db`)
-- `LOG_FILE`: Path to log file (default: `logs/job_monitor.log`)
-- `LOG_LEVEL`: Logging level (default: `INFO`)
-- `OPENAI_API_KEY`: Required for the `gpt-5-mini` apply/skip gate
+Optional frontend install for local dashboard development:
 
-Agent workflow environment variables:
-- `AGENT_BATCH_SIZE`: Max NEW jobs processed per run
-- `AGENT_POLL_INTERVAL_SECONDS`: Poll interval when running `--loop`
-- `AGENT_MAX_RETRIES`: Retry attempts before terminal failure (default: 3)
-- `AGENT_RETRY_BACKOFF_SECONDS`: Base retry delay in seconds (default: 300)
-- `AGENT_RETRY_BACKOFF_MULTIPLIER`: Retry backoff multiplier (default: 3)
-- `NTFY_TOPIC`: Enable ntfy terminal-failure alerts when set
-- `NTFY_SERVER`: ntfy endpoint (default: `https://ntfy.sh`)
-- `NTFY_TOKEN`: Optional bearer token for ntfy auth
-- `NTFY_PRIORITY`: ntfy priority header (default: `default`)
-- `CANDIDATE_PROFILE_PATH`: Optional profile config path override
-- `SQLITE_JOURNAL_MODE`: Optional journal mode override (`WAL` default)
-- `PI_CODING_AGENT_COMMAND`: Optional command override for the pi-coding-agent resume tailor runner
+```bash
+npm --prefix dashboard install
+```
 
-4. Configure companies and search criteria:
-   - Edit `config/companies.yaml` to add/remove target companies
-   - Edit `config/search_criteria.yaml` to customize search terms and filters
-   - Edit `config/candidate_profile.yaml` to tune gate context and default internship targeting
+## Core Commands
 
-## Usage
-
-### Manual Run
-
-Run a single discovery cycle:
+Discovery once:
 
 ```bash
 uv run python main.py
 ```
 
-### Check Status
-
-View current system status and statistics:
+Gate worker:
 
 ```bash
-uv run python -m scripts.status
+uv run python -m scripts.process_new_jobs --once --limit 25
 ```
 
-This displays:
-- Total jobs in database
-- New jobs today/this week
-- Jobs by status and source
-- Top companies
-- Recent crawl history
-- Failed crawls
-- Daily statistics
-
-### Run The Apply/Skip Gate
-
-Process pending `NEW` jobs through the local-first decider:
+Tailor worker:
 
 ```bash
-uv run python -m scripts.process_new_jobs --limit 25
+uv run python -m scripts.process_qualified_jobs --once
 ```
 
-Run one full pipeline cycle (discovery then one gate batch):
+Review worker:
+
+```bash
+uv run python -m scripts.process_reviewed_resumes --once
+```
+
+Apply worker:
+
+```bash
+uv run python -m scripts.process_apply_jobs --once
+```
+
+Pipeline one-shot helper:
 
 ```bash
 uv run python -m scripts.run_pipeline_once --limit 25
 ```
 
-Inspect one stored job with the exact same gate logic:
+## FastAPI + Dashboard
+
+Run backend:
 
 ```bash
-uv run python -m scripts.decide_job --job-hash <job_hash>
-uv run python -m scripts.decide_job --job-hash <job_hash> --save
+uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-### Run Resume Tailor (Pi-Mono, YAML Canonical)
-
-Migrate your existing LaTeX resume to canonical YAML (one-time or whenever your base resume changes):
+Run dashboard dev server:
 
 ```bash
-uv run python -m scripts.migrate_resume_tex_to_yaml \
-  --tex-path ../resume/resume.tex \
-  --yaml-out config/resume_content.yaml
+npm --prefix dashboard run dev
 ```
 
-Use the tool surface directly (useful for debugging or integrating with custom pi prompts):
+Build dashboard static assets (served by FastAPI fallback routes):
 
 ```bash
-uv run python -m scripts.resume_tailor_tools db-get-job-context --job-hash <job_hash>
-uv run python -m scripts.resume_tailor_tools load-resume-yaml --path config/resume_content.yaml
-uv run python -m scripts.resume_tailor_tools render-resume-tex \
-  --yaml-path config/resume_content.yaml \
-  --tex-out data/tailored_resumes/manual/resume.tex
-uv run python -m scripts.resume_tailor_tools compile-resume \
-  --tex-path data/tailored_resumes/manual/resume.tex \
-  --pdf-out data/tailored_resumes/manual/resume.pdf
-uv run python -m scripts.resume_tailor_tools get-page-count \
-  --pdf-path data/tailored_resumes/manual/resume.pdf
+npm --prefix dashboard run build
 ```
 
-Run the full one-page-enforced tailor loop for one stored job:
+Useful API checks:
 
 ```bash
-uv run python -m scripts.run_resume_tailor \
-  --job-hash <job_hash> \
-  --resume-yaml-path config/resume_content.yaml \
-  --pi-coding-agent-command "<your non-interactive pi-coding-agent command>"
+curl -sS http://127.0.0.1:8000/api/health
+curl -sS http://127.0.0.1:8000/api/dashboard/stats
+curl -sS "http://127.0.0.1:8000/api/jobs?page=1&page_size=20"
 ```
 
-Optional branch isolation per tailoring run:
+## API Surface (Current)
+
+- Dashboard: `GET /api/dashboard/stats`, `GET /api/dashboard/discovery-trend`
+- Jobs: `GET /api/jobs`
+- Human review: `GET /api/human-review`, `POST /api/human-review/{handoff_id}/complete`, `POST /api/human-review/{handoff_id}/dismiss`
+- Failures: `GET /api/failures`, `POST /api/failures/{failure_id}/retry`
+- Costs: `GET /api/costs/stats`, `GET /api/costs/daily-trend`, `GET /api/costs/by-stage`
+- Budget: `GET /api/budget`, `PUT /api/budget`
+- Settings files: `GET /api/settings/files`, `POST /api/settings/resume`, `POST /api/settings/profile`, `GET /api/settings/resume/download`, `GET /api/settings/profile/download`
+
+## Database Tables
+
+- Core: `job_postings`, `crawl_history`, `daily_stats`
+- Stage runs: `tailor_runs`, `review_runs`, `apply_runs`, `apply_handoffs`
+- Cost/budget: `cost_events`, `budget_settings`
+
+## Cost Tracking Configuration
+
+Cost events are forward-only and written by workers per execution attempt. Stage rates are configurable:
+
+- `COST_RATE_GATE_USD`
+- `COST_RATE_TAILOR_USD`
+- `COST_RATE_REVIEW_USD`
+- `COST_RATE_APPLY_USD`
+- `COST_RATE_DISCOVERY_USD`
+
+If unset/invalid, stage cost defaults to `0.0`.
+
+## Testing
+
+Deterministic suite:
 
 ```bash
-uv run python -m scripts.run_resume_tailor \
-  --job-hash <job_hash> \
-  --create-git-branch \
-  --branch-prefix resume-tailor \
-  --pi-coding-agent-command "<your non-interactive pi-coding-agent command>"
+uv run pytest -q
 ```
 
-### Automated Scheduling (Linux)
-
-Recommended autonomous runtime on Linux homeserver:
-- `job-discovery.timer`: discovery producer every 30 minutes
-- `job-agent-worker.service`: continuous consumer draining NEW backlog
-
-1. Edit systemd service files:
-```bash
-cd deploy
-nano job-discovery.service
-nano job-agent-worker.service
-# Update User, WorkingDirectory, and ExecStart paths in both files
-```
-
-2. Install systemd service:
-```bash
-sudo cp job-discovery.service /etc/systemd/system/
-sudo cp job-discovery.timer /etc/systemd/system/
-sudo cp job-agent-worker.service /etc/systemd/system/
-sudo cp job-agent-alert@.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now job-discovery.timer
-sudo systemctl enable --now job-agent-worker.service
-```
-
-3. Verify:
-```bash
-# Check timer + worker status
-systemctl status job-discovery.timer
-systemctl status job-agent-worker.service
-
-# View logs
-journalctl -u job-discovery.service -f
-journalctl -u job-agent-worker.service -f
-```
-
-See [deploy/README.md](deploy/README.md) for detailed deployment instructions.
-
-## Configuration
-
-### Companies Configuration
-
-Edit `config/companies.yaml` to manage target companies:
-
-```yaml
-greenhouse_companies:
-  Stripe:
-    greenhouse_id: "stripe"
-    priority: 1
-
-workday_companies:
-  Goldman Sachs:
-    workday_url: "https://gs.wd5.myworkdayjobs.com/en-US/GSCareers"
-    priority: 1
-
-job_boards:
-  Indeed:
-    enabled: true
-    search_terms:
-      - "senior software engineer"
-    locations:
-      - "Remote"
-    results_wanted: 25
-```
-
-### Search Criteria
-
-Edit `config/search_criteria.yaml` to customize filtering (used in Phase 2):
-
-```yaml
-target_titles:
-  - "Software Engineer"
-  - "Senior Software Engineer"
-  - "Backend Engineer"
-
-locations:
-  remote_preference: "remote_only"
-  acceptable_cities:
-    - "San Francisco"
-    - "New York"
-    - "Remote"
-
-salary:
-  min: 150000
-  max: 400000
-```
-
-## Architecture
-
-### Project Structure
-
-```
-agentic-job-applier/
-├── config/                    # Configuration files
-│   ├── companies.yaml        # Target companies
-│   ├── search_criteria.yaml  # Search criteria
-│   └── resume_content.yaml   # YAML-canonical resume source of truth
-├── src/
-│   ├── database/             # Database layer
-│   │   ├── db_manager.py    # SQLite manager
-│   │   └── schema.sql       # Database schema
-│   ├── agents/
-│   │   ├── root_apply_decider/   # ADK apply/skip gate
-│   │   └── resume_tailor_pi/     # pi-mono resume tailor runtime + tools
-│   ├── fetchers/             # Job fetchers
-│   │   ├── base_fetcher.py  # Abstract base
-│   │   ├── greenhouse_fetcher.py
-│   │   ├── apify_fetcher.py
-│   │   └── jobspy_fetcher.py
-│   ├── models/               # Data models
-│   │   └── job_posting.py   # Pydantic model
-│   └── utils/                # Utilities
-│       ├── deduplicator.py  # Deduplication logic
-│       └── logger.py        # Logging setup
-├── scripts/
-│   ├── status.py                 # Status dashboard
-│   ├── run_resume_tailor.py      # End-to-end tailor runner
-│   ├── resume_tailor_tools.py    # Tool surface for pi-coding-agent
-│   └── migrate_resume_tex_to_yaml.py # LaTeX->YAML migration utility
-├── deploy/                   # Deployment files
-│   ├── job-discovery.service
-│   ├── job-discovery.timer
-│   └── README.md
-├── data/                     # SQLite database (gitignored)
-├── logs/                     # Log files (gitignored)
-└── main.py                  # Main orchestrator
-```
-
-### Data Flow
-
-1. **Orchestrator** (main.py) loads configuration and initializes database
-2. **Fetchers** scrape jobs from various sources:
-   - GreenhouseFetcher: Direct API calls
-   - ApifyWorkdayFetcher: Apify actor for Workday scraping
-   - JobSpyFetcher: JobSpy library for job boards
-3. **Deduplicator** filters out duplicate jobs using content hashing
-4. **Database Manager** stores new jobs in SQLite
-5. **Logger** records all activity with rotation
-
-### Database Schema
-
-- `job_postings`: Main table storing job details
-- `crawl_history`: Tracks each source fetch attempt
-- `daily_stats`: Aggregated daily statistics
-
-## Troubleshooting
-
-### Common Issues
-
-**No jobs found from Greenhouse companies**
-
-Some company IDs in the default config may be incorrect. Check the Greenhouse board URL:
-- Visit `https://boards.greenhouse.io/{company_id}`
-- If 404, search for the company's career page and find their correct ID
-
-**Apify token errors**
-
-Make sure `APIFY_API_TOKEN` is set in `.env`. Get your token from [Apify Console](https://console.apify.com/account/integrations).
-
-**JobSpy rate limiting**
-
-Indeed/Glassdoor may rate limit requests. The system includes 2-second delays between requests. If issues persist, reduce `results_wanted` in config.
-
-**Permission errors**
-
-Ensure the user running the service has write permissions to:
-- `data/` directory (for SQLite database)
-- `logs/` directory (for log files)
-
-### Logs
-
-Application logs are stored in `logs/job_monitor.log` with automatic rotation (10MB max, 1 week retention).
-
-For systemd service logs:
-```bash
-journalctl -u job-discovery.service --since "1 hour ago"
-```
-
-## Development
-
-### Running Tests
+Focused scraper->agent integration:
 
 ```bash
-uv run --group dev pytest tests/
+uv run pytest -q tests/test_scraper_to_agent_integration.py
 ```
 
-Live model E2E tests are opt-in:
+Opt-in live model E2E:
 
 ```bash
 uv run pytest -q --run-live-agent-e2e -m live_agent_e2e
 ```
 
-### Adding a New Fetcher
+## Deployment (Linux/Systemd)
 
-1. Create a new fetcher class inheriting from `BaseFetcher`
-2. Implement `fetch_jobs()` and `get_source_name()` methods
-3. Return list of `JobPosting` objects
-4. Add configuration to `companies.yaml`
-5. Update main.py orchestrator to include the new fetcher
+Systemd units live in `deploy/` for discovery timer and continuous workers. See `deploy/README.md` for end-to-end setup, including:
 
-Example:
-```python
-class CustomFetcher(BaseFetcher):
-    async def fetch_jobs(self) -> List[JobPosting]:
-        # Your scraping logic here
-        return [JobPosting(...), ...]
+- `job-discovery.timer` + `job-discovery.service`
+- `job-agent-worker.service`
+- `job-tailor-worker.service`
+- `job-review-worker.service`
+- `job-apply-worker.service`
+- `job-apply-chrome.service`
 
-    def get_source_name(self) -> str:
-        return "custom_source"
-```
+## Source Of Truth Docs
 
-## Roadmap
-
-- [x] **Phase 1: Job Discovery** (Current)
-  - Multi-source job fetching
-  - Deduplication and storage
-  - Automated scheduling
-
-- [x] **Phase 2: Intelligent Filtering**
-  - Root apply/skip decider workflow
-  - Agent-result persistence and status mapping
-  - Retry/failure tracking for agent processing
-
-- [ ] **Phase 3: Application Automation**
-  - Resume customization (YAML-canonical pi-mono tailor loop now available)
-  - Cover letter generation
-  - Form filling automation
+- Operational/spec docs: `.aqa/spec/index.md`
+- Agent collaboration rules: `AGENTS.md`
 
 ## License
 
 MIT
-
-## Contributing
-
-Issues and pull requests welcome!

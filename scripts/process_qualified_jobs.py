@@ -33,6 +33,8 @@ from src.agents.resume_tailor_pi import (
     run_resume_tailor_pipeline,
 )
 from src.database.db_manager import DEFAULT_TAILOR_CLAIM_LEASE_SECONDS, DatabaseManager
+from src.utils.cost_tracking import PIPELINE_STAGE_TAILOR
+from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path, resolve_repo_root
 
@@ -349,6 +351,17 @@ async def _handle_tailor_failure(
             error=error,
             next_retry_at=next_retry,
         )
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_TAILOR,
+            job_hash=job_hash,
+            run_id=str(run_id),
+            metadata={
+                "status": "FAILED",
+                "retry_count": failed_count,
+                "max_retries": max_retries,
+            },
+        )
     except Exception as record_exc:
         logger.error(
             "Failed to record tailor failure for run_id={}: {}",
@@ -469,6 +482,16 @@ async def _tailor_once(
             artifact_tex_path=str(tex_path),
             artifact_pdf_path=str(pdf_path),
             page_count=result.final_page_count,
+        )
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_TAILOR,
+            job_hash=job_hash,
+            run_id=str(run_id),
+            metadata={
+                "status": "SUCCESS",
+                "page_count": result.final_page_count,
+            },
         )
         logger.info(
             "Tailor SUCCESS: job_hash={} pages={} pdf={}",
@@ -656,6 +679,7 @@ async def main() -> None:
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_tailor_schema()
+        await db.migrate_cost_schema()
 
         # Cleanup stale claims from a previous crash.
         stale_count = await db.mark_stale_tailor_runs_failed(

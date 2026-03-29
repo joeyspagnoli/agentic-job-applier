@@ -49,6 +49,7 @@ class DatabaseManager:
         self._tailor_schema_ready = False
         self._review_schema_ready = False
         self._apply_schema_ready = False
+        self._cost_schema_ready = False
 
     def _require_conn(self) -> aiosqlite.Connection:
         """Return the active SQLite connection or fail fast.
@@ -91,6 +92,7 @@ class DatabaseManager:
         self._tailor_schema_ready = False
         self._review_schema_ready = False
         self._apply_schema_ready = False
+        self._cost_schema_ready = False
 
         # These pragmas reduce lock contention during timer-driven runs while
         # still keeping the database simple and file-backed.
@@ -2314,6 +2316,356 @@ class DatabaseManager:
         )
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
+
+    async def migrate_cost_schema(self) -> None:
+        """Create cost telemetry and budget tables when missing.
+
+        Purpose:
+            Bootstrap forward-only cost tracking and monthly budget settings so
+            dashboard endpoints can report spend without separate migrations.
+        Args:
+            self: The database manager performing the migration.
+        Output:
+            Returns `None` after ensuring cost tables and indexes exist.
+        """
+
+        conn = self._require_conn()
+        await conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS cost_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stage TEXT NOT NULL,
+                job_hash TEXT,
+                run_id TEXT,
+                cost_usd REAL NOT NULL,
+                metadata_json TEXT,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK (stage IN ('GATE', 'TAILOR', 'REVIEW', 'APPLY', 'DISCOVERY')),
+                CHECK (cost_usd >= 0)
+            );
+            CREATE INDEX IF NOT EXISTS idx_cost_events_recorded_at
+                ON cost_events(recorded_at);
+            CREATE INDEX IF NOT EXISTS idx_cost_events_stage_recorded_at
+                ON cost_events(stage, recorded_at);
+            CREATE INDEX IF NOT EXISTS idx_cost_events_job_hash
+                ON cost_events(job_hash);
+
+            CREATE TABLE IF NOT EXISTS budget_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                monthly_budget_usd REAL NOT NULL DEFAULT 500.0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK (monthly_budget_usd >= 0)
+            );
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO budget_settings (id, monthly_budget_usd)
+            VALUES (1, 500.0)
+            ON CONFLICT(id) DO NOTHING
+            """
+        )
+        await conn.commit()
+        self._cost_schema_ready = True
+
+    async def _ensure_cost_schema_ready(self) -> None:
+        """Ensure cost telemetry tables exist before cost queries run.
+
+        Purpose:
+            Prevent runtime SQL failures when cost endpoints run against older
+            databases that were created before cost tracking was added.
+        Args:
+            self: The database manager validating cost-schema readiness.
+        Output:
+            Returns `None` after ensuring required cost tables exist.
+        """
+
+        if self._cost_schema_ready:
+            return
+
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='cost_events'"
+        )
+        row = await cursor.fetchone()
+        if row is not None:
+            self._cost_schema_ready = True
+            return
+
+        await self.migrate_cost_schema()
+
+    async def record_cost_event(
+        self,
+        *,
+        stage: str,
+        cost_usd: float,
+        job_hash: str | None = None,
+        run_id: str | None = None,
+        metadata_json: str | None = None,
+    ) -> None:
+        """Record one pipeline execution cost event.
+
+        Purpose:
+            Persist stage-level spend in a forward-only event table so costs
+            can be rolled up by day and by stage without historical rewrites.
+        Args:
+            self: The database manager writing telemetry.
+            stage: Pipeline stage label (GATE, TAILOR, REVIEW, APPLY, DISCOVERY).
+            cost_usd: Non-negative USD cost for this execution attempt.
+            job_hash: Optional stable job identifier for correlation.
+            run_id: Optional worker run identifier.
+            metadata_json: Optional JSON string with model/provider context.
+        Output:
+            Returns `None` after inserting the event and committing.
+        Raises:
+            ValueError: When `cost_usd` is negative.
+        """
+
+        if cost_usd < 0:
+            raise ValueError("cost_usd must be non-negative")
+
+        await self._ensure_cost_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            INSERT INTO cost_events (
+                stage,
+                job_hash,
+                run_id,
+                cost_usd,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (stage, job_hash, run_id, cost_usd, metadata_json),
+        )
+        await conn.commit()
+
+    async def get_budget_settings(self) -> dict:
+        """Fetch monthly budget with current month spend rollup.
+
+        Purpose:
+            Provide one canonical budget payload for both settings and sidebar
+            widgets without duplicating spend math in route handlers.
+        Args:
+            self: The database manager loading budget and spend aggregates.
+        Output:
+            Returns a dictionary with `monthly_budget_usd`, `spent_usd`,
+            `remaining_usd`, and `utilization_pct`.
+        """
+
+        await self._ensure_cost_schema_ready()
+        conn = self._require_conn()
+
+        await conn.execute(
+            """
+            INSERT INTO budget_settings (id, monthly_budget_usd)
+            VALUES (1, 500.0)
+            ON CONFLICT(id) DO NOTHING
+            """
+        )
+
+        budget_cursor = await conn.execute(
+            """
+            SELECT monthly_budget_usd
+            FROM budget_settings
+            WHERE id = 1
+            """
+        )
+        budget_row = await budget_cursor.fetchone()
+        budget_value = (
+            float(budget_row["monthly_budget_usd"]) if budget_row else 500.0
+        )
+
+        spend_cursor = await conn.execute(
+            """
+            SELECT COALESCE(SUM(cost_usd), 0.0) AS spent_usd
+            FROM cost_events
+            WHERE strftime('%Y-%m', recorded_at) = strftime('%Y-%m', 'now')
+            """
+        )
+        spend_row = await spend_cursor.fetchone()
+        spent_value = float(spend_row["spent_usd"]) if spend_row else 0.0
+        remaining_value = max(budget_value - spent_value, 0.0)
+        utilization = 0.0 if budget_value <= 0 else (spent_value / budget_value) * 100.0
+
+        await conn.commit()
+        return {
+            "monthly_budget_usd": budget_value,
+            "spent_usd": spent_value,
+            "remaining_usd": remaining_value,
+            "utilization_pct": utilization,
+        }
+
+    async def set_budget_settings(self, *, monthly_budget_usd: float) -> dict:
+        """Persist a new monthly budget value and return the updated snapshot.
+
+        Purpose:
+            Keep budget writes idempotent while returning the latest spend and
+            utilization values for immediate UI refresh after save.
+        Args:
+            self: The database manager persisting the new budget.
+            monthly_budget_usd: New non-negative monthly budget in USD.
+        Output:
+            Returns the same payload shape as `get_budget_settings()`.
+        Raises:
+            ValueError: When `monthly_budget_usd` is negative.
+        """
+
+        if monthly_budget_usd < 0:
+            raise ValueError("monthly_budget_usd must be non-negative")
+
+        await self._ensure_cost_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            INSERT INTO budget_settings (id, monthly_budget_usd, updated_at)
+            VALUES (1, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                monthly_budget_usd = excluded.monthly_budget_usd,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (monthly_budget_usd,),
+        )
+        await conn.commit()
+        return await self.get_budget_settings()
+
+    async def transition_handoff_status(
+        self,
+        *,
+        handoff_id: int,
+        target_status: str,
+        reviewer_notes: str | None = None,
+    ) -> dict:
+        """Resolve a human-review handoff and update job status atomically.
+
+        Purpose:
+            Apply APPROVED/REJECTED decisions safely, enforce one-way handoff
+            transitions, and keep job_postings status aligned with review action.
+        Args:
+            self: The database manager applying the transition.
+            handoff_id: Primary key of the `apply_handoffs` row to resolve.
+            target_status: Final handoff status (`APPROVED` or `REJECTED`).
+            reviewer_notes: Optional reviewer note text.
+        Output:
+            Returns the resolved handoff row as a dictionary.
+        Raises:
+            ValueError: When the handoff does not exist or transition is invalid.
+        """
+
+        allowed_targets = {"APPROVED", "REJECTED"}
+        if target_status not in allowed_targets:
+            raise ValueError(f"Unsupported handoff target status: {target_status}")
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+            cursor = await conn.execute(
+                "SELECT * FROM apply_handoffs WHERE id = ?",
+                (handoff_id,),
+            )
+            handoff_row = await cursor.fetchone()
+            if handoff_row is None:
+                await conn.rollback()
+                raise ValueError("handoff_not_found")
+
+            current_status = str(handoff_row["handoff_status"])
+            if current_status != "PENDING_REVIEW":
+                await conn.rollback()
+                raise ValueError("handoff_already_resolved")
+
+            await conn.execute(
+                """
+                UPDATE apply_handoffs
+                SET handoff_status = ?,
+                    reviewer_notes = ?,
+                    reviewed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (target_status, reviewer_notes, handoff_id),
+            )
+
+            resolved_job_status = "APPLIED" if target_status == "APPROVED" else "REJECTED"
+            await conn.execute(
+                """
+                UPDATE job_postings
+                SET status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE job_hash = ?
+                """,
+                (resolved_job_status, handoff_row["job_hash"]),
+            )
+
+            updated_cursor = await conn.execute(
+                "SELECT * FROM apply_handoffs WHERE id = ?",
+                (handoff_id,),
+            )
+            updated_row = await updated_cursor.fetchone()
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+        if updated_row is None:
+            raise ValueError("handoff_update_failed")
+        return dict(updated_row)
+
+    async def reset_review_failure_state(self, *, job_hash: str) -> int:
+        """Delete FAILED review runs for all tailor runs linked to one job.
+
+        Purpose:
+            Requeue review-stage failures by removing terminal FAILED rows so
+            claim queries can pick the same tailor output again.
+        Args:
+            self: The database manager clearing review failure rows.
+            job_hash: Stable job identifier tied to related tailor runs.
+        Output:
+            Returns the number of deleted FAILED review rows.
+        """
+
+        await self._ensure_review_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            DELETE FROM review_runs
+            WHERE status = 'FAILED'
+              AND tailor_run_id IN (
+                  SELECT id FROM tailor_runs WHERE job_hash = ?
+              )
+            """,
+            (job_hash,),
+        )
+        await conn.commit()
+        return cursor.rowcount
+
+    async def reset_apply_failure_state(self, *, job_hash: str) -> int:
+        """Delete FAILED apply runs for all review runs linked to one job.
+
+        Purpose:
+            Requeue apply-stage failures by removing terminal FAILED rows so
+            claim queries can process the same review result again.
+        Args:
+            self: The database manager clearing apply failure rows.
+            job_hash: Stable job identifier tied to related review runs.
+        Output:
+            Returns the number of deleted FAILED apply rows.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            DELETE FROM apply_runs
+            WHERE status = 'FAILED'
+              AND review_run_id IN (
+                  SELECT id FROM review_runs WHERE job_hash = ?
+              )
+            """,
+            (job_hash,),
+        )
+        await conn.commit()
+        return cursor.rowcount
 
     async def close(self) -> None:
         """Close the active SQLite connection if one exists.

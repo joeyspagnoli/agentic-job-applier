@@ -10,7 +10,10 @@
  */
 
 import type { JSX } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
+import { fetchBudget } from "@/lib/api/client";
+import { formatUsd } from "@/lib/api/adapters";
 import {
   COLOR_PRIMARY,
   COLOR_PRIMARY_FIXED,
@@ -54,15 +57,6 @@ const NAV_ITEMS = [
   { to: "/cost-tracking", label: "Cost Tracking", icon: "payments", end: false },
 ] as const satisfies readonly NavItem[];
 
-/** Hardcoded mock spend amount shown in the budget widget. */
-const MOCK_BUDGET_SPENT = "$425.00" as const;
-
-/** Hardcoded mock budget limit shown in the budget widget. */
-const MOCK_BUDGET_LIMIT = "$500.00" as const;
-
-/** Percentage of monthly budget consumed — drives the progress bar width. */
-const MOCK_BUDGET_PERCENT = 85 as const;
-
 /**
  * Fixed left-side navigation sidebar for the AutoApply dashboard.
  *
@@ -74,6 +68,14 @@ const MOCK_BUDGET_PERCENT = 85 as const;
  * @returns The sidebar `<aside>` element.
  */
 export function Sidebar(): JSX.Element {
+  const { data: budgetData } = useQuery({
+    queryKey: ["budget"],
+    queryFn: fetchBudget,
+  });
+  const spentText = formatUsd(budgetData?.spent_usd ?? 0);
+  const limitText = formatUsd(budgetData?.monthly_budget_usd ?? 0);
+  const usedPercent = Math.max(0, Math.min(100, Math.round(budgetData?.utilization_pct ?? 0)));
+
   return (
     <aside
       className="fixed left-0 top-0 h-screen bg-white border-r flex flex-col py-6"
@@ -160,10 +162,10 @@ export function Sidebar(): JSX.Element {
           </span>
           <div className="flex justify-between items-baseline mt-1 mb-2">
             <span className="text-sm font-bold" style={{ color: COLOR_ON_SURFACE }}>
-              {MOCK_BUDGET_SPENT}
+              {spentText}
             </span>
             <span className="text-[10px]" style={{ color: COLOR_OUTLINE }}>
-              / {MOCK_BUDGET_LIMIT}
+              / {limitText}
             </span>
           </div>
           <div
@@ -172,11 +174,11 @@ export function Sidebar(): JSX.Element {
           >
             <div
               className="h-full rounded-full"
-              style={{ width: `${MOCK_BUDGET_PERCENT}%`, backgroundColor: COLOR_PRIMARY }}
+              style={{ width: `${usedPercent}%`, backgroundColor: COLOR_PRIMARY }}
             />
           </div>
           <p className="text-[10px] mt-2 text-right font-medium" style={{ color: COLOR_OUTLINE }}>
-            {MOCK_BUDGET_PERCENT}% consumed
+            {usedPercent}% consumed
           </p>
         </div>
       </div>

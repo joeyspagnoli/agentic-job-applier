@@ -223,3 +223,28 @@ CREATE INDEX IF NOT EXISTS idx_apply_handoffs_status ON apply_handoffs(handoff_s
 CREATE INDEX IF NOT EXISTS idx_apply_handoffs_job_hash ON apply_handoffs(job_hash);
 CREATE INDEX IF NOT EXISTS idx_apply_handoffs_review_run_id
     ON apply_handoffs(review_run_id);
+
+-- Forward-only cost telemetry for pipeline stages.
+CREATE TABLE IF NOT EXISTS cost_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage TEXT NOT NULL,            -- GATE, TAILOR, REVIEW, APPLY, DISCOVERY
+    job_hash TEXT,
+    run_id TEXT,                    -- Worker-specific run identifier (string for flexibility)
+    cost_usd REAL NOT NULL,         -- Stage execution cost in USD
+    metadata_json TEXT,             -- Optional context (model/provider/attempt)
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (stage IN ('GATE', 'TAILOR', 'REVIEW', 'APPLY', 'DISCOVERY')),
+    CHECK (cost_usd >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_cost_events_recorded_at ON cost_events(recorded_at);
+CREATE INDEX IF NOT EXISTS idx_cost_events_stage_recorded_at
+    ON cost_events(stage, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_cost_events_job_hash ON cost_events(job_hash);
+
+-- Single-row budget configuration used by dashboard + settings panel.
+CREATE TABLE IF NOT EXISTS budget_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    monthly_budget_usd REAL NOT NULL DEFAULT 500.0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (monthly_budget_usd >= 0)
+);

@@ -11,6 +11,9 @@
 
 import type { JSX } from "react";
 import { useState } from "react";
+import { useIsFetching } from "@tanstack/react-query";
+import { useIsMutating } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   COLOR_ON_SURFACE,
   COLOR_ON_SURFACE_VARIANT,
@@ -43,6 +46,17 @@ interface TopBarProps {
  */
 export function TopBar({ title, onSettingsClick }: TopBarProps): JSX.Element {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const activeQueryCount = useIsFetching();
+  const activeMutationCount = useIsMutating();
+  const hasSyncError = queryClient
+    .getQueryCache()
+    .findAll()
+    .some((query) => query.state.status === "error");
+
+  const isSyncing = activeQueryCount > 0 || activeMutationCount > 0;
+  const syncLabel = hasSyncError ? "SYNC ISSUES" : isSyncing ? "LIVE SYNCING" : "SYNC IDLE";
+  const syncDotColor = hasSyncError ? "bg-red-500" : isSyncing ? "bg-green-500" : "bg-slate-400";
 
   function handleAvatarClick(): void {
     setIsDropdownOpen((previous) => !previous);
@@ -51,6 +65,10 @@ export function TopBar({ title, onSettingsClick }: TopBarProps): JSX.Element {
   function handleSettingsClick(): void {
     setIsDropdownOpen(false);
     onSettingsClick?.();
+  }
+
+  function handleSyncNow(): void {
+    void queryClient.invalidateQueries();
   }
 
   return (
@@ -65,8 +83,8 @@ export function TopBar({ title, onSettingsClick }: TopBarProps): JSX.Element {
       <div className="flex items-center gap-6">
         {/* Live syncing status pill */}
         <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-[10px] font-bold text-indigo-700 tracking-wider">LIVE SYNCING</span>
+          <span className={`w-2 h-2 rounded-full ${syncDotColor} ${isSyncing ? "animate-pulse" : ""}`} />
+          <span className="text-[10px] font-bold text-indigo-700 tracking-wider">{syncLabel}</span>
         </div>
 
         <div className="flex items-center gap-4" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
@@ -74,6 +92,7 @@ export function TopBar({ title, onSettingsClick }: TopBarProps): JSX.Element {
           <button
             className="hover:transition-colors"
             style={{ color: COLOR_ON_SURFACE_VARIANT }}
+            onClick={handleSyncNow}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = COLOR_PRIMARY;
             }}

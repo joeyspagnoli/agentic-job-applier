@@ -12,6 +12,7 @@ dependencies = [
     "apscheduler>=3.11.2,<4",
     "authlib>=1.6.7,<2",
     "cryptography>=46.0.5,<47",
+    "fastapi>=0.121.1,<1",
     "google-adk>=1.23.0,<2",
     "httpx>=0.28.1,<1",
     "litellm>=1.82.1,<2",
@@ -24,6 +25,7 @@ dependencies = [
     "python-jobspy>=1.1.82,<2",
     "python-multipart>=0.0.22,<1",
     "pyyaml>=6.0.3,<7",
+    "uvicorn>=0.38.0,<1",
 ]
 
 [dependency-groups]

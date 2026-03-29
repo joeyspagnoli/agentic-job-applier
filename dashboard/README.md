@@ -1,73 +1,60 @@
-# React + TypeScript + Vite
+# AutoApply Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for the Agentic Job Applier control plane.
 
-Currently, two official plugins are available:
+## Purpose
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The dashboard is fully wired to the FastAPI backend and provides:
 
-## React Compiler
+- Pipeline KPIs and trend visualizations
+- Jobs table with filters and expansion panels
+- Human review queue with approve/dismiss actions
+- Unified failures view with stage-specific retry
+- Cost tracking (daily trend + stage spend)
+- Settings panel (budget edit + resume/profile upload/download)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Local Development
 
-## Expanding the ESLint configuration
+Install dependencies:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Run backend first (required for `/api` proxy targets):
 
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
-
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```bash
+cd ..
+uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
+
+Run dashboard dev server:
+
+```bash
+npm run dev
+```
+
+The Vite dev proxy forwards `/api/*` to `http://localhost:8000`.
+
+## Validation Commands
+
+```bash
+npm run typecheck
+npm run build
+```
+
+## Runtime Notes
+
+- React Query is configured globally with 30s polling.
+- `Sync now` in the top bar invalidates active queries.
+- API contracts use `snake_case`; frontend adapters map DTOs for UI usage.
+
+## Production Serving
+
+Build static assets:
+
+```bash
+npm run build
+```
+
+Then serve through FastAPI (`api/main.py`), which mounts built assets and handles SPA fallback routing.

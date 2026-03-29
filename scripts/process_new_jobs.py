@@ -30,6 +30,8 @@ from src.agents.root_apply_decider import (
     run_decider_for_job,
 )
 from src.database.db_manager import DatabaseManager
+from src.utils.cost_tracking import PIPELINE_STAGE_GATE
+from src.utils.cost_tracking import record_stage_cost_event
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
 
@@ -281,6 +283,18 @@ async def _process_once(
         except Exception as exc:
             error_text = str(exc)
             retry_count = int(job.get("agent_retry_count") or 0) + 1
+            await record_stage_cost_event(
+                db=db,
+                stage=PIPELINE_STAGE_GATE,
+                job_hash=job_hash,
+                run_id=f"gate-{job_hash}-{retry_count}",
+                metadata={
+                    "status": "FAILED",
+                    "model": get_decider_model_name(),
+                    "provider": get_decider_provider(),
+                    "retry_count": retry_count,
+                },
+            )
 
             if retry_count < max_retries:
                 next_retry_at = _calculate_next_retry_at(
@@ -327,6 +341,18 @@ async def _process_once(
             job_hash=job_hash,
             agent_result=result.model_dump_json(),
             status=_map_status(result.decision),
+        )
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_GATE,
+            job_hash=job_hash,
+            run_id=f"gate-{job_hash}",
+            metadata={
+                "status": "SUCCESS",
+                "model": result.model,
+                "provider": get_decider_provider(),
+                "decision": result.decision.value,
+            },
         )
         processed += 1
 
@@ -432,6 +458,7 @@ async def main() -> None:
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_agent_schema()
+        await db.migrate_cost_schema()
         startup_alert_sent = False
 
         # The default behavior is a single batch run so the script remains easy
