@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchApiKeysSettings,
   fetchBudget,
+  restartSystemStack,
+  stopSystemStack,
   updateServiceTierSetting,
   uploadProfile,
   uploadResume,
@@ -145,5 +147,41 @@ describe("api client success parsing", () => {
       },
       body: JSON.stringify({ tier: "latex" }),
     });
+  });
+
+  it("dispatches stack stop lifecycle action", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        action: "stop",
+        status: "accepted",
+        request_id: "request-stop",
+      }),
+    );
+
+    const payload = await stopSystemStack();
+
+    expect(payload.ok).toBe(true);
+    expect(payload.action).toBe("stop");
+    expect(payload.status).toBe("accepted");
+    expect(fetchSpy).toHaveBeenCalledWith("/api/system/stop", { method: "POST" });
+  });
+
+  it("dispatches stack restart lifecycle action", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        action: "restart",
+        status: "accepted",
+        request_id: "request-restart",
+      }),
+    );
+
+    const payload = await restartSystemStack();
+
+    expect(payload.ok).toBe(true);
+    expect(payload.action).toBe("restart");
+    expect(payload.status).toBe("accepted");
+    expect(fetchSpy).toHaveBeenCalledWith("/api/system/restart", { method: "POST" });
   });
 });

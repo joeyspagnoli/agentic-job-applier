@@ -120,6 +120,7 @@ curl -sS "http://127.0.0.1:8000/api/jobs?page=1&page_size=20"
 - Jobs: `GET /api/jobs`, `GET /api/jobs/{job_hash}/resume`
 - Human review: `GET /api/human-review`, `POST /api/human-review/{handoff_id}/complete`, `POST /api/human-review/{handoff_id}/dismiss`
 - Failures: `GET /api/failures`, `POST /api/failures/{failure_id}/retry`
+- System lifecycle: `POST /api/system/stop`, `POST /api/system/restart`
 - Costs: `GET /api/costs/stats`, `GET /api/costs/daily-trend`, `GET /api/costs/by-stage`
 - Budget: `GET /api/budget`, `PUT /api/budget`
 - Settings files: `GET /api/settings/files`, `GET /api/settings/profile`, `PUT /api/settings/profile`, `PUT /api/settings/profile/structured`, `POST /api/settings/profile`
@@ -240,7 +241,13 @@ docker compose restart gate            # restart one service
 docker compose down                    # stop all (data volumes preserved)
 docker compose down -v                 # stop all and delete volumes (destructive)
 docker compose exec api bash           # shell into a running container
+./scripts/docker/start_stack.sh        # host-level stack start
+./scripts/docker/stop_stack.sh         # host-level stack stop
+./scripts/docker/restart_stack.sh      # host-level stack restart
 ```
+
+When the dashboard is running, the TopBar power menu can dispatch Stop/Restart.
+When the stack is already down, use the host-level scripts above to start it.
 
 ### Chrome profile (apply service only)
 

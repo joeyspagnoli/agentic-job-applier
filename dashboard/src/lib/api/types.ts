@@ -16,6 +16,14 @@ export interface ApiErrorPayload {
   readonly details: Record<string, unknown>;
 }
 
+/** Response payload for system lifecycle action endpoints. */
+export interface SystemLifecycleActionDto {
+  readonly ok: true;
+  readonly action: "stop" | "restart";
+  readonly status: "accepted";
+  readonly request_id: string;
+}
+
 /** One source breakdown row returned by dashboard stats endpoint. */
 export interface SourceBreakdownDto {
   readonly source: string;

@@ -25,9 +25,10 @@ import type {
   SettingsFilesDto,
   SettingsProfileDto,
   SettingsProfileUploadDto,
-  SettingsResumeUploadDto,
   SettingsResumeDto,
   SettingsResumeTexUploadDto,
+  SettingsResumeUploadDto,
+  SystemLifecycleActionDto,
 } from "@/lib/api/types";
 
 const JSON_HEADERS = {
@@ -267,6 +268,28 @@ export async function fetchFailures(args: {
  */
 export async function retryFailure(failureId: string): Promise<RetryFailureDto> {
   return getJson<RetryFailureDto>(`/api/failures/${encodeURIComponent(failureId)}/retry`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Dispatch a non-destructive stack stop action.
+ *
+ * @returns Accepted lifecycle action payload.
+ */
+export async function stopSystemStack(): Promise<SystemLifecycleActionDto> {
+  return getJson<SystemLifecycleActionDto>("/api/system/stop", {
+    method: "POST",
+  });
+}
+
+/**
+ * Dispatch a full stack restart action.
+ *
+ * @returns Accepted lifecycle action payload.
+ */
+export async function restartSystemStack(): Promise<SystemLifecycleActionDto> {
+  return getJson<SystemLifecycleActionDto>("/api/system/restart", {
     method: "POST",
   });
 }

@@ -106,6 +106,19 @@ uv run python -m scripts.query_jobs --remote
 uv run python -m scripts.query_jobs --new --limit 20
 ```
 
+## Docker Stack Controls
+
+When running with Docker Compose, use these host-level scripts:
+
+```bash
+./scripts/docker/start_stack.sh
+./scripts/docker/stop_stack.sh
+./scripts/docker/restart_stack.sh
+```
+
+If the dashboard is available, you can also use the TopBar power menu for
+`Shut Down` and `Restart`.
+
 ## Resume Tailor (Pi-Mono)
 
 1. Migrate your LaTeX resume into canonical YAML:

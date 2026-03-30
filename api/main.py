@@ -8,7 +8,9 @@ This module provides the unified runtime boundary for the dashboard product:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import re
 import secrets
@@ -55,6 +57,9 @@ from src.utils.paths import resolve_repo_root
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 DEFAULT_POLLING_SECONDS = 30
+SYSTEM_ACTION_STOP = "stop"
+SYSTEM_ACTION_RESTART = "restart"
+SYSTEM_ACTION_STATUS_ACCEPTED = "accepted"
 
 DASHBOARD_DIST_DIR = resolve_repo_root() / "dashboard" / "dist"
 DASHBOARD_ASSETS_DIR = DASHBOARD_DIST_DIR / "assets"
@@ -67,6 +72,10 @@ SETTINGS_FILTERS_PATH = resolve_repo_root() / "config" / "filters.yaml"
 SETTINGS_COMPANIES_PATH = resolve_repo_root() / "config" / "companies.yaml"
 SETTINGS_BACKUPS_DIR = resolve_repo_root() / "config" / "backups"
 SETTINGS_ENV_PATH = resolve_repo_root() / ".env"
+SYSTEM_STOP_SCRIPT_PATH = resolve_repo_root() / "scripts" / "docker" / "stop_stack.sh"
+SYSTEM_RESTART_SCRIPT_PATH = (
+    resolve_repo_root() / "scripts" / "docker" / "restart_stack.sh"
+)
 TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
 TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
 TAILORED_RESUME_TOKEN_ENV_KEY = "TAILORED_RESUME_DOWNLOAD_TOKEN"
@@ -113,6 +122,7 @@ PERSONAL_CONTACT_PATTERN = re.compile(
     r"\{\\normalsize\s*(.+?)\}\s*\\end\{center\}",
     flags=re.DOTALL,
 )
+logger = logging.getLogger(__name__)
 
 
 class ReviewerActionRequest(BaseModel):
@@ -519,6 +529,115 @@ def _load_positive_int_env(name: str, default_value: int) -> int:
     if parsed_value <= 0:
         return default_value
     return parsed_value
+
+
+def _resolve_system_script_path(action: str) -> Path:
+    """Resolve one lifecycle action to its canonical host script path.
+
+    Purpose:
+        Keep lifecycle endpoint command dispatch constrained to explicit
+        repo-managed scripts.
+    Args:
+        action: Lifecycle action key (`stop` or `restart`).
+    Output:
+        Returns the absolute script `Path` for the action.
+    Raises:
+        ValueError: When action is unknown.
+    """
+
+    if action == SYSTEM_ACTION_STOP:
+        return SYSTEM_STOP_SCRIPT_PATH
+    if action == SYSTEM_ACTION_RESTART:
+        return SYSTEM_RESTART_SCRIPT_PATH
+    raise ValueError(f"Unsupported system action: {action}")
+
+
+async def _run_system_script(
+    *,
+    action: str,
+    request_id: str,
+    script_path: Path,
+) -> None:
+    """Run one lifecycle script in the background and log the result.
+
+    Purpose:
+        Execute operational lifecycle actions without blocking API response
+        latency for the caller.
+    Args:
+        action: Lifecycle action key (`stop` or `restart`).
+        request_id: Stable request identifier for log correlation.
+        script_path: Absolute path to the script to execute.
+    Output:
+        Returns `None` after process completion or logging failure details.
+    """
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            str(script_path),
+            cwd=str(resolve_repo_root()),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        return_code = await process.wait()
+    except OSError:
+        logger.exception(
+            "System action script execution failed.",
+            extra={
+                "action": action,
+                "request_id": request_id,
+                "script_path": str(script_path),
+            },
+        )
+        return
+
+    if return_code == 0:
+        logger.info(
+            "System action script completed successfully.",
+            extra={"action": action, "request_id": request_id},
+        )
+        return
+
+    logger.error(
+        "System action script exited with non-zero status.",
+        extra={
+            "action": action,
+            "request_id": request_id,
+            "return_code": return_code,
+        },
+    )
+
+
+def _dispatch_system_lifecycle_action(action: str) -> str:
+    """Validate and dispatch one lifecycle action script asynchronously.
+
+    Purpose:
+        Keep lifecycle endpoint handlers thin while enforcing script existence,
+        executable permissions, and non-blocking dispatch behavior.
+    Args:
+        action: Lifecycle action key (`stop` or `restart`).
+    Output:
+        Returns a request identifier tied to the dispatched background task.
+    Raises:
+        OSError: When script file is missing or not executable.
+    """
+
+    script_path = _resolve_system_script_path(action)
+    if not script_path.exists():
+        raise OSError(f"System action script is missing: {script_path}")
+    if not script_path.is_file():
+        raise OSError(f"System action script path is not a file: {script_path}")
+    if not os.access(script_path, os.X_OK):
+        raise OSError(f"System action script is not executable: {script_path}")
+
+    request_id = secrets.token_hex(8)
+    asyncio.create_task(
+        _run_system_script(
+            action=action,
+            request_id=request_id,
+            script_path=script_path,
+        )
+    )
+    return request_id
 
 
 def _source_label(raw_source: str) -> str:
@@ -1492,6 +1611,68 @@ async def health_check() -> dict[str, object]:
         "ok": True,
         "status": "healthy",
         "polling_seconds": DEFAULT_POLLING_SECONDS,
+    }
+
+
+@app.post("/api/system/stop")
+async def stop_system_stack() -> dict[str, object]:
+    """Dispatch a non-destructive full stack stop operation.
+
+    Purpose:
+        Allow dashboard users to stop the running compose stack through one API
+        action instead of manual shell commands.
+    Args:
+        None.
+    Output:
+        Returns accepted payload with request identifier.
+    """
+
+    try:
+        request_id = _dispatch_system_lifecycle_action(SYSTEM_ACTION_STOP)
+    except OSError as exc:
+        _raise_api_error(
+            status_code=500,
+            code="SYSTEM_ACTION_DISPATCH_FAILED",
+            message="Failed to dispatch system stop action.",
+            details={"action": SYSTEM_ACTION_STOP, "error": str(exc)},
+        )
+
+    return {
+        "ok": True,
+        "action": SYSTEM_ACTION_STOP,
+        "status": SYSTEM_ACTION_STATUS_ACCEPTED,
+        "request_id": request_id,
+    }
+
+
+@app.post("/api/system/restart")
+async def restart_system_stack() -> dict[str, object]:
+    """Dispatch a full stack restart operation.
+
+    Purpose:
+        Allow dashboard users to restart the compose stack through one API
+        action instead of running stop and start commands manually.
+    Args:
+        None.
+    Output:
+        Returns accepted payload with request identifier.
+    """
+
+    try:
+        request_id = _dispatch_system_lifecycle_action(SYSTEM_ACTION_RESTART)
+    except OSError as exc:
+        _raise_api_error(
+            status_code=500,
+            code="SYSTEM_ACTION_DISPATCH_FAILED",
+            message="Failed to dispatch system restart action.",
+            details={"action": SYSTEM_ACTION_RESTART, "error": str(exc)},
+        )
+
+    return {
+        "ok": True,
+        "action": SYSTEM_ACTION_RESTART,
+        "status": SYSTEM_ACTION_STATUS_ACCEPTED,
+        "request_id": request_id,
     }
 
 
@@ -2862,7 +3043,12 @@ def _read_env_key_statuses() -> dict[str, bool]:
     for line, key in _read_env_pairs():
         if key in ALLOWED_API_KEY_NAMES:
             value = line.split("=", 1)[1].strip() if "=" in line else ""
-            status[key] = value not in ("", "your_apify_token_here", "your_google_api_key_here", "your_anthropic_key_here")
+            status[key] = value not in (
+                "",
+                "your_apify_token_here",
+                "your_google_api_key_here",
+                "your_anthropic_key_here",
+            )
     return status
 
 
@@ -2951,7 +3137,9 @@ async def get_api_keys() -> dict[str, object]:
 
 
 @app.put("/api/settings/api-keys/{key_name}")
-async def upsert_api_key(key_name: str, payload: ApiKeyUpsertRequest) -> dict[str, object]:
+async def upsert_api_key(
+    key_name: str, payload: ApiKeyUpsertRequest
+) -> dict[str, object]:
     """Add or replace one API key secret in the project .env file.
 
     Purpose:
