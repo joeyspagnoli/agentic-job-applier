@@ -35,6 +35,7 @@ from src.agents.apply_worker.browser import apply_to_job
 from src.agents.apply_worker.browser import check_chrome_reachable
 from src.agents.apply_worker.schemas import ApplyOutcome
 from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
+from src.database.db_manager import ClaimOwnershipError
 from src.database.db_manager import DEFAULT_APPLY_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_APPLY
@@ -275,6 +276,7 @@ async def _handle_apply_failure(
     *,
     db: DatabaseManager,
     run_id: int,
+    claim_token: str,
     review_run_id: int,
     job_hash: str | None,
     error: str,
@@ -296,6 +298,7 @@ async def _handle_apply_failure(
     Args:
         db: Database manager instance.
         run_id: Apply run primary key.
+        claim_token: Claim token that owns the pending apply run.
         review_run_id: Review run this apply attempt belongs to.
         job_hash: Optional stable job hash for this apply run.
         error: Human-readable error description.
@@ -326,22 +329,30 @@ async def _handle_apply_failure(
             backoff_multiplier=backoff_multiplier,
         )
 
-    await db.record_apply_failure(
-        run_id=run_id,
-        error=error,
-        next_retry_at=next_retry_at,
-        outcome=outcome,
-        screenshot_path=screenshot_path,
-        dom_snapshot_path=dom_snapshot_path,
-        ats_platform=ats_platform,
-        page_url=page_url,
-    )
+    try:
+        await db.record_apply_failure(
+            run_id=run_id,
+            claim_token=claim_token,
+            error=error,
+            next_retry_at=next_retry_at,
+            outcome=outcome,
+            screenshot_path=screenshot_path,
+            dom_snapshot_path=dom_snapshot_path,
+            ats_platform=ats_platform,
+            page_url=page_url,
+        )
+    except ClaimOwnershipError as exc:
+        logger.warning(
+            "Skipping stale apply failure write for run_id={}: {}",
+            run_id,
+            exc,
+        )
+        return
     if work_executed:
-        await record_stage_cost_event(
+        await _record_apply_cost_best_effort(
             db=db,
-            stage=PIPELINE_STAGE_APPLY,
             job_hash=job_hash,
-            run_id=str(run_id),
+            run_id=run_id,
             metadata={
                 "status": "FAILED",
                 "review_run_id": review_run_id,
@@ -359,6 +370,43 @@ async def _handle_apply_failure(
             review_run_id,
         )
         await _notify_terminal_failure(run_id, review_run_id, error)
+
+
+async def _record_apply_cost_best_effort(
+    *,
+    db: DatabaseManager,
+    job_hash: str | None,
+    run_id: int,
+    metadata: Mapping[str, object],
+) -> None:
+    """Persist apply-stage cost telemetry without breaking core flow.
+
+    Purpose:
+        Keep handoff and run-state persistence authoritative by treating
+        telemetry write failures as non-fatal operational diagnostics.
+    Args:
+        db: Database manager used for cost persistence.
+        job_hash: Optional stable job hash associated with the run.
+        run_id: Apply run identifier used in telemetry row.
+        metadata: Structured telemetry metadata for the event.
+    Output:
+        Returns `None` after best-effort telemetry recording.
+    """
+
+    try:
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_APPLY,
+            job_hash=job_hash,
+            run_id=str(run_id),
+            metadata=metadata,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Apply cost telemetry write failed for run_id={}: {}",
+            run_id,
+            exc,
+        )
 
 
 async def _notify_terminal_failure(
@@ -431,6 +479,16 @@ async def _apply_once(
         return 0
     run_id: int = apply_run_id_raw
 
+    apply_claim_token_raw = claimed_row.get("_apply_claim_token")
+    if not isinstance(apply_claim_token_raw, str) or not apply_claim_token_raw:
+        logger.error(
+            "Invalid _apply_claim_token type/value for run_id={}: {}",
+            run_id,
+            type(apply_claim_token_raw),
+        )
+        return 0
+    apply_claim_token = apply_claim_token_raw
+
     job_hash: str = str(claimed_row["job_hash"])
 
     review_run_id_raw = claimed_row["review_run_id"]
@@ -455,6 +513,7 @@ async def _apply_once(
         await _handle_apply_failure(
             db=db,
             run_id=run_id,
+            claim_token=apply_claim_token,
             review_run_id=review_run_id,
             job_hash=job_hash,
             error=str(exc),
@@ -473,6 +532,7 @@ async def _apply_once(
         await _handle_apply_failure(
             db=db,
             run_id=run_id,
+            claim_token=apply_claim_token,
             review_run_id=review_run_id,
             job_hash=job_hash,
             error=str(exc),
@@ -511,6 +571,7 @@ async def _apply_once(
         await _handle_apply_failure(
             db=db,
             run_id=run_id,
+            claim_token=apply_claim_token,
             review_run_id=review_run_id,
             job_hash=job_hash,
             error=f"Browser automation error: {exc}",
@@ -540,36 +601,33 @@ async def _apply_once(
             else None
         )
 
-        await db.record_apply_success(
-            run_id=run_id,
-            outcome=resolved_outcome,
-            resume_pdf_path=str(resume_pdf_path),
-            resume_source=resume_source,
-            confidence_score=result.confidence_score,
-            confidence_report_json=confidence_json,
-            screenshot_path=result.screenshot_path,
-            dom_snapshot_path=result.dom_snapshot_path,
-            unresolved_fields_json=unresolved_json,
-            simplify_autofill_detected=(
-                result.confidence_report.simplify_autofill_detected
-                if result.confidence_report
-                else None
-            ),
-            ats_platform=(result.ats_platform.value if result.ats_platform else None),
-            page_url=result.page_url,
-        )
-        await record_stage_cost_event(
-            db=db,
-            stage=PIPELINE_STAGE_APPLY,
-            job_hash=job_hash,
-            run_id=str(run_id),
-            metadata={
-                "status": "SUCCESS",
-                "review_run_id": review_run_id,
-                "outcome": resolved_outcome,
-                "resume_source": resume_source,
-            },
-        )
+        try:
+            await db.record_apply_success(
+                run_id=run_id,
+                claim_token=apply_claim_token,
+                outcome=resolved_outcome,
+                resume_pdf_path=str(resume_pdf_path),
+                resume_source=resume_source,
+                confidence_score=result.confidence_score,
+                confidence_report_json=confidence_json,
+                screenshot_path=result.screenshot_path,
+                dom_snapshot_path=result.dom_snapshot_path,
+                unresolved_fields_json=unresolved_json,
+                simplify_autofill_detected=(
+                    result.confidence_report.simplify_autofill_detected
+                    if result.confidence_report
+                    else None
+                ),
+                ats_platform=(result.ats_platform.value if result.ats_platform else None),
+                page_url=result.page_url,
+            )
+        except ClaimOwnershipError as exc:
+            logger.warning(
+                "Skipping stale apply success write for run_id={}: {}",
+                run_id,
+                exc,
+            )
+            return 1
 
         if resolved_outcome == HUMAN_REVIEW_HANDOFF_OUTCOME:
             await db.record_apply_handoff(
@@ -590,6 +648,18 @@ async def _apply_once(
                 page_url=result.page_url,
             )
 
+        await _record_apply_cost_best_effort(
+            db=db,
+            job_hash=job_hash,
+            run_id=run_id,
+            metadata={
+                "status": "SUCCESS",
+                "review_run_id": review_run_id,
+                "outcome": resolved_outcome,
+                "resume_source": resume_source,
+            },
+        )
+
         logger.info(
             "Apply run {} completed: outcome={} score={:.4f} for job_hash={}",
             run_id,
@@ -601,6 +671,7 @@ async def _apply_once(
         await _handle_apply_failure(
             db=db,
             run_id=run_id,
+            claim_token=apply_claim_token,
             review_run_id=review_run_id,
             job_hash=job_hash,
             error=result.failure_reason or "Unknown failure",

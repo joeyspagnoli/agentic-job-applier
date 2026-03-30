@@ -66,7 +66,7 @@ def find_greenhouse_id(company_name: str) -> None:
 
         if is_valid:
             print(f"✓ FOUND! ({job_count} jobs)")
-            print(f"\nAdd to config/companies.yaml:")
+            print("\nAdd to config/companies.yaml:")
             print(
                 f"""
   {company_name}:

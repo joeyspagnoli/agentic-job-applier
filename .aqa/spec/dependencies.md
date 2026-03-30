@@ -1,52 +1,44 @@
 # Dependencies
 
-## Python Dependencies (Runtime)
+## Python runtime dependencies
 
-Key runtime packages declared in `pyproject.toml` include:
+Primary runtime libraries are declared in `pyproject.toml` and include:
 
-- `aiosqlite`
-- `httpx`
-- `apify-client`
-- `python-jobspy`
-- `google-adk`
-- `litellm`
-- `pydantic`
-- `python-dotenv`
-- `pyyaml`
-- `playwright`
-- `fastapi`
-- `uvicorn`
+- API/runtime: `fastapi`, `uvicorn`, `python-multipart` (`pyproject.toml:20-28`).
+- Persistence/networking: `aiosqlite`, `httpx`, `python-dotenv`, `pyyaml` (`pyproject.toml:10-20`).
+- Fetchers: `apify-client`, `python-jobspy` (`pyproject.toml:10-18`).
+- Agent/runtime: `google-adk`, `litellm`, `openai` (`pyproject.toml:12-24`).
+- Browser automation: `playwright` (`pyproject.toml:19-21`).
 
-## Frontend Dependencies (Dashboard)
+## Frontend dependencies
 
-Key dashboard packages include:
+Dashboard dependencies are declared in `dashboard/package.json`:
 
-- `react`, `react-dom`
-- `@tanstack/react-query`
-- `recharts`
-- `vite` + TypeScript toolchain
+- UI/runtime: `react`, `react-dom` (`dashboard/package.json:13-18`).
+- Data/cache: `@tanstack/react-query` (`dashboard/package.json:13-18`).
+- Charts/UX: `recharts`, icon/utility libraries (`dashboard/package.json:13-29`).
+- Tooling: Vite + TypeScript + ESLint (`dashboard/package.json:30-63`).
 
-## Dependency-To-Subsystem Mapping
+## Dependency-to-subsystem map
 
-- Fetchers: `httpx`, `apify-client`, `python-jobspy`
-- Persistence: `aiosqlite`
-- Agent logic: `google-adk`, `litellm`, provider API keys
-- Apply automation: `playwright` + Chrome CDP
-- API runtime: `fastapi`, `uvicorn`, `python-multipart`
-- Dashboard runtime: React + React Query + charting stack
+```mermaid
+graph TD
+    PY[Python deps] --> API[FastAPI control plane]
+    PY --> WORKERS[Gate/Tailor/Review/Apply workers]
+    PY --> FETCH[Source fetchers]
 
-## External Binaries/Services
+    FE[Frontend deps] --> UI[Dashboard pages]
+    FE --> CACHE[React Query polling/mutations]
+    FE --> EDITOR[Monaco YAML editor]
+```
 
-- `pi` command (tailor/review)
-- `latexmk` and PDF tools (tailor/review)
-- Chrome CDP target (apply worker)
-- Optional `ntfy` endpoint for notifications
+## External binaries/services
 
-## Configuration Dependencies
+- `pi` CLI and LaTeX tooling (`latexmk`) for tailor/review pipelines (`scripts/process_qualified_jobs.py:583-657`, `scripts/process_reviewed_resumes.py:697-783`).
+- Chrome/Chromium CDP target for apply worker automation (`scripts/process_apply_jobs.py:191-273`, `deploy/start-chrome-cdp.sh:1-40`).
+- Optional ntfy endpoint/token for operator notifications (`src/utils/notifications.py:21-115`, `tests/test_ops_config_and_notifications.py:12-150`).
 
-Operational settings come from `.env`, including:
+## Runtime configuration dependencies
 
-- Stage polling/retry knobs
-- Provider keys
-- Optional cost-rate keys (`COST_RATE_*_USD`)
-- Database path and logging config
+- Stage cost rates from env are optional and invalid values downgrade to zero-cost accounting (`src/utils/cost_tracking.py:24-75`).
+- Service tier and budget settings persist in DB and gate feature availability/worker execution (`src/database/db_manager.py:2502-2648`, `dashboard/src/pages/SettingsPage.tsx:2435-2867`).

@@ -26,6 +26,7 @@ from src.agents.apply_worker import resume_upload
 from src.agents.apply_worker.schemas import ATSPlatform
 from src.agents.apply_worker.schemas import ApplyOutcome
 from src.agents.apply_worker.schemas import ConfidenceReport
+from src.database.db_manager import ClaimOwnershipError
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
 
@@ -842,6 +843,7 @@ async def test_apply_once_persists_handoff_when_outcome_needs_review(
 
             return {
                 "_apply_run_id": 77,
+                "_apply_claim_token": "claim-token-77",
                 "job_hash": "a" * 32,
                 "review_run_id": 88,
                 "source_url": "https://example.com/jobs/77",
@@ -945,6 +947,250 @@ async def test_apply_once_persists_handoff_when_outcome_needs_review(
     assert fake_db.handoff_calls[0]["apply_run_id"] == 77
     assert fake_db.handoff_calls[0]["review_run_id"] == 88
     assert fake_db.handoff_calls[0]["apply_outcome"] == "NEEDS_REVIEW"
+
+
+@pytest.mark.asyncio
+async def test_record_apply_success_rejects_invalid_claim_token() -> None:
+    """Verify apply success writes require the active claim token.
+
+    Purpose:
+        Regress H-004 by ensuring stale workers cannot finalize apply runs
+        after losing ownership of the pending claim row.
+    Args:
+        None.
+    Output:
+        Returns `None`; test passes when mismatched token raises ownership error.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "jobs.db"
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            await db.migrate_review_schema()
+            await db.migrate_apply_schema()
+            await _seed_apply_candidate(db, review_run_id=505)
+
+            claimed = await db.claim_next_apply_job(max_retries=2)
+            assert claimed is not None
+            apply_run_id_raw = claimed["_apply_run_id"]
+            assert isinstance(apply_run_id_raw, int)
+
+            with pytest.raises(ClaimOwnershipError):
+                await db.record_apply_success(
+                    run_id=apply_run_id_raw,
+                    claim_token="invalid-token",
+                    outcome=ApplyOutcome.NEEDS_REVIEW.value,
+                    resume_pdf_path=None,
+                    resume_source="TAILORED",
+                    confidence_score=0.7,
+                    confidence_report_json=None,
+                    screenshot_path=None,
+                    dom_snapshot_path=None,
+                    unresolved_fields_json=None,
+                    simplify_autofill_detected=False,
+                    ats_platform=ATSPlatform.UNKNOWN.value,
+                    page_url="https://example.com/jobs/505",
+                )
+
+
+@pytest.mark.asyncio
+async def test_record_apply_failure_rejects_invalid_claim_token() -> None:
+    """Verify apply failure writes require the active claim token.
+
+    Purpose:
+        Regress H-004 by preventing stale workers from forcing FAILED status on
+        pending runs that belong to a different claim owner.
+    Args:
+        None.
+    Output:
+        Returns `None`; test passes when mismatched token raises ownership error.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "jobs.db"
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            await db.migrate_review_schema()
+            await db.migrate_apply_schema()
+            await _seed_apply_candidate(db, review_run_id=606)
+
+            claimed = await db.claim_next_apply_job(max_retries=2)
+            assert claimed is not None
+            apply_run_id_raw = claimed["_apply_run_id"]
+            assert isinstance(apply_run_id_raw, int)
+
+            with pytest.raises(ClaimOwnershipError):
+                await db.record_apply_failure(
+                    run_id=apply_run_id_raw,
+                    claim_token="invalid-token",
+                    error="runtime_timeout",
+                    next_retry_at="2000-01-01 00:00:00",
+                    outcome=ApplyOutcome.FAILED_OTHER.value,
+                    screenshot_path=None,
+                    dom_snapshot_path=None,
+                    ats_platform=ATSPlatform.UNKNOWN.value,
+                    page_url="https://example.com/jobs/606",
+                )
+
+
+@pytest.mark.asyncio
+async def test_apply_once_persists_handoff_when_cost_telemetry_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify handoff persistence is not blocked by cost telemetry failures.
+
+    Purpose:
+        Regress H-005 by ensuring telemetry exceptions remain best-effort and
+        cannot suppress human-review handoff rows after successful apply writes.
+    Args:
+        monkeypatch: Fixture used to inject deterministic runtime behavior.
+        tmp_path: Temporary directory for deterministic artifact paths.
+    Output:
+        Returns `None`; test passes when handoff persists despite telemetry error.
+    """
+
+    selected_pdf = tmp_path / "selected.pdf"
+    selected_pdf.write_bytes(b"%PDF-1.4")
+
+    class FakeDB:
+        """Capture apply persistence calls with deterministic claim payload."""
+
+        def __init__(self) -> None:
+            """Initialize deterministic call collectors for assertions.
+
+            Purpose:
+                Store success and handoff payloads emitted by `_apply_once`.
+            Args:
+                None.
+            Output:
+                Returns `None`.
+            """
+
+            self.success_calls: list[dict[str, object]] = []
+            self.handoff_calls: list[dict[str, object]] = []
+
+        async def is_budget_exceeded(self) -> bool:
+            """Return non-exceeded state for orchestration-path coverage.
+
+            Purpose:
+                Keep this test focused on success-path persistence ordering.
+            Args:
+                self: Fake DB instance.
+            Output:
+                Returns `False`.
+            """
+
+            return False
+
+        async def claim_next_apply_job(self, **_: object) -> dict[str, object]:
+            """Return one claimed row including token ownership metadata.
+
+            Purpose:
+                Provide deterministic queue claim payload for `_apply_once`.
+            Args:
+                **_: Ignored keyword arguments from production call site.
+            Output:
+                Returns one claimed-row dictionary.
+            """
+
+            return {
+                "_apply_run_id": 88,
+                "_apply_claim_token": "claim-token-88",
+                "job_hash": "b" * 32,
+                "review_run_id": 99,
+                "source_url": "https://example.com/jobs/88",
+                "review_verdict": "PASS",
+                "selected_pdf_path": str(selected_pdf),
+                "fallback_base_pdf_path": str(selected_pdf),
+            }
+
+        async def record_apply_success(self, **kwargs: object) -> None:
+            """Store apply-success payload for later assertions.
+
+            Purpose:
+                Verify `_apply_once` writes success persistence before telemetry.
+            Args:
+                **kwargs: Payload forwarded from `_apply_once`.
+            Output:
+                Returns `None` after recording one call.
+            """
+
+            self.success_calls.append(dict(kwargs))
+
+        async def record_apply_handoff(self, **kwargs: object) -> None:
+            """Store handoff payload for later assertions.
+
+            Purpose:
+                Verify handoff persistence remains intact under telemetry errors.
+            Args:
+                **kwargs: Payload forwarded from `_apply_once`.
+            Output:
+                Returns `None` after recording one call.
+            """
+
+            self.handoff_calls.append(dict(kwargs))
+
+    async def fake_apply_to_job(**_: object) -> browser.ApplyRunResult:
+        """Return deterministic NEEDS_REVIEW result for orchestration tests.
+
+        Purpose:
+            Keep this test focused on persistence ordering and error isolation.
+        Args:
+            **_: Ignored call-site arguments.
+        Output:
+            Returns successful `ApplyRunResult` requiring handoff.
+        """
+
+        return browser.ApplyRunResult(
+            success=True,
+            outcome=ApplyOutcome.NEEDS_REVIEW,
+            confidence_score=0.91,
+            confidence_report=_build_confidence_report(),
+            screenshot_path=str(tmp_path / "screenshot.png"),
+            dom_snapshot_path=str(tmp_path / "dom.html"),
+            unresolved_fields=[],
+            ats_platform=ATSPlatform.GREENHOUSE,
+            page_url="https://boards.greenhouse.io/example/jobs/88",
+        )
+
+    async def fake_record_stage_cost_event(**_: object) -> None:
+        """Raise deterministic telemetry error for best-effort behavior tests.
+
+        Purpose:
+            Ensure telemetry write failures cannot break success/handoff flow.
+        Args:
+            **_: Ignored call-site arguments.
+        Output:
+            Does not return because this helper always raises.
+        Raises:
+            RuntimeError: Always raised for deterministic failure simulation.
+        """
+
+        raise RuntimeError("cost telemetry unavailable")
+
+    monkeypatch.setattr(process_apply_jobs, "apply_to_job", fake_apply_to_job)
+    monkeypatch.setattr(
+        process_apply_jobs,
+        "record_stage_cost_event",
+        fake_record_stage_cost_event,
+    )
+
+    fake_db = FakeDB()
+    processed_count = await process_apply_jobs._apply_once(
+        db=fake_db,  # type: ignore[arg-type]
+        output_base_dir=tmp_path,
+        cdp_url="http://localhost:9222",
+        max_retries=2,
+        lease_seconds=60,
+        backoff_seconds=5,
+        backoff_multiplier=2,
+        dry_run=True,
+    )
+
+    assert processed_count == 1
+    assert len(fake_db.success_calls) == 1
+    assert len(fake_db.handoff_calls) == 1
 
 
 @pytest.mark.asyncio

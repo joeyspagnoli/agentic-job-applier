@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import random
 import re
-from typing import Any, Optional
-from urllib.parse import quote_plus
+from typing import Optional
 
 import httpx
 from loguru import logger

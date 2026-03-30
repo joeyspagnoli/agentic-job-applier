@@ -8,8 +8,6 @@ Purpose:
 
 from __future__ import annotations
 
-import pytest
-
 from src.fetchers.apify_fetcher import ApifyWorkdayFetcher
 from src.fetchers.greenhouse_fetcher import GreenhouseFetcher
 from src.fetchers.jobspy_fetcher import JobSpyFetcher

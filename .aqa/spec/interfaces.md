@@ -1,26 +1,28 @@
 # Interfaces
 
-## External Interfaces
+## External interfaces
 
-### Job Sources
+### Job-source interfaces
 
-- Greenhouse boards API
-- Apify Workday actor (`gooyer.co/myworkdayjobs`)
-- JobSpy scraping interface
+- Greenhouse boards API (`src/fetchers/greenhouse_fetcher.py:157-188`).
+- Workday via Apify actor/dataset (`src/fetchers/apify_fetcher.py:157-209`).
+- JobSpy board scraping (`src/fetchers/jobspy_fetcher.py:17-333`).
+- Ashby/Lever/LinkedIn/GitHub-listings/career-page surfaces (`src/fetchers/ashby_fetcher.py:72-233`, `src/fetchers/lever_fetcher.py:74-233`, `src/fetchers/linkedin_fetcher.py:127-234`, `src/fetchers/github_repo_fetcher.py:112-305`, `src/fetchers/career_page_watcher.py:117-194`).
 
-### Model Providers
+### Model/tool interfaces
 
-- Gate stage uses ADK + OpenAI model wiring.
-- Tailor/review/apply stages invoke their respective runtimes and tool contracts.
+- Gate decider prompt/runtime contract is JSON-only decision output with bounded context formatting (`src/agents/root_apply_decider/prompts.py:351-507`, `src/agents/root_apply_decider/runtime.py:80-126`).
+- Resume tailor/review CLIs expose deterministic `{"ok": true|false, ...}` wrappers (`scripts/resume_tailor_tools.py:30-247`, `scripts/resume_review_tools.py:35-344`).
 
-### Dashboard HTTP API (`api/main.py`)
+## FastAPI HTTP interface (`api/main.py`)
 
-Routes currently exposed:
+### Core operational endpoints
 
 - `GET /api/health`
 - `GET /api/dashboard/stats`
 - `GET /api/dashboard/discovery-trend?range=7d|30d`
 - `GET /api/jobs`
+- `GET /api/jobs/{job_hash}/resume`
 - `GET /api/human-review`
 - `POST /api/human-review/{handoff_id}/complete`
 - `POST /api/human-review/{handoff_id}/dismiss`
@@ -31,52 +33,33 @@ Routes currently exposed:
 - `GET /api/costs/by-stage`
 - `GET /api/budget`
 - `PUT /api/budget`
+
+### Settings endpoints
+
 - `GET /api/settings/files`
-- `POST /api/settings/resume`
+- `GET /api/settings/profile`
 - `POST /api/settings/profile`
-- `GET /api/settings/resume/download`
+- `POST /api/settings/profile/upload`
 - `GET /api/settings/profile/download`
+- `GET /api/settings/resume`
+- `POST /api/settings/resume`
+- `POST /api/settings/resume/upload`
+- `POST /api/settings/resume/upload-tex`
+- `GET /api/settings/resume/download`
+- `GET /api/settings/filters`
+- `POST /api/settings/filters`
+- `GET /api/settings/sources`
+- `POST /api/settings/sources`
 
-Error payloads are normalized as:
+Evidence: `api/main.py:1479-2630`, `api/main.py:2938-3659`.
 
-```json
-{
-  "ok": false,
-  "code": "ERROR_CODE",
-  "message": "Human-readable message",
-  "details": {}
-}
-```
+## Contract notes and caveats
 
-### Frontend API Client Contract
+- API-level custom error envelope exists, but request validation failures can still emit framework-native FastAPI 422 payloads for typed/query validation paths (`api/main.py:472-496`, `api/main.py:1451-1476`, `api/main.py:1738-1742`).
+- Retry IDs use stage-qualified forms (`GATE:<job_hash>`, `TAILOR:<id>`, `REVIEW:<id>`, `APPLY:<id>`), and malformed numeric segments can currently raise unhandled parsing errors (`api/main.py:2527-2629`).
+- Settings routes are not fully uniform in response envelope keys (`metadata` vs `profile`/`resume`; some missing-file responses omit `metadata`) (`api/main.py:3147-3296`, `api/main.py:3448-3473`, `api/main.py:3529-3622`).
 
-Dashboard consumes snake_case DTO payloads and adapts them in `dashboard/src/lib/api/adapters.ts`.
+## Frontend client + DTO interface
 
-## Internal Interfaces
-
-### Queue Claim APIs (`DatabaseManager`)
-
-- Gate claim on `job_postings`
-- Tailor claim on `tailor_runs`
-- Review claim on `review_runs`
-- Apply claim on `apply_runs`
-
-### Failure Retry Identifier Contract
-
-`/api/failures/{failure_id}/retry` expects stage-qualified IDs:
-
-- `GATE:<job_hash>`
-- `TAILOR:<tailor_run_id>`
-- `REVIEW:<review_run_id>`
-- `APPLY:<apply_run_id>`
-
-### Cost Tracking Interface
-
-Workers emit cost events through `record_stage_cost_event(...)` in `src/utils/cost_tracking.py`.
-
-Each event stores:
-- Stage
-- Optional `job_hash`
-- Optional `run_id`
-- Resolved `cost_usd`
-- Optional metadata JSON
+- `dashboard/src/lib/api/client.ts` enforces JSON content-type and non-empty body rules, and normalizes API errors to `ApiError` with `code` and `details` (`dashboard/src/lib/api/client.ts:37-127`).
+- DTO shapes are centralized in `dashboard/src/lib/api/types.ts` and adapted into UI models via `dashboard/src/lib/api/adapters.ts` (`dashboard/src/lib/api/types.ts:136-170`, `dashboard/src/lib/api/adapters.ts:48-216`).

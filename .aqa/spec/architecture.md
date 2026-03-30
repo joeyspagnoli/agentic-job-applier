@@ -1,27 +1,24 @@
 # Architecture
 
-## System Overview
+## System overview
 
-The system is a staged automation pipeline plus an operations control plane.
+The runtime is split into:
 
-- Pipeline writes and advances job state in SQLite.
-- FastAPI exposes live operational data and mutation endpoints.
-- React dashboard consumes API endpoints with polling and explicit mutations.
+1. **Pipeline surface** (discovery + staged workers) writing durable state in SQLite.
+2. **Control-plane surface** (FastAPI + React dashboard) for observability, retries, review actions, settings, and budget management.
 
 ```mermaid
 graph LR
-    Discover[Discovery Orchestrator] --> Jobs[(job_postings)]
+    Discover[Discovery Orchestrator\nmain.py] --> Jobs[(job_postings)]
 
-    Jobs --> Gate[Gate Worker]
-    Gate --> Jobs
-
-    Jobs --> Tailor[Tailor Worker]
+    Jobs --> Gate[Gate Worker\nprocess_new_jobs.py]
+    Jobs --> Tailor[Tailor Worker\nprocess_qualified_jobs.py]
     Tailor --> TailorRuns[(tailor_runs)]
 
-    TailorRuns --> Review[Review Worker]
+    TailorRuns --> Review[Review Worker\nprocess_reviewed_resumes.py]
     Review --> ReviewRuns[(review_runs)]
 
-    ReviewRuns --> Apply[Apply Worker]
+    ReviewRuns --> Apply[Apply Worker\nprocess_apply_jobs.py]
     Apply --> ApplyRuns[(apply_runs)]
     Apply --> Handoffs[(apply_handoffs)]
 
@@ -36,32 +33,35 @@ graph LR
     API --> ApplyRuns
     API --> Handoffs
     API --> Cost
-    API --> Budget[(budget_settings)]
+    API --> Budget[(budget_settings + app_settings)]
 
     UI[React Dashboard] --> API
 ```
 
-## Runtime Boundaries
+Evidence: `main.py:1039-1266`, `scripts/process_new_jobs.py:266-345`, `scripts/process_qualified_jobs.py:404-534`, `scripts/process_reviewed_resumes.py:493-694`, `scripts/process_apply_jobs.py:437-859`, `api/main.py:1479-2630`, `src/database/schema.sql:99-148`.
 
-### Discovery Boundary
+## Runtime boundaries
 
-- `main.py` loads config, fetches sources, deduplicates, persists jobs, records crawl metrics.
+### Discovery boundary
 
-### Worker Boundaries
+- Discovery fans out across Greenhouse, Workday (Apify), JobSpy variants, plus additional source adapters (Ashby, Lever, LinkedIn, GitHub repo, career-page watcher) depending on config/entrypoint usage (`main.py:160-206`, `src/fetchers/apify_fetcher.py:157-209`, `src/fetchers/ashby_fetcher.py:72-233`, `src/fetchers/lever_fetcher.py:74-233`, `src/fetchers/linkedin_fetcher.py:127-234`, `src/fetchers/github_repo_fetcher.py:112-305`, `src/fetchers/career_page_watcher.py:117-194`).
 
-- Gate worker (`scripts/process_new_jobs.py`)
-- Tailor worker (`scripts/process_qualified_jobs.py`)
-- Review worker (`scripts/process_reviewed_resumes.py`)
-- Apply worker (`scripts/process_apply_jobs.py`)
+### Worker boundary
 
-Each worker claims work atomically and persists attempt outcomes, retries, and terminal failures.
+- Each stage claims units of work, performs one scoped action, and writes stage results with retry metadata (`scripts/process_new_jobs.py:266-345`, `scripts/process_qualified_jobs.py:404-534`, `scripts/process_reviewed_resumes.py:493-694`, `scripts/process_apply_jobs.py:437-859`).
+- Apply stage defaults to dry-run unless explicitly configured otherwise (`scripts/process_apply_jobs.py:48-55`, `tests/test_full_pipeline_e2e.py:300-484`).
 
-### API/UI Boundary
+### API/UI boundary
 
-- `api/main.py` runs startup migrations and serves `/api/*`.
-- Dashboard static build is served by FastAPI assets mount + SPA fallback.
-- Dashboard dev mode proxies `/api` to backend via Vite proxy config.
+- API routes provide dashboard stats, jobs listing/detail actions, human-review actions, failure retries, cost analytics, budget, and settings files (`api/main.py:1479-2630`, `api/main.py:2938-3659`).
+- Dashboard uses React Query polling defaults (30s polling, short stale window) and broad non-settings sync invalidation (`dashboard/src/lib/query-client.ts:1-30`, `dashboard/src/components/layout/topbar-sync.ts:1-8`).
 
-## Deployment Topology
+## Deployment topology
 
-Primary homeserver topology uses systemd timer/services for discovery and continuous workers, plus a dedicated Chrome CDP unit for apply runtime.
+- Home-server oriented deployment: Docker compose profile split and worker shell wrappers are provided (`docker-compose.yml:29-126`, `scripts/docker/run_workers.sh:15-72`).
+- Apply automation requires a reachable Chrome CDP target; helper startup script is included (`deploy/start-chrome-cdp.sh:1-40`, `src/agents/apply_worker/browser.py:88-164`).
+
+## Operational caveats (architecture-level)
+
+- SPA fallback currently guards `api/` paths but can still let bare `/api` resolve to `index.html` depending on build state (`api/main.py:3663-3685`).
+- Static assets are mounted at import-time if `dashboard/dist/assets` exists, so post-start build generation may require API restart for asset serving (`api/main.py:1445-1448`).

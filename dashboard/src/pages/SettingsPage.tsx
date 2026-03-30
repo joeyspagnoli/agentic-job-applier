@@ -892,8 +892,20 @@ export function SettingsPage(): JSX.Element {
     filtersYamlMutation.isError ||
     sourcesYamlMutation.isError;
 
-  function updateProfileDraft(nextDraft: ReturnType<typeof toProfileDraft>): void {
-    setProfileDraft(nextDraft);
+  function updateProfileDraft(
+    nextDraft:
+      | ReturnType<typeof toProfileDraft>
+      | ((currentDraft: ReturnType<typeof toProfileDraft>) => ReturnType<typeof toProfileDraft>),
+  ): void {
+    setProfileDraft((currentDraft) => {
+      if (currentDraft === null) {
+        return currentDraft;
+      }
+      if (typeof nextDraft === "function") {
+        return nextDraft(currentDraft);
+      }
+      return nextDraft;
+    });
     setIsProfileDirty(true);
   }
 
@@ -1016,6 +1028,23 @@ export function SettingsPage(): JSX.Element {
     });
   }
 
+  function handleProfileContactCountryUpdate(countryCode: string): void {
+    updateProfileDraft((currentDraft) => {
+      const selectedCountryLabel = countryLabelByCode.get(countryCode) ?? "";
+      return {
+        ...currentDraft,
+        profile: {
+          ...currentDraft.profile,
+          contact: {
+            ...currentDraft.profile.contact,
+            country_code: countryCode,
+            country_label: selectedCountryLabel,
+          },
+        },
+      };
+    });
+  }
+
   function handleProfileWorkAuthorizationFieldUpdate(
     fieldName: keyof SettingsProfileDto["profile"]["work_authorization"],
     value: string,
@@ -1032,6 +1061,23 @@ export function SettingsPage(): JSX.Element {
           [fieldName]: value,
         },
       },
+    });
+  }
+
+  function handleProfileCitizenshipCountryUpdate(countryCode: string): void {
+    updateProfileDraft((currentDraft) => {
+      const selectedCountryLabel = countryLabelByCode.get(countryCode) ?? "";
+      return {
+        ...currentDraft,
+        profile: {
+          ...currentDraft.profile,
+          work_authorization: {
+            ...currentDraft.profile.work_authorization,
+            citizenship_country_code: countryCode,
+            citizenship_country_label: selectedCountryLabel,
+          },
+        },
+      };
     });
   }
 
@@ -1998,11 +2044,7 @@ export function SettingsPage(): JSX.Element {
                       <LabeledSelect
                         label="Country"
                         value={profileDraft.profile.contact.country_code}
-                        onChange={(value) => {
-                          handleProfileContactFieldUpdate("country_code", value);
-                          const selectedCountryLabel = countryLabelByCode.get(value) ?? "";
-                          handleProfileContactFieldUpdate("country_label", selectedCountryLabel);
-                        }}
+                        onChange={(value) => handleProfileContactCountryUpdate(value)}
                         options={[
                           { value: "", label: "Select country" },
                           ...countryOptions.map((countryOption) => ({
@@ -2039,17 +2081,7 @@ export function SettingsPage(): JSX.Element {
                       <LabeledSelect
                         label="Citizenship"
                         value={profileDraft.profile.work_authorization.citizenship_country_code}
-                        onChange={(value) => {
-                          handleProfileWorkAuthorizationFieldUpdate(
-                            "citizenship_country_code",
-                            value,
-                          );
-                          const selectedCountryLabel = countryLabelByCode.get(value) ?? "";
-                          handleProfileWorkAuthorizationFieldUpdate(
-                            "citizenship_country_label",
-                            selectedCountryLabel,
-                          );
-                        }}
+                        onChange={(value) => handleProfileCitizenshipCountryUpdate(value)}
                         options={[
                           { value: "", label: "Select citizenship country" },
                           ...countryOptions.map((countryOption) => ({

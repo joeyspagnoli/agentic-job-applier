@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
+from src.database.db_manager import ClaimOwnershipError
 from src.database.db_manager import DatabaseManager
 
 
@@ -148,6 +149,8 @@ async def test_claim_next_review_job_claims_successful_tailor_run(
     review_run_id = claimed["_review_run_id"]
     assert isinstance(review_run_id, int)
     assert review_run_id > 0
+    assert isinstance(claimed["_review_claim_token"], str)
+    assert claimed["_review_claim_token"] != ""
 
 
 @pytest.mark.asyncio
@@ -167,10 +170,14 @@ async def test_record_review_success_excludes_tailor_run_from_future_claims(
     await _insert_successful_tailor_job(db, job_hash="b" * 32, tailor_run_id=8)
     claimed = await db.claim_next_review_job(max_retries=2)
     assert claimed is not None
-    assert isinstance(claimed["_review_run_id"], int)
+    review_run_id_raw = claimed["_review_run_id"]
+    review_claim_token_raw = claimed["_review_claim_token"]
+    assert isinstance(review_run_id_raw, int)
+    assert isinstance(review_claim_token_raw, str)
 
     await db.record_review_success(
-        run_id=claimed["_review_run_id"],
+        run_id=review_run_id_raw,
+        claim_token=review_claim_token_raw,
         verdict="BASE",
         selected_yaml_path="/tmp/base.yaml",
         selected_tex_path="/tmp/base.tex",
@@ -201,10 +208,14 @@ async def test_review_failure_retry_allows_reclaim_after_schedule(
     await _insert_successful_tailor_job(db, job_hash="c" * 32, tailor_run_id=9)
     claimed = await db.claim_next_review_job(max_retries=3)
     assert claimed is not None
-    assert isinstance(claimed["_review_run_id"], int)
+    review_run_id_raw = claimed["_review_run_id"]
+    review_claim_token_raw = claimed["_review_claim_token"]
+    assert isinstance(review_run_id_raw, int)
+    assert isinstance(review_claim_token_raw, str)
 
     await db.record_review_failure(
-        run_id=claimed["_review_run_id"],
+        run_id=review_run_id_raw,
+        claim_token=review_claim_token_raw,
         error="runtime_timeout",
         next_retry_at="2000-01-01 00:00:00",
         agent_stdout="",
@@ -217,6 +228,76 @@ async def test_review_failure_retry_allows_reclaim_after_schedule(
     reclaimed = await db.claim_next_review_job(max_retries=3)
     assert reclaimed is not None
     assert reclaimed["tailor_run_id"] == 9
+
+
+@pytest.mark.asyncio
+async def test_record_review_success_rejects_invalid_claim_token(
+    db: DatabaseManager,
+) -> None:
+    """Verify review success writes require the active claim token.
+
+    Purpose:
+        Regress H-004 by ensuring stale workers cannot finalize review rows
+        after losing ownership of the pending claim.
+    Args:
+        db: Migrated DB fixture.
+    Output:
+        Returns `None`; test passes when mismatched token raises ownership error.
+    """
+
+    await _insert_successful_tailor_job(db, job_hash="e" * 32, tailor_run_id=11)
+    claimed = await db.claim_next_review_job(max_retries=2)
+    assert claimed is not None
+    review_run_id_raw = claimed["_review_run_id"]
+    assert isinstance(review_run_id_raw, int)
+
+    with pytest.raises(ClaimOwnershipError):
+        await db.record_review_success(
+            run_id=review_run_id_raw,
+            claim_token="invalid-token",
+            verdict="BASE",
+            selected_yaml_path="/tmp/base.yaml",
+            selected_tex_path="/tmp/base.tex",
+            selected_pdf_path="/tmp/base.pdf",
+            review_report_json='{"verdict":"BASE"}',
+            agent_stdout="stdout",
+            agent_stderr="",
+        )
+
+
+@pytest.mark.asyncio
+async def test_record_review_failure_rejects_invalid_claim_token(
+    db: DatabaseManager,
+) -> None:
+    """Verify review failure writes require the active claim token.
+
+    Purpose:
+        Regress H-004 by preventing stale workers from writing FAILED rows for
+        claims they no longer own.
+    Args:
+        db: Migrated DB fixture.
+    Output:
+        Returns `None`; test passes when mismatched token raises ownership error.
+    """
+
+    await _insert_successful_tailor_job(db, job_hash="f" * 32, tailor_run_id=12)
+    claimed = await db.claim_next_review_job(max_retries=2)
+    assert claimed is not None
+    review_run_id_raw = claimed["_review_run_id"]
+    assert isinstance(review_run_id_raw, int)
+
+    with pytest.raises(ClaimOwnershipError):
+        await db.record_review_failure(
+            run_id=review_run_id_raw,
+            claim_token="invalid-token",
+            error="runtime_timeout",
+            next_retry_at="2000-01-01 00:00:00",
+            agent_stdout="",
+            agent_stderr="timeout",
+            fallback_base_yaml_path="/tmp/base.yaml",
+            fallback_base_tex_path="/tmp/base.tex",
+            fallback_base_pdf_path="/tmp/base.pdf",
+        )
 
 
 @pytest.mark.asyncio

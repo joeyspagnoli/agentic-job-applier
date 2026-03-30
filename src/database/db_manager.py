@@ -29,6 +29,10 @@ _JOURNAL_MODE_SQL: dict[str, str] = {
 }
 
 
+class ClaimOwnershipError(RuntimeError):
+    """Represent stale or mismatched claim-token completion attempts."""
+
+
 class DatabaseManager:
     """Async SQLite database manager for job postings and crawl metadata."""
 
@@ -1553,6 +1557,7 @@ class DatabaseManager:
         self,
         *,
         run_id: int,
+        claim_token: str,
         verdict: str,
         selected_yaml_path: str | None,
         selected_tex_path: str | None,
@@ -1569,6 +1574,7 @@ class DatabaseManager:
         Args:
             self: The database manager recording review success.
             run_id: Primary key of the review_runs row to update.
+            claim_token: Claim token that must still own the pending run.
             verdict: Agent-selected review verdict value.
             selected_yaml_path: Selected resume YAML path from report.
             selected_tex_path: Selected resume TeX path from report.
@@ -1582,7 +1588,7 @@ class DatabaseManager:
 
         await self._ensure_review_schema_ready()
         conn = self._require_conn()
-        await conn.execute(
+        cursor = await conn.execute(
             """
             UPDATE review_runs
             SET status = 'SUCCESS',
@@ -1595,8 +1601,11 @@ class DatabaseManager:
                 agent_stderr = ?,
                 error = NULL,
                 next_retry_at = NULL,
+                claim_token = NULL,
                 completed_at = CURRENT_TIMESTAMP
             WHERE id = ?
+              AND status = 'PENDING'
+              AND claim_token = ?
             """,
             (
                 verdict,
@@ -1607,14 +1616,20 @@ class DatabaseManager:
                 agent_stdout,
                 agent_stderr,
                 run_id,
+                claim_token,
             ),
         )
+        if cursor.rowcount != 1:
+            raise ClaimOwnershipError(
+                f"Review run {run_id} is not owned by the provided claim token"
+            )
         await conn.commit()
 
     async def record_review_failure(
         self,
         *,
         run_id: int,
+        claim_token: str,
         error: str,
         next_retry_at: str | None,
         agent_stdout: str | None,
@@ -1631,6 +1646,7 @@ class DatabaseManager:
         Args:
             self: The database manager recording review failure.
             run_id: Primary key of the review_runs row to update.
+            claim_token: Claim token that must still own the pending run.
             error: Failure reason text.
             next_retry_at: Optional UTC timestamp for scheduled retry.
             agent_stdout: Raw pi subprocess stdout for diagnostics.
@@ -1644,7 +1660,7 @@ class DatabaseManager:
 
         await self._ensure_review_schema_ready()
         conn = self._require_conn()
-        await conn.execute(
+        cursor = await conn.execute(
             """
             UPDATE review_runs
             SET status = 'FAILED',
@@ -1655,8 +1671,11 @@ class DatabaseManager:
                 fallback_base_yaml_path = ?,
                 fallback_base_tex_path = ?,
                 fallback_base_pdf_path = ?,
+                claim_token = NULL,
                 completed_at = CURRENT_TIMESTAMP
             WHERE id = ?
+              AND status = 'PENDING'
+              AND claim_token = ?
             """,
             (
                 error,
@@ -1667,8 +1686,13 @@ class DatabaseManager:
                 fallback_base_tex_path,
                 fallback_base_pdf_path,
                 run_id,
+                claim_token,
             ),
         )
+        if cursor.rowcount != 1:
+            raise ClaimOwnershipError(
+                f"Review run {run_id} is not owned by the provided claim token"
+            )
         await conn.commit()
 
     async def mark_stale_review_runs_failed(
@@ -1994,6 +2018,7 @@ class DatabaseManager:
         self,
         *,
         run_id: int,
+        claim_token: str,
         outcome: str,
         resume_pdf_path: str | None,
         resume_source: str | None,
@@ -2014,6 +2039,7 @@ class DatabaseManager:
         Args:
             self: The database manager recording apply success.
             run_id: Primary key of the apply_runs row to update.
+            claim_token: Claim token that must still own the pending run.
             outcome: Application-level result value.
             resume_pdf_path: Path to the resume PDF that was uploaded.
             resume_source: Whether TAILORED or BASE resume was used.
@@ -2031,7 +2057,7 @@ class DatabaseManager:
 
         await self._ensure_apply_schema_ready()
         conn = self._require_conn()
-        await conn.execute(
+        cursor = await conn.execute(
             """
             UPDATE apply_runs
             SET status = 'SUCCESS',
@@ -2048,8 +2074,11 @@ class DatabaseManager:
                 page_url = ?,
                 error = NULL,
                 next_retry_at = NULL,
+                claim_token = NULL,
                 completed_at = CURRENT_TIMESTAMP
             WHERE id = ?
+              AND status = 'PENDING'
+              AND claim_token = ?
             """,
             (
                 outcome,
@@ -2064,14 +2093,20 @@ class DatabaseManager:
                 ats_platform,
                 page_url,
                 run_id,
+                claim_token,
             ),
         )
+        if cursor.rowcount != 1:
+            raise ClaimOwnershipError(
+                f"Apply run {run_id} is not owned by the provided claim token"
+            )
         await conn.commit()
 
     async def record_apply_failure(
         self,
         *,
         run_id: int,
+        claim_token: str,
         error: str,
         next_retry_at: str | None,
         outcome: str | None = None,
@@ -2088,6 +2123,7 @@ class DatabaseManager:
         Args:
             self: The database manager recording apply failure.
             run_id: Primary key of the apply_runs row to update.
+            claim_token: Claim token that must still own the pending run.
             error: Failure reason text.
             next_retry_at: Optional UTC timestamp for scheduled retry.
             outcome: Optional application-level failure classification.
@@ -2101,7 +2137,7 @@ class DatabaseManager:
 
         await self._ensure_apply_schema_ready()
         conn = self._require_conn()
-        await conn.execute(
+        cursor = await conn.execute(
             """
             UPDATE apply_runs
             SET status = 'FAILED',
@@ -2112,8 +2148,11 @@ class DatabaseManager:
                 dom_snapshot_path = ?,
                 ats_platform = ?,
                 page_url = ?,
+                claim_token = NULL,
                 completed_at = CURRENT_TIMESTAMP
             WHERE id = ?
+              AND status = 'PENDING'
+              AND claim_token = ?
             """,
             (
                 error,
@@ -2124,8 +2163,13 @@ class DatabaseManager:
                 ats_platform,
                 page_url,
                 run_id,
+                claim_token,
             ),
         )
+        if cursor.rowcount != 1:
+            raise ClaimOwnershipError(
+                f"Apply run {run_id} is not owned by the provided claim token"
+            )
         await conn.commit()
 
     async def record_apply_handoff(

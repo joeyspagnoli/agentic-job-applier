@@ -10,7 +10,7 @@ Requires ``beautifulsoup4`` for HTML parsing.
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urljoin
 
 import httpx

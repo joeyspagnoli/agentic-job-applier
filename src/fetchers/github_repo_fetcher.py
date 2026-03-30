@@ -234,9 +234,6 @@ class GitHubRepoFetcher(BaseFetcher):
 
         posted_date = self._parse_epoch(entry.get("date_posted"))
 
-        # SimplifyJobs category roughly maps to our job_type for internships.
-        category = entry.get("category", "")
-
         return JobPosting(
             source=self.get_source_name(),
             source_url=entry.get("url", ""),

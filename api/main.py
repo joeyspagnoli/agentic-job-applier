@@ -541,6 +541,41 @@ def _source_label(raw_source: str) -> str:
     return "JOBSPY"
 
 
+def _source_filter_sql(source_filter: str) -> tuple[str, list[object]]:
+    """Return SQL clause/params for canonical source filtering in jobs API.
+
+    Purpose:
+        Keep `/api/jobs` filtering aligned with `_source_label` so frontend
+        source enums (`GREENHOUSE`, `WORKDAY`, `JOBSPY`) match raw persisted
+        source strings such as `jobspy_linkedin_python`.
+    Args:
+        source_filter: Requested source filter from query params.
+    Output:
+        Returns `(sql_clause, sql_params)` to append to WHERE filters.
+    """
+
+    normalized_filter = source_filter.strip().upper()
+    if normalized_filter == "GREENHOUSE":
+        return ("LOWER(jp.source) LIKE ?", ["%greenhouse%"])
+    if normalized_filter == "WORKDAY":
+        return (
+            "(LOWER(jp.source) LIKE ? OR LOWER(jp.source) LIKE ?)",
+            ["%workday%", "%apify%"],
+        )
+    if normalized_filter == "JOBSPY":
+        return (
+            """
+            (
+                LOWER(jp.source) NOT LIKE ?
+                AND LOWER(jp.source) NOT LIKE ?
+                AND LOWER(jp.source) NOT LIKE ?
+            )
+            """,
+            ["%greenhouse%", "%workday%", "%apify%"],
+        )
+    return ("jp.source = ?", [source_filter.strip()])
+
+
 def _salary_display(
     salary_min: int | None,
     salary_max: int | None,
@@ -1734,8 +1769,9 @@ async def get_jobs(
         filters.append("jp.status = ?")
         params.append(status.strip().upper())
     if source is not None and source.strip() != "":
-        filters.append("jp.source = ?")
-        params.append(source.strip())
+        source_clause, source_params = _source_filter_sql(source)
+        filters.append(source_clause)
+        params.extend(source_params)
 
     where_clause = ""
     if filters:

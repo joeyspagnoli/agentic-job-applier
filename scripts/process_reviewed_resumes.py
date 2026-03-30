@@ -31,6 +31,7 @@ from src.agents.resume_review_pi import ReviewRunResult
 from src.agents.resume_review_pi import run_resume_review_pipeline
 from src.agents.resume_tailor_pi.compiler import compile_resume_tex
 from src.agents.resume_tailor_pi.renderer import render_resume_yaml_to_tex
+from src.database.db_manager import ClaimOwnershipError
 from src.database.db_manager import DEFAULT_REVIEW_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_REVIEW
@@ -360,6 +361,7 @@ async def _handle_review_failure(
     *,
     db: DatabaseManager,
     run_id: int,
+    claim_token: str,
     job_hash: str,
     tailor_run_id: int,
     error: str,
@@ -380,6 +382,7 @@ async def _handle_review_failure(
     Args:
         db: Connected database manager.
         run_id: Review run row identifier.
+        claim_token: Claim token that owns the pending review run.
         job_hash: Stable job hash for logging and alerts.
         tailor_run_id: Tailor run identifier used for retry counting.
         error: Failure reason text.
@@ -421,16 +424,25 @@ async def _handle_review_failure(
             backoff_multiplier=backoff_multiplier,
         )
 
-    await db.record_review_failure(
-        run_id=run_id,
-        error=error,
-        next_retry_at=next_retry_at,
-        agent_stdout=agent_stdout,
-        agent_stderr=agent_stderr,
-        fallback_base_yaml_path=str(fallback_base_yaml_path),
-        fallback_base_tex_path=str(fallback_base_tex_path),
-        fallback_base_pdf_path=str(fallback_base_pdf_path),
-    )
+    try:
+        await db.record_review_failure(
+            run_id=run_id,
+            claim_token=claim_token,
+            error=error,
+            next_retry_at=next_retry_at,
+            agent_stdout=agent_stdout,
+            agent_stderr=agent_stderr,
+            fallback_base_yaml_path=str(fallback_base_yaml_path),
+            fallback_base_tex_path=str(fallback_base_tex_path),
+            fallback_base_pdf_path=str(fallback_base_pdf_path),
+        )
+    except ClaimOwnershipError as exc:
+        logger.warning(
+            "Skipping stale review failure write for run_id={}: {}",
+            run_id,
+            exc,
+        )
+        return
     await record_stage_cost_event(
         db=db,
         stage=PIPELINE_STAGE_REVIEW,
@@ -495,6 +507,16 @@ async def _review_once(
         return 0
     run_id: int = review_run_id_raw
 
+    review_claim_token_raw = claimed_row.get("_review_claim_token")
+    if not isinstance(review_claim_token_raw, str) or not review_claim_token_raw:
+        logger.error(
+            "Invalid _review_claim_token type/value for run_id={}: {}",
+            run_id,
+            type(review_claim_token_raw),
+        )
+        return 0
+    review_claim_token = review_claim_token_raw
+
     job_hash = str(claimed_row["job_hash"])
 
     tailor_run_id_raw = claimed_row["tailor_run_id"]
@@ -509,6 +531,7 @@ async def _review_once(
         await _handle_review_failure(
             db=db,
             run_id=run_id,
+            claim_token=review_claim_token,
             job_hash=job_hash,
             tailor_run_id=tailor_run_id,
             error=f"invalid_job_hash: {exc}",
@@ -537,6 +560,7 @@ async def _review_once(
         await _handle_review_failure(
             db=db,
             run_id=run_id,
+            claim_token=review_claim_token,
             job_hash=job_hash,
             tailor_run_id=tailor_run_id,
             error=(
@@ -586,6 +610,7 @@ async def _review_once(
         await _handle_review_failure(
             db=db,
             run_id=run_id,
+            claim_token=review_claim_token,
             job_hash=job_hash,
             tailor_run_id=tailor_run_id,
             error=f"review_runtime_exception: {exc}",
@@ -605,16 +630,25 @@ async def _review_once(
         and result.review_report is not None
         and result.verdict is not None
     ):
-        await db.record_review_success(
-            run_id=run_id,
-            verdict=result.verdict.value,
-            selected_yaml_path=result.selected_yaml_path,
-            selected_tex_path=result.selected_tex_path,
-            selected_pdf_path=result.selected_pdf_path,
-            review_report_json=result.review_report.model_dump_json(indent=2),
-            agent_stdout=result.agent_stdout,
-            agent_stderr=result.agent_stderr,
-        )
+        try:
+            await db.record_review_success(
+                run_id=run_id,
+                claim_token=review_claim_token,
+                verdict=result.verdict.value,
+                selected_yaml_path=result.selected_yaml_path,
+                selected_tex_path=result.selected_tex_path,
+                selected_pdf_path=result.selected_pdf_path,
+                review_report_json=result.review_report.model_dump_json(indent=2),
+                agent_stdout=result.agent_stdout,
+                agent_stderr=result.agent_stderr,
+            )
+        except ClaimOwnershipError as exc:
+            logger.warning(
+                "Skipping stale review success write for run_id={}: {}",
+                run_id,
+                exc,
+            )
+            return 0
         await record_stage_cost_event(
             db=db,
             stage=PIPELINE_STAGE_REVIEW,
@@ -638,6 +672,7 @@ async def _review_once(
     await _handle_review_failure(
         db=db,
         run_id=run_id,
+        claim_token=review_claim_token,
         job_hash=job_hash,
         tailor_run_id=tailor_run_id,
         error=(result.failure_reason or "unknown review runtime failure")[:500],
