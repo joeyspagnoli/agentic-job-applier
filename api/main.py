@@ -66,6 +66,7 @@ SETTINGS_RESUME_TEX_PATH = resolve_repo_root() / "config" / "resume_base.tex"
 SETTINGS_FILTERS_PATH = resolve_repo_root() / "config" / "filters.yaml"
 SETTINGS_COMPANIES_PATH = resolve_repo_root() / "config" / "companies.yaml"
 SETTINGS_BACKUPS_DIR = resolve_repo_root() / "config" / "backups"
+SETTINGS_ENV_PATH = resolve_repo_root() / ".env"
 TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
 TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
 TAILORED_RESUME_TOKEN_ENV_KEY = "TAILORED_RESUME_DOWNLOAD_TOKEN"
@@ -151,6 +152,42 @@ class YamlTextUpdateRequest(BaseModel):
         min_length=1,
         description="UTF-8 YAML content to validate and persist.",
     )
+
+
+# Valid API key names that the settings UI may read/write.
+ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "APIFY_API_TOKEN",
+    }
+)
+
+# Valid service tier identifiers.
+ALLOWED_SERVICE_TIERS: frozenset[str] = frozenset({"base", "latex", "full"})
+
+
+class ApiKeyUpsertRequest(BaseModel):
+    """Request payload for adding or replacing one API key secret.
+
+    Attributes:
+        value: Raw secret value supplied by the user.
+    """
+
+    value: str = Field(min_length=1, description="Secret value for the API key.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class ServiceTierUpdateRequest(BaseModel):
+    """Request payload for updating the active service tier.
+
+    Attributes:
+        tier: One of 'base', 'latex', or 'full'.
+    """
+
+    tier: str = Field(description="Active service tier identifier.")
+    model_config = ConfigDict(extra="forbid")
 
 
 def _normalize_optional_country_code(value: str) -> str:
@@ -2741,6 +2778,239 @@ async def get_costs_by_stage() -> dict[str, object]:
             for row in rows
         ],
     }
+
+
+def _read_env_pairs() -> list[tuple[str, str]]:
+    """Parse the project .env file into an ordered list of key-value pairs.
+
+    Purpose:
+        Provide a low-level reader so API key endpoints can inspect and
+        modify individual entries without destroying comments or ordering.
+    Args:
+        None.
+    Output:
+        Returns a list of (line_text, key_or_empty) tuples where the second
+        element is non-empty only for KEY=VALUE lines.
+    """
+
+    if not SETTINGS_ENV_PATH.exists():
+        return []
+    raw_lines = SETTINGS_ENV_PATH.read_text(encoding="utf-8").splitlines()
+    pairs: list[tuple[str, str]] = []
+    for line in raw_lines:
+        stripped = line.strip()
+        if stripped.startswith("#") or "=" not in stripped:
+            pairs.append((line, ""))
+        else:
+            key = stripped.split("=", 1)[0].strip()
+            pairs.append((line, key))
+    return pairs
+
+
+def _read_env_key_statuses() -> dict[str, bool]:
+    """Return configured status for all allowed API key names.
+
+    Purpose:
+        Drive the API keys status list in the settings UI without exposing
+        secret values.
+    Args:
+        None.
+    Output:
+        Returns a dict mapping each allowed key name to True when a non-empty
+        value is present in the .env file.
+    """
+
+    status: dict[str, bool] = {name: False for name in ALLOWED_API_KEY_NAMES}
+    if not SETTINGS_ENV_PATH.exists():
+        return status
+    for line, key in _read_env_pairs():
+        if key in ALLOWED_API_KEY_NAMES:
+            value = line.split("=", 1)[1].strip() if "=" in line else ""
+            status[key] = value not in ("", "your_apify_token_here", "your_google_api_key_here", "your_anthropic_key_here")
+    return status
+
+
+def _write_env_key(key_name: str, key_value: str) -> None:
+    """Add or replace one API key entry in the .env file.
+
+    Purpose:
+        Persist a new secret value while preserving comments and all other
+        key entries so the .env file remains human-readable.
+    Args:
+        key_name: Environment variable name (must be in ALLOWED_API_KEY_NAMES).
+        key_value: New secret value to write.
+    Output:
+        Returns None after writing the updated .env file.
+    """
+
+    pairs = _read_env_pairs()
+    found = False
+    new_lines: list[str] = []
+    for line, key in pairs:
+        if key == key_name:
+            new_lines.append(f"{key_name}={key_value}")
+            found = True
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append(f"{key_name}={key_value}")
+    SETTINGS_ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    # Reload into the running process so subsequent pipeline calls see the new key.
+    os.environ[key_name] = key_value
+
+
+def _delete_env_key(key_name: str) -> None:
+    """Remove one API key entry from the .env file.
+
+    Purpose:
+        Allow users to fully revoke a stored key from settings UI without
+        leaving a placeholder that could mislead status checks.
+    Args:
+        key_name: Environment variable name to remove.
+    Output:
+        Returns None after writing the updated .env file.
+    """
+
+    pairs = _read_env_pairs()
+    new_lines = [line for line, key in pairs if key != key_name]
+    SETTINGS_ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    os.environ.pop(key_name, None)
+
+
+def _build_api_keys_response() -> dict[str, object]:
+    """Build the canonical API keys status response payload.
+
+    Purpose:
+        Return a consistent response shape for all API key endpoints so the
+        frontend can refresh its status list after any mutation.
+    Args:
+        None.
+    Output:
+        Returns dict with 'ok' and 'keys' list of name/configured pairs.
+    """
+
+    statuses = _read_env_key_statuses()
+    return {
+        "ok": True,
+        "keys": [
+            {"name": name, "configured": statuses.get(name, False)}
+            for name in sorted(ALLOWED_API_KEY_NAMES)
+        ],
+    }
+
+
+@app.get("/api/settings/api-keys")
+async def get_api_keys() -> dict[str, object]:
+    """Return configured status for all allowed API key names.
+
+    Purpose:
+        Drive the settings UI key list without exposing secret values.
+    Args:
+        None.
+    Output:
+        Returns ok + keys list with name and configured flag per entry.
+    """
+
+    return _build_api_keys_response()
+
+
+@app.put("/api/settings/api-keys/{key_name}")
+async def upsert_api_key(key_name: str, payload: ApiKeyUpsertRequest) -> dict[str, object]:
+    """Add or replace one API key secret in the project .env file.
+
+    Purpose:
+        Persist user-supplied API key secrets durably so the pipeline worker
+        picks them up on next run.
+    Args:
+        key_name: Environment variable name from the URL path.
+        payload: Parsed request body with the new secret value.
+    Output:
+        Returns updated API key status payload.
+    Raises:
+        HTTPException 400: When key_name is not in the allowed set.
+    """
+
+    if key_name not in ALLOWED_API_KEY_NAMES:
+        _raise_api_error(
+            status_code=400,
+            code="UNKNOWN_API_KEY",
+            message=f"'{key_name}' is not a supported API key name.",
+        )
+    _write_env_key(key_name, payload.value.strip())
+    return _build_api_keys_response()
+
+
+@app.delete("/api/settings/api-keys/{key_name}")
+async def delete_api_key(key_name: str) -> dict[str, object]:
+    """Remove one API key entry from the project .env file.
+
+    Purpose:
+        Allow users to fully revoke a stored key from the settings UI.
+    Args:
+        key_name: Environment variable name from the URL path.
+    Output:
+        Returns updated API key status payload.
+    Raises:
+        HTTPException 400: When key_name is not in the allowed set.
+    """
+
+    if key_name not in ALLOWED_API_KEY_NAMES:
+        _raise_api_error(
+            status_code=400,
+            code="UNKNOWN_API_KEY",
+            message=f"'{key_name}' is not a supported API key name.",
+        )
+    _delete_env_key(key_name)
+    return _build_api_keys_response()
+
+
+@app.get("/api/settings/service-tier")
+async def get_service_tier() -> dict[str, object]:
+    """Return the currently active service tier.
+
+    Purpose:
+        Let the settings UI pre-select the correct tier card on load.
+    Args:
+        None.
+    Output:
+        Returns ok + tier string.
+    """
+
+    db_path = str(resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        await db.migrate_cost_schema()
+        tier = await db.get_service_tier()
+    return {"ok": True, "tier": tier}
+
+
+@app.put("/api/settings/service-tier")
+async def update_service_tier(payload: ServiceTierUpdateRequest) -> dict[str, object]:
+    """Persist the selected service tier.
+
+    Purpose:
+        Keep the active pipeline tier durable so worker scripts respect the
+        user's chosen automation level on their next run.
+    Args:
+        payload: Parsed request body with the new tier identifier.
+    Output:
+        Returns ok + updated tier string.
+    Raises:
+        HTTPException 400: When the requested tier is not a valid identifier.
+    """
+
+    if payload.tier not in ALLOWED_SERVICE_TIERS:
+        _raise_api_error(
+            status_code=400,
+            code="UNKNOWN_SERVICE_TIER",
+            message=f"'{payload.tier}' is not a valid service tier.",
+        )
+    db_path = str(resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        await db.migrate_cost_schema()
+        tier = await db.set_service_tier(payload.tier)
+    return {"ok": True, "tier": tier}
 
 
 @app.get("/api/budget")

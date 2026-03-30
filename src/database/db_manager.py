@@ -2366,6 +2366,11 @@ class DatabaseManager:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 CHECK (monthly_budget_usd >= 0)
             );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
         await conn.execute(
@@ -2551,6 +2556,52 @@ class DatabaseManager:
         )
         await conn.commit()
         return await self.get_budget_settings()
+
+    async def get_service_tier(self) -> str:
+        """Return the currently persisted service tier.
+
+        Purpose:
+            Provide the settings UI with the active pipeline tier so it can
+            pre-select the correct card on load.
+        Args:
+            self: The database manager reading from app_settings.
+        Output:
+            Returns the tier string ('base', 'latex', or 'full').
+        """
+
+        await self._ensure_cost_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'service_tier'"
+        )
+        row = await cursor.fetchone()
+        return str(row["value"]) if row else "base"
+
+    async def set_service_tier(self, tier: str) -> str:
+        """Persist the selected service tier.
+
+        Purpose:
+            Keep the active pipeline tier durable across restarts so the worker
+            scripts pick up the correct stage gate configuration.
+        Args:
+            self: The database manager writing the tier.
+            tier: One of 'base', 'latex', or 'full'.
+        Output:
+            Returns the persisted tier string.
+        """
+
+        await self._ensure_cost_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES ('service_tier', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (tier,),
+        )
+        await conn.commit()
+        return tier
 
     async def transition_handoff_status(
         self,

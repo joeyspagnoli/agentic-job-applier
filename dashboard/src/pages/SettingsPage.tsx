@@ -70,7 +70,38 @@ import {
 type TopLevelTab = "general" | "candidate" | "filters";
 type CandidateTab = "guided" | "yaml" | "files";
 type ResumeTab = "guided" | "yaml" | "tex" | "files";
-type FiltersTab = "filters" | "sources";
+type FiltersTab = "guided" | "filters" | "sources";
+
+/** All job type values recognized by the filters hard-filter. */
+const JOB_TYPES: readonly string[] = ["Full-time", "Part-time", "Contract", "Internship"];
+
+/** Structured form state for the filters.yaml guided editor. */
+interface FiltersGuidedDraft {
+  /** Job types to exclude outright (checkbox list). */
+  readonly hard_exclude_job_types: readonly string[];
+  /** Title patterns to reject — one regex per line. */
+  readonly hard_exclude_title_patterns: string;
+  /** Title patterns required to keep — one regex per line. */
+  readonly hard_require_title_patterns: string;
+  /** Location substrings to reject — one per line. */
+  readonly hard_exclude_locations: string;
+  /** When true only keep remote/hybrid jobs. */
+  readonly hard_require_remote: boolean;
+  /** Company names to never import — one per line. */
+  readonly hard_exclude_companies: string;
+  /** Reject jobs older than this many days (0 = disabled). */
+  readonly hard_max_days_old: string;
+  /** Minimum salary in USD (0 = disabled). */
+  readonly hard_min_salary_usd: string;
+  /** Maximum salary in USD (0 = disabled). */
+  readonly hard_max_salary_usd: string;
+  /** Description keywords that auto-FILTER — one per line. */
+  readonly soft_negative_keywords: string;
+  /** Description keywords that auto-QUALIFY — one per line. */
+  readonly soft_positive_keywords: string;
+  /** Auto-filter if description mentions more than this many years (0 = disabled). */
+  readonly soft_max_experience_years: string;
+}
 
 interface ApiKeyConfig {
   readonly name: ApiKeyNameDto;
@@ -106,12 +137,12 @@ const TOP_LEVEL_TABS: readonly { id: TopLevelTab; label: string }[] = [
 const API_KEYS: readonly ApiKeyConfig[] = [
   {
     name: "OPENAI_API_KEY",
-    icon: "terminal",
+    icon: "auto_awesome",
     description: "Required for gate review, resume tailoring, and full automation.",
   },
   {
     name: "GOOGLE_API_KEY",
-    icon: "google",
+    icon: "auto_awesome",
     description: "Optional provider key for alternative model routing.",
   },
   {
@@ -218,6 +249,93 @@ function linesToList(value: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+/**
+ * Parse a raw filters.yaml data object into a guided draft.
+ *
+ * @param data - Parsed YAML object from backend.
+ * @returns Structured draft ready for the guided form.
+ */
+function parseFiltersGuidedDraft(data: Record<string, unknown>): FiltersGuidedDraft {
+  const hard = (data["hard_filters"] as Record<string, unknown> | undefined) ?? {};
+  const soft = (data["soft_filters"] as Record<string, unknown> | undefined) ?? {};
+
+  function getStringList(obj: Record<string, unknown>, key: string): string {
+    const val = obj[key];
+    return Array.isArray(val) ? listToLines(val as string[]) : "";
+  }
+
+  function getNumber(obj: Record<string, unknown>, key: string): string {
+    const val = obj[key];
+    return val !== undefined && val !== null ? String(val) : "0";
+  }
+
+  const excludeJobTypes = hard["exclude_job_types"];
+
+  return {
+    hard_exclude_job_types: Array.isArray(excludeJobTypes)
+      ? (excludeJobTypes as string[])
+      : [],
+    hard_exclude_title_patterns: getStringList(hard, "exclude_title_patterns"),
+    hard_require_title_patterns: getStringList(hard, "require_title_patterns"),
+    hard_exclude_locations: getStringList(hard, "exclude_locations"),
+    hard_require_remote: hard["require_remote"] === true,
+    hard_exclude_companies: getStringList(hard, "exclude_companies"),
+    hard_max_days_old: getNumber(hard, "max_days_old"),
+    hard_min_salary_usd: getNumber(hard, "min_salary_usd"),
+    hard_max_salary_usd: getNumber(hard, "max_salary_usd"),
+    soft_negative_keywords: getStringList(soft, "negative_keywords"),
+    soft_positive_keywords: getStringList(soft, "positive_keywords"),
+    soft_max_experience_years: getNumber(soft, "max_experience_years"),
+  };
+}
+
+/**
+ * Serialize a filters guided draft back to YAML text.
+ *
+ * @param draft - Guided draft from the structured form.
+ * @returns YAML string for persistence.
+ */
+function serializeFiltersGuidedToYaml(draft: FiltersGuidedDraft): string {
+  function yamlList(lines: string, indent: string): string {
+    const items = linesToList(lines);
+    if (items.length === 0) {
+      return "[]";
+    }
+    return "\n" + items.map((item) => `${indent}  - ${JSON.stringify(item)}`).join("\n");
+  }
+
+  function yamlJobTypeList(types: readonly string[], indent: string): string {
+    if (types.length === 0) {
+      return "[]";
+    }
+    return "\n" + types.map((t) => `${indent}  - ${JSON.stringify(t)}`).join("\n");
+  }
+
+  const maxDaysOld = Number.parseInt(draft.hard_max_days_old, 10) || 0;
+  const minSalary = Number.parseFloat(draft.hard_min_salary_usd) || 0;
+  const maxSalary = Number.parseFloat(draft.hard_max_salary_usd) || 0;
+  const maxExpYears = Number.parseInt(draft.soft_max_experience_years, 10) || 0;
+
+  return [
+    "hard_filters:",
+    `  exclude_job_types: ${yamlJobTypeList(draft.hard_exclude_job_types, " ")}`,
+    `  exclude_title_patterns: ${yamlList(draft.hard_exclude_title_patterns, " ")}`,
+    `  require_title_patterns: ${yamlList(draft.hard_require_title_patterns, " ")}`,
+    `  exclude_locations: ${yamlList(draft.hard_exclude_locations, " ")}`,
+    `  require_remote: ${draft.hard_require_remote}`,
+    `  exclude_companies: ${yamlList(draft.hard_exclude_companies, " ")}`,
+    `  max_days_old: ${maxDaysOld}`,
+    `  min_salary_usd: ${minSalary}`,
+    `  max_salary_usd: ${maxSalary}`,
+    "",
+    "soft_filters:",
+    `  negative_keywords: ${yamlList(draft.soft_negative_keywords, " ")}`,
+    `  positive_keywords: ${yamlList(draft.soft_positive_keywords, " ")}`,
+    `  max_experience_years: ${maxExpYears}`,
+    "",
+  ].join("\n");
 }
 
 /**
@@ -375,13 +493,14 @@ export function SettingsPage(): JSX.Element {
   const resumeTexInputRef = useRef<HTMLInputElement | null>(null);
 
   const [activeTopLevelTab, setActiveTopLevelTab] = useState<TopLevelTab>("general");
-  const [activeFiltersTab, setActiveFiltersTab] = useState<FiltersTab>("filters");
+  const [activeFiltersTab, setActiveFiltersTab] = useState<FiltersTab>("guided");
   const [candidateTab, setCandidateTab] = useState<CandidateTab>("guided");
   const [resumeTab, setResumeTab] = useState<ResumeTab>("guided");
 
   const [budgetInput, setBudgetInput] = useState("0.00");
   const [profileDraft, setProfileDraft] = useState<ReturnType<typeof toProfileDraft> | null>(null);
   const [resumeDraft, setResumeDraft] = useState<ResumeContentDto | null>(null);
+  const [filtersGuidedDraft, setFiltersGuidedDraft] = useState<FiltersGuidedDraft | null>(null);
   const [profileYamlDraft, setProfileYamlDraft] = useState("");
   const [resumeYamlDraft, setResumeYamlDraft] = useState("");
   const [filtersYamlDraft, setFiltersYamlDraft] = useState("");
@@ -391,6 +510,7 @@ export function SettingsPage(): JSX.Element {
   const [isProfileDirty, setIsProfileDirty] = useState(false);
   const [isResumeDirty, setIsResumeDirty] = useState(false);
   const [isFiltersDirty, setIsFiltersDirty] = useState(false);
+  const [isFiltersGuidedDirty, setIsFiltersGuidedDirty] = useState(false);
   const [isSourcesDirty, setIsSourcesDirty] = useState(false);
   const [isTierDirty, setIsTierDirty] = useState(false);
 
@@ -478,7 +598,11 @@ export function SettingsPage(): JSX.Element {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFiltersYamlDraft(filtersQuery.data.yaml_text);
     }
-  }, [filtersQuery.data, isFiltersDirty]);
+    if (filtersQuery.data !== undefined && !isFiltersGuidedDirty) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFiltersGuidedDraft(parseFiltersGuidedDraft(filtersQuery.data.data));
+    }
+  }, [filtersQuery.data, isFiltersDirty, isFiltersGuidedDirty]);
 
   useEffect(() => {
     if (sourcesQuery.data !== undefined && !isSourcesDirty) {
@@ -611,7 +735,9 @@ export function SettingsPage(): JSX.Element {
     onSuccess: async (response) => {
       queryClient.setQueryData(["settings", "filters"], response);
       setFiltersYamlDraft(response.yaml_text);
+      setFiltersGuidedDraft(parseFiltersGuidedDraft(response.data));
       setIsFiltersDirty(false);
+      setIsFiltersGuidedDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["settings", "filters"] });
     },
   });
@@ -743,6 +869,7 @@ export function SettingsPage(): JSX.Element {
     isProfileDirty ||
     isResumeDirty ||
     isFiltersDirty ||
+    isFiltersGuidedDirty ||
     isSourcesDirty ||
     isTierDirty ||
     editingApiKeyName !== null;
@@ -800,12 +927,26 @@ export function SettingsPage(): JSX.Element {
       return;
     }
     const hasCurrentTabUnsavedChanges =
+      (activeFiltersTab === "guided" && isFiltersGuidedDirty) ||
       (activeFiltersTab === "filters" && isFiltersDirty) ||
       (activeFiltersTab === "sources" && isSourcesDirty);
     if (hasCurrentTabUnsavedChanges && !window.confirm(CONFIRM_SWITCH_MESSAGE)) {
       return;
     }
     setActiveFiltersTab(nextTab);
+  }
+
+  function handleFiltersGuidedSave(): void {
+    if (filtersGuidedDraft === null) {
+      return;
+    }
+    const yamlText = serializeFiltersGuidedToYaml(filtersGuidedDraft);
+    filtersYamlMutation.mutate(yamlText);
+  }
+
+  function updateFiltersGuidedDraft(nextDraft: FiltersGuidedDraft): void {
+    setFiltersGuidedDraft(nextDraft);
+    setIsFiltersGuidedDirty(true);
   }
 
   function handleBudgetSave(): void {
@@ -1431,13 +1572,16 @@ export function SettingsPage(): JSX.Element {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <label
-                className="block text-xs font-semibold"
-                style={{ color: COLOR_ON_SURFACE_VARIANT }}
-              >
-                Monthly Limit ($)
+              <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low px-4 py-3">
+                <p
+                  className="text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                >
+                  Monthly Limit ($)
+                </p>
                 <input
-                  className="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm"
+                  className="mt-1 w-full bg-transparent text-lg font-bold focus:outline-none"
+                  style={{ color: COLOR_ON_SURFACE }}
                   type="number"
                   min="0"
                   step="0.01"
@@ -1447,7 +1591,7 @@ export function SettingsPage(): JSX.Element {
                     setIsBudgetDirty(true);
                   }}
                 />
-              </label>
+              </div>
               <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low px-4 py-3">
                 <p
                   className="text-xs font-semibold uppercase tracking-wide"
@@ -1600,7 +1744,7 @@ export function SettingsPage(): JSX.Element {
                           Secret Value
                           <input
                             className="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm"
-                            style={{ filter: "blur(1.2px)" }}
+                            style={{ WebkitTextSecurity: "disc" }}
                             type="password"
                             autoComplete="new-password"
                             placeholder="sk-..."
@@ -2709,8 +2853,13 @@ export function SettingsPage(): JSX.Element {
               </div>
               <div className="flex items-center gap-2">
                 <TabButton
+                  active={activeFiltersTab === "guided"}
+                  label="Guided"
+                  onClick={() => handleFiltersTabChange("guided")}
+                />
+                <TabButton
                   active={activeFiltersTab === "filters"}
-                  label="Job Filters"
+                  label="Advanced YAML"
                   onClick={() => handleFiltersTabChange("filters")}
                 />
                 <TabButton
@@ -2720,6 +2869,231 @@ export function SettingsPage(): JSX.Element {
                 />
               </div>
             </div>
+
+            {activeFiltersTab === "guided" && filtersGuidedDraft !== null && (
+              <div className="space-y-6">
+                {/* Hard Filters */}
+                <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 space-y-4">
+                  <h4
+                    className="text-sm font-bold uppercase tracking-wide"
+                    style={{ color: COLOR_ON_SURFACE }}
+                  >
+                    Hard Filters
+                  </h4>
+                  <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                    Jobs matching any hard filter are rejected before entering the database.
+                  </p>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                      Exclude Job Types
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {JOB_TYPES.map((jobType) => {
+                        const isChecked = filtersGuidedDraft.hard_exclude_job_types.includes(jobType);
+                        return (
+                          <label
+                            key={jobType}
+                            className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
+                            style={{ color: COLOR_ON_SURFACE }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                const next = isChecked
+                                  ? filtersGuidedDraft.hard_exclude_job_types.filter(
+                                      (t) => t !== jobType,
+                                    )
+                                  : [...filtersGuidedDraft.hard_exclude_job_types, jobType];
+                                updateFiltersGuidedDraft({
+                                  ...filtersGuidedDraft,
+                                  hard_exclude_job_types: next,
+                                });
+                              }}
+                            />
+                            {jobType}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <LabeledTextarea
+                      label={`Exclude Title Patterns (${countListItems(filtersGuidedDraft.hard_exclude_title_patterns)} patterns) — one regex per line`}
+                      value={filtersGuidedDraft.hard_exclude_title_patterns}
+                      rows={5}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_exclude_title_patterns: value,
+                        })
+                      }
+                    />
+                    <LabeledTextarea
+                      label={`Require Title Patterns (${countListItems(filtersGuidedDraft.hard_require_title_patterns)} patterns) — one regex per line, leave empty to disable`}
+                      value={filtersGuidedDraft.hard_require_title_patterns}
+                      rows={5}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_require_title_patterns: value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <LabeledTextarea
+                      label={`Exclude Locations (${countListItems(filtersGuidedDraft.hard_exclude_locations)} entries) — one substring per line`}
+                      value={filtersGuidedDraft.hard_exclude_locations}
+                      rows={3}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_exclude_locations: value,
+                        })
+                      }
+                    />
+                    <LabeledTextarea
+                      label={`Exclude Companies (${countListItems(filtersGuidedDraft.hard_exclude_companies)} entries) — one per line`}
+                      value={filtersGuidedDraft.hard_exclude_companies}
+                      rows={3}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_exclude_companies: value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <LabeledInput
+                      label="Max Days Old (0 = disabled)"
+                      value={filtersGuidedDraft.hard_max_days_old}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_max_days_old: value,
+                        })
+                      }
+                    />
+                    <LabeledInput
+                      label="Min Salary USD (0 = disabled)"
+                      value={filtersGuidedDraft.hard_min_salary_usd}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_min_salary_usd: value,
+                        })
+                      }
+                    />
+                    <LabeledInput
+                      label="Max Salary USD (0 = disabled)"
+                      value={filtersGuidedDraft.hard_max_salary_usd}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_max_salary_usd: value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <label
+                    className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none"
+                    style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={filtersGuidedDraft.hard_require_remote}
+                      onChange={(event) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          hard_require_remote: event.target.checked,
+                        })
+                      }
+                    />
+                    Require Remote — only keep jobs flagged as remote or hybrid
+                  </label>
+                </div>
+
+                {/* Soft Filters */}
+                <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 space-y-4">
+                  <h4
+                    className="text-sm font-bold uppercase tracking-wide"
+                    style={{ color: COLOR_ON_SURFACE }}
+                  >
+                    Soft Filters
+                  </h4>
+                  <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                    Soft filters auto-categorize jobs without running the gate agent.
+                  </p>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <LabeledTextarea
+                      label={`Negative Keywords — auto-FILTER (${countListItems(filtersGuidedDraft.soft_negative_keywords)} entries) — one per line`}
+                      value={filtersGuidedDraft.soft_negative_keywords}
+                      rows={5}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          soft_negative_keywords: value,
+                        })
+                      }
+                    />
+                    <LabeledTextarea
+                      label={`Positive Keywords — auto-QUALIFY (${countListItems(filtersGuidedDraft.soft_positive_keywords)} entries) — all must match`}
+                      value={filtersGuidedDraft.soft_positive_keywords}
+                      rows={5}
+                      onChange={(value) =>
+                        updateFiltersGuidedDraft({
+                          ...filtersGuidedDraft,
+                          soft_positive_keywords: value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <LabeledInput
+                    label="Max Experience Years (0 = disabled) — auto-FILTER if description mentions more than this"
+                    value={filtersGuidedDraft.soft_max_experience_years}
+                    onChange={(value) =>
+                      updateFiltersGuidedDraft({
+                        ...filtersGuidedDraft,
+                        soft_max_experience_years: value,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: COLOR_PRIMARY }}
+                    onClick={handleFiltersGuidedSave}
+                    disabled={filtersYamlMutation.isPending || !isFiltersGuidedDirty}
+                  >
+                    {filtersYamlMutation.isPending ? "Saving..." : "Save Filters"}
+                  </button>
+                </div>
+                {filtersQuery.isLoading && (
+                  <p className="text-sm" style={{ color: COLOR_OUTLINE }}>
+                    Loading filters configuration...
+                  </p>
+                )}
+                {filtersQuery.isError && (
+                  <InlineErrorText message="Failed to load filters configuration." />
+                )}
+                {filtersYamlMutation.isError && (
+                  <InlineErrorText
+                    message={`Save failed: ${getErrorMessage(filtersYamlMutation.error)}`}
+                  />
+                )}
+              </div>
+            )}
 
             {activeFiltersTab === "filters" && (
               <div className="space-y-4">
