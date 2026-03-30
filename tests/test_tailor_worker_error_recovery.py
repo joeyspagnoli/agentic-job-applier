@@ -111,7 +111,7 @@ async def test_db_failure_during_error_recovery_logs_original_error(
         """
         raise RuntimeError("pipeline exploded")
 
-    record_failure_calls: list[dict] = []
+    record_failure_calls: list[dict[str, object]] = []
     original_record = db.record_tailor_failure
 
     async def tracking_record_failure(**kwargs: object) -> None:
@@ -150,7 +150,9 @@ async def test_db_failure_during_error_recovery_logs_original_error(
 
     assert result == 0
     assert len(record_failure_calls) == 1
-    assert "pipeline exploded" in record_failure_calls[0]["error"]
+    error_val = record_failure_calls[0]["error"]
+    assert isinstance(error_val, str)
+    assert "pipeline exploded" in error_val
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +181,7 @@ async def test_yaml_copy_failure_records_failure_and_returns_zero(
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
-    record_failure_calls: list[dict] = []
+    record_failure_calls: list[dict[str, object]] = []
     original_record = db.record_tailor_failure
 
     async def tracking_record_failure(**kwargs: object) -> None:
@@ -209,7 +211,9 @@ async def test_yaml_copy_failure_records_failure_and_returns_zero(
 
     assert result == 0
     assert len(record_failure_calls) == 1
-    assert record_failure_calls[0]["error"].startswith("yaml_copy_failed:")
+    call_error = record_failure_calls[0]["error"]
+    assert isinstance(call_error, str)
+    assert call_error.startswith("yaml_copy_failed:")
 
 
 # ---------------------------------------------------------------------------
@@ -310,4 +314,6 @@ async def test_yaml_copy_failure_with_missing_file_records_failure(
     runs = await db.get_tailor_runs_for_job(job_hash)
     assert len(runs) == 1
     assert runs[0]["status"] == "FAILED"
-    assert runs[0]["error"].startswith("yaml_copy_failed:")
+    run_error = runs[0]["error"]
+    assert isinstance(run_error, str)
+    assert run_error.startswith("yaml_copy_failed:")

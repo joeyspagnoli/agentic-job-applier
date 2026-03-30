@@ -36,7 +36,7 @@ def check_greenhouse_id(company_id: str) -> tuple[bool, int]:
         return False, 0
 
 
-def find_greenhouse_id(company_name: str):
+def find_greenhouse_id(company_name: str) -> None:
     """Try several common token patterns for a company name.
 
     Purpose:
@@ -82,7 +82,7 @@ def find_greenhouse_id(company_name: str):
     print("Try searching manually at their careers page.")
 
 
-def verify_greenhouse_id(company_id: str):
+def verify_greenhouse_id(company_id: str) -> None:
     """Verify one exact Greenhouse token and print its job count.
 
     Purpose:
@@ -107,7 +107,7 @@ def verify_greenhouse_id(company_id: str):
     print(f"Check: https://boards.greenhouse.io/{company_id}")
 
 
-def main():
+def main() -> None:
     """Parse CLI args and run either the search or verify flow.
 
     Purpose:

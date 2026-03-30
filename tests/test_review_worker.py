@@ -145,7 +145,9 @@ async def test_claim_next_review_job_claims_successful_tailor_run(
     assert claimed is not None
     assert claimed["job_hash"] == "a" * 32
     assert claimed["tailor_run_id"] == 5
-    assert claimed["_review_run_id"] > 0
+    review_run_id = claimed["_review_run_id"]
+    assert isinstance(review_run_id, int)
+    assert review_run_id > 0
 
 
 @pytest.mark.asyncio
@@ -165,6 +167,7 @@ async def test_record_review_success_excludes_tailor_run_from_future_claims(
     await _insert_successful_tailor_job(db, job_hash="b" * 32, tailor_run_id=8)
     claimed = await db.claim_next_review_job(max_retries=2)
     assert claimed is not None
+    assert isinstance(claimed["_review_run_id"], int)
 
     await db.record_review_success(
         run_id=claimed["_review_run_id"],
@@ -198,6 +201,7 @@ async def test_review_failure_retry_allows_reclaim_after_schedule(
     await _insert_successful_tailor_job(db, job_hash="c" * 32, tailor_run_id=9)
     claimed = await db.claim_next_review_job(max_retries=3)
     assert claimed is not None
+    assert isinstance(claimed["_review_run_id"], int)
 
     await db.record_review_failure(
         run_id=claimed["_review_run_id"],

@@ -1,7 +1,8 @@
 """Define the shared interface that all job fetchers must implement."""
 
 from abc import ABC, abstractmethod
-from typing import List
+from types import TracebackType
+from typing import Any
 
 from src.models.job_posting import JobPosting
 
@@ -9,7 +10,7 @@ from src.models.job_posting import JobPosting
 class BaseFetcher(ABC):
     """Abstract base class for all job fetchers."""
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         """Store fetcher configuration and compute the source name.
 
         Purpose:
@@ -25,7 +26,7 @@ class BaseFetcher(ABC):
         self.source_name = self.get_source_name()
 
     @abstractmethod
-    async def fetch_jobs(self) -> List[JobPosting]:
+    async def fetch_jobs(self) -> list[JobPosting]:
         """Fetch jobs from the source and normalize them to `JobPosting`.
 
         Purpose:
@@ -52,7 +53,7 @@ class BaseFetcher(ABC):
         """
         pass
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "BaseFetcher":
         """Enter the async context manager for the fetcher.
 
         Purpose:
@@ -65,7 +66,12 @@ class BaseFetcher(ABC):
         """
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit the async context manager for the fetcher.
 
         Purpose:

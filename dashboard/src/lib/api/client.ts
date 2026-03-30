@@ -6,6 +6,8 @@
 
 import type {
   ApiErrorPayload,
+  ApiKeyNameDto,
+  ApiKeysResponseDto,
   BudgetDto,
   CostByStageDto,
   CostDailyTrendDto,
@@ -18,6 +20,8 @@ import type {
   JobsResponseDto,
   RetryFailureDto,
   ResumeContentDto,
+  ServiceTierDto,
+  ServiceTierResponseDto,
   SettingsFilesDto,
   SettingsProfileDto,
   SettingsProfileUploadDto,
@@ -282,9 +286,7 @@ export async function fetchCostStats(): Promise<CostStatsDto> {
  * @param range - Cost trend range.
  * @returns Cost daily trend DTO.
  */
-export async function fetchCostDailyTrend(
-  range: "7d" | "30d" | "all",
-): Promise<CostDailyTrendDto> {
+export async function fetchCostDailyTrend(range: "7d" | "30d" | "all"): Promise<CostDailyTrendDto> {
   const params = new URLSearchParams({ range });
   return getJson<CostDailyTrendDto>(`/api/costs/daily-trend?${params.toString()}`);
 }
@@ -318,6 +320,70 @@ export async function updateBudget(monthlyBudgetUsd: number): Promise<BudgetDto>
     method: "PUT",
     headers: JSON_HEADERS,
     body: JSON.stringify({ monthly_budget_usd: monthlyBudgetUsd }),
+  });
+}
+
+/**
+ * Request write-only API key configuration statuses.
+ *
+ * @returns API key statuses for all supported providers.
+ */
+export async function fetchApiKeysSettings(): Promise<ApiKeysResponseDto> {
+  return getJson<ApiKeysResponseDto>("/api/settings/api-keys");
+}
+
+/**
+ * Add or replace one API key secret value.
+ *
+ * @param keyName - API key environment variable name.
+ * @param keyValue - Secret key value supplied by the user.
+ * @returns Updated API key status payload.
+ */
+export async function upsertApiKeySetting(
+  keyName: ApiKeyNameDto,
+  keyValue: string,
+): Promise<ApiKeysResponseDto> {
+  return getJson<ApiKeysResponseDto>(`/api/settings/api-keys/${encodeURIComponent(keyName)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ value: keyValue }),
+  });
+}
+
+/**
+ * Delete one API key secret from runtime configuration.
+ *
+ * @param keyName - API key environment variable name.
+ * @returns Updated API key status payload.
+ */
+export async function deleteApiKeySetting(keyName: ApiKeyNameDto): Promise<ApiKeysResponseDto> {
+  return getJson<ApiKeysResponseDto>(`/api/settings/api-keys/${encodeURIComponent(keyName)}`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * Request currently selected service tier.
+ *
+ * @returns Active service tier payload.
+ */
+export async function fetchServiceTierSetting(): Promise<ServiceTierResponseDto> {
+  return getJson<ServiceTierResponseDto>("/api/settings/service-tier");
+}
+
+/**
+ * Persist selected service tier for pipeline-stage activation.
+ *
+ * @param tier - Requested service tier identifier.
+ * @returns Updated service tier payload.
+ */
+export async function updateServiceTierSetting(
+  tier: ServiceTierDto,
+): Promise<ServiceTierResponseDto> {
+  return getJson<ServiceTierResponseDto>("/api/settings/service-tier", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ tier }),
   });
 }
 
@@ -362,8 +428,40 @@ export async function updateProfileYaml(yamlText: string): Promise<SettingsProfi
 export async function updateProfileStructured(payload: {
   readonly profile: {
     readonly summary: string;
-    readonly education: string;
-    readonly citizenship: string;
+    readonly contact: {
+      readonly full_name: string;
+      readonly email: string;
+      readonly phone: string;
+      readonly city: string;
+      readonly state_or_region: string;
+      readonly country_code: string;
+      readonly country_label: string;
+      readonly linkedin_url: string;
+      readonly github_url: string;
+      readonly portfolio_url: string;
+    };
+    readonly work_authorization: {
+      readonly citizenship_country_code: string;
+      readonly citizenship_country_label: string;
+      readonly authorized_to_work_us: "yes" | "no" | "unknown";
+      readonly requires_sponsorship_now_or_future: "yes" | "no" | "unknown";
+    };
+    readonly education_summary: string;
+    readonly education_entries: readonly {
+      readonly id: string;
+      readonly school: string;
+      readonly degree_level: string;
+      readonly degree_name: string;
+      readonly field_of_study: string;
+      readonly start_month: string;
+      readonly start_year: string;
+      readonly end_month: string;
+      readonly end_year: string;
+      readonly is_current: boolean;
+      readonly gpa: string;
+      readonly location: string;
+      readonly highlights: readonly string[];
+    }[];
     readonly target_roles: readonly string[];
     readonly strongest_areas: readonly string[];
     readonly experience_highlights: readonly string[];

@@ -9,6 +9,7 @@ Purpose:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from loguru import logger
 from playwright.async_api import Page
@@ -75,7 +76,7 @@ async def upload_resume(page: Page, pdf_path: Path) -> bool:
     return False
 
 
-async def _try_direct_file_input(page: Page, pdf_path: str) -> bool:
+async def _try_direct_file_input(page: object, pdf_path: str) -> bool:
     """Attempt upload via a visible file input in the main frame.
 
     Args:
@@ -86,9 +87,10 @@ async def _try_direct_file_input(page: Page, pdf_path: str) -> bool:
         True if a file input was found and the file was set.
     """
 
+    page_handle = cast(Page, page)
     for selector in _FILE_INPUT_SELECTORS:
         try:
-            locator = page.locator(selector).first
+            locator = page_handle.locator(selector).first
             if await locator.count() > 0:
                 await locator.set_input_files(pdf_path)
                 logger.info("Uploaded resume via direct file input: {}", selector)
@@ -193,5 +195,7 @@ async def _try_file_chooser_button(page: Page, pdf_path: str) -> bool:
 
 
 __all__ = [
+    "logger",
+    "_try_direct_file_input",
     "upload_resume",
 ]

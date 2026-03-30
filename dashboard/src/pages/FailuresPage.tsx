@@ -21,18 +21,18 @@ const PAGE_SIZE = 20;
  */
 function stageClass(stage: string): string {
   if (stage === "TAILORING") {
-    return "bg-amber-100 text-amber-700";
+    return "bg-warning-container text-on-warning-container";
   }
   if (stage === "REVIEW") {
-    return "bg-indigo-100 text-indigo-700";
+    return "bg-primary-fixed text-primary";
   }
   if (stage === "APPLY") {
     return "bg-rose-100 text-rose-700";
   }
   if (stage === "GATE") {
-    return "bg-slate-200 text-slate-700";
+    return "bg-surface-container-high text-on-surface-variant";
   }
-  return "bg-slate-100 text-slate-700";
+  return "bg-surface-container text-on-surface-variant";
 }
 
 /**
@@ -46,9 +46,9 @@ function statusClass(status: string): string {
     return "bg-emerald-100 text-emerald-700";
   }
   if (status === "EXHAUSTED") {
-    return "bg-red-100 text-red-700";
+    return "bg-error-container text-on-error-container";
   }
-  return "bg-slate-100 text-slate-700";
+  return "bg-surface-container text-on-surface-variant";
 }
 
 /**
@@ -141,11 +141,11 @@ export function FailuresPage(): JSX.Element {
 
       <div className="bg-white p-4 rounded-xl border border-white flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="relative md:w-[420px]">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">
             search
           </span>
           <input
-            className="w-full rounded-lg border bg-slate-50 py-2 pl-10 pr-3 text-sm"
+            className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-3 text-sm"
             style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
             placeholder="Search failures..."
             value={searchQuery}
@@ -181,7 +181,7 @@ export function FailuresPage(): JSX.Element {
       </div>
 
       {failuresQuery.isError && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-error-container bg-error-container px-4 py-3 text-sm text-on-error-container">
           Failed to load failures data. Use Sync now to retry.
         </div>
       )}
@@ -189,7 +189,7 @@ export function FailuresPage(): JSX.Element {
       <div className="bg-white rounded-xl border overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-slate-50">
+            <tr className="bg-surface-container-low">
               {["Stage", "Company", "Position", "Error", "Attempts", "Status", "Time", "Actions"].map((column) => (
                 <th
                   key={column}
@@ -217,14 +217,14 @@ export function FailuresPage(): JSX.Element {
             ))}
             {failuresQuery.isLoading && (
               <tr>
-                <td className="px-6 py-10 text-sm text-slate-500" colSpan={8}>
+                <td className="px-6 py-10 text-sm text-outline" colSpan={8}>
                   Loading failures...
                 </td>
               </tr>
             )}
             {!failuresQuery.isLoading && rows.length === 0 && (
               <tr>
-                <td className="px-6 py-10 text-sm text-slate-500" colSpan={8}>
+                <td className="px-6 py-10 text-sm text-outline" colSpan={8}>
                   No failures match the current filters.
                 </td>
               </tr>
@@ -265,11 +265,11 @@ interface SummaryCardProps {
 function SummaryCard({ label, value, subtitle }: SummaryCardProps): JSX.Element {
   return (
     <div className="rounded-xl bg-white border border-white p-6 shadow-sm">
-      <p className="text-[11px] font-bold tracking-widest uppercase text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-black" style={{ color: COLOR_ON_SURFACE }}>
+      <p className="text-[11px] font-bold tracking-widest uppercase text-outline">{label}</p>
+      <p className="mt-2 text-3xl font-black text-on-surface">
         {value}
       </p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+      <p className="mt-1 text-xs text-outline">{subtitle}</p>
     </div>
   );
 }
@@ -310,18 +310,18 @@ interface FailureRowProps {
 function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureRowProps): JSX.Element {
   return (
     <>
-      <tr className="border-t border-slate-100 hover:bg-slate-50/50 transition-colors">
+      <tr className="border-t border-outline-variant/30 hover:bg-surface-container-low/50 transition-colors">
         <td className="px-6 py-4">
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${stageClass(row.stage)}`}>
             {row.stage}
           </span>
         </td>
-        <td className="px-6 py-4 font-semibold text-slate-900">{row.company}</td>
-        <td className="px-6 py-4 text-slate-700">{row.position}</td>
+        <td className="px-6 py-4 font-semibold text-on-surface">{row.company}</td>
+        <td className="px-6 py-4 text-on-surface-variant">{row.position}</td>
         <td className="px-6 py-4">
-          <code className="rounded bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{row.error_code}</code>
+          <code className="rounded bg-error-container px-2 py-0.5 text-xs font-semibold text-on-error-container">{row.error_code}</code>
         </td>
-        <td className="px-6 py-4 text-xs text-slate-600">
+        <td className="px-6 py-4 text-xs text-on-surface-variant">
           {row.attempts}/{row.max_attempts}
         </td>
         <td className="px-6 py-4">
@@ -329,11 +329,11 @@ function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureR
             {row.status}
           </span>
         </td>
-        <td className="px-6 py-4 text-xs text-slate-600">{row.time}</td>
+        <td className="px-6 py-4 text-xs text-on-surface-variant">{row.time}</td>
         <td className="px-6 py-4 text-right">
           <div className="inline-flex items-center gap-2">
             <button
-              className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600"
+              className="rounded-lg border border-outline-variant px-2 py-1 text-xs font-semibold text-on-surface-variant"
               onClick={onToggle}
             >
               {expanded ? "Hide" : "View"}
@@ -351,16 +351,16 @@ function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureR
       </tr>
 
       {expanded && (
-        <tr className="bg-slate-50/60">
+        <tr className="bg-surface-container-low/60">
           <td className="px-6 py-6" colSpan={8}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">Job Details</p>
-                <p className="text-sm font-semibold text-slate-900">{row.company}</p>
-                <p className="text-xs text-slate-600">{row.position}</p>
-                <p className="text-xs text-slate-600">Platform: {row.platform}</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Job Details</p>
+                <p className="text-sm font-semibold text-on-surface">{row.company}</p>
+                <p className="text-xs text-on-surface-variant">{row.position}</p>
+                <p className="text-xs text-on-surface-variant">Platform: {row.platform}</p>
                 <a
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                   href={row.job_posting_url}
                   target="_blank"
                   rel="noreferrer"
@@ -371,7 +371,7 @@ function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureR
               </div>
 
               <div className="lg:col-span-2 space-y-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">Error Trace</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Error Trace</p>
                 <div className="rounded-xl bg-[#171922] p-4 text-xs text-slate-100 font-mono whitespace-pre-wrap">
                   {(row.error_trace.length === 0 ? ["No error trace available."] : row.error_trace).join("\n")}
                 </div>
@@ -406,13 +406,13 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
   const safeTotalPages = Math.max(1, totalPages);
 
   return (
-    <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
-      <p className="text-xs font-medium text-slate-500">
+    <div className="px-6 py-4 border-t border-outline-variant/30 flex items-center justify-between">
+      <p className="text-xs font-medium text-outline">
         Showing page {currentPage} of {safeTotalPages} ({totalItems} failures)
       </p>
       <div className="flex items-center gap-2">
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"
+          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
           onClick={() => {
             onPageChange(Math.max(1, currentPage - 1));
           }}
@@ -421,7 +421,7 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
           Prev
         </button>
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"
+          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
           onClick={() => {
             onPageChange(Math.min(safeTotalPages, currentPage + 1));
           }}

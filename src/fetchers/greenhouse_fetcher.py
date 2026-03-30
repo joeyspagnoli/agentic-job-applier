@@ -1,13 +1,16 @@
 """Fetch and normalize jobs from Greenhouse public job boards."""
 
 import re
-from typing import List, Optional
+from collections.abc import Mapping
+from types import TracebackType
+from typing import Optional
 
 import httpx
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
 from src.models.job_posting import JobPosting
+from src.utils.json_types import get_dict, get_str, get_str_opt
 
 
 class GreenhouseFetcher(BaseFetcher):
@@ -48,7 +51,7 @@ class GreenhouseFetcher(BaseFetcher):
 
         return f"greenhouse_{self.company_name.lower().replace(' ', '_')}"
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "GreenhouseFetcher":
         """Create the shared HTTP client for the Greenhouse crawl.
 
         Purpose:
@@ -63,7 +66,12 @@ class GreenhouseFetcher(BaseFetcher):
         self._client = httpx.AsyncClient(timeout=30.0)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Close the HTTP client when the Greenhouse context ends.
 
         Purpose:
@@ -82,7 +90,7 @@ class GreenhouseFetcher(BaseFetcher):
             await self._client.aclose()
             self._client = None
 
-    async def fetch_jobs(self) -> List[JobPosting]:
+    async def fetch_jobs(self) -> list[JobPosting]:
         """Fetch and normalize all jobs for the configured Greenhouse board.
 
         Purpose:
@@ -104,7 +112,10 @@ class GreenhouseFetcher(BaseFetcher):
         params = {"content": "true"}
 
         try:
-            response = await self._client.get(url, params=params)
+            client = self._client
+            if client is None:
+                raise RuntimeError("Greenhouse HTTP client was not initialized")
+            response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as e:
@@ -130,7 +141,7 @@ class GreenhouseFetcher(BaseFetcher):
         # and the normalization logic can be documented independently.
         return [self._parse_job(job) for job in jobs]
 
-    def _parse_job(self, job_data: dict) -> JobPosting:
+    def _parse_job(self, job_data: Mapping[str, object]) -> JobPosting:
         """Convert one Greenhouse payload into a normalized `JobPosting`.
 
         Purpose:
@@ -145,35 +156,36 @@ class GreenhouseFetcher(BaseFetcher):
 
         # Greenhouse sometimes wraps location information in a nested object, so
         # this branch flattens it into the plain string used by the shared model.
-        location = job_data.get("location", {})
-        if isinstance(location, dict):
-            location_str = location.get("name", "")
+        location_dict = get_dict(job_data, "location")
+        if location_dict is not None:
+            location_str = get_str(location_dict, "name")
         else:
-            location_str = str(location) if location else ""
+            raw_loc = job_data.get("location")
+            location_str = str(raw_loc) if raw_loc and not isinstance(raw_loc, dict) else ""
 
         # The public API returns HTML in the `content` field, which needs to be
         # cleaned before it is suitable for hashing, storage, and prompts.
-        content = job_data.get("content", "")
+        content = get_str(job_data, "content")
         description = self._clean_html(content)
 
         # Salary data is not consistently structured, so this fetcher extracts
         # a best-effort range from the cleaned description text.
         salary_min, salary_max = self._extract_salary(description)
-        job_url = job_data.get("absolute_url", "")
+        job_url = get_str(job_data, "absolute_url")
 
         return JobPosting(
             source=self.get_source_name(),
             source_url=job_url,
             company=self.company_name,
             company_url=f"https://boards.greenhouse.io/{self.greenhouse_id}",
-            title=job_data.get("title", "Unknown Title"),
+            title=get_str(job_data, "title", "Unknown Title"),
             location=location_str,
             description=description,
-            posted_date=job_data.get("updated_at"),
+            posted_date=get_str_opt(job_data, "updated_at"),
             salary_min=salary_min,
             salary_max=salary_max,
             salary_source="parsed" if salary_min else "not_listed",
-            raw_data=job_data,
+            raw_data=dict(job_data),
         )
 
     def _clean_html(self, html: str) -> str:

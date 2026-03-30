@@ -126,7 +126,9 @@ async def test_claim_returns_job_after_inserting_qualified(db: DatabaseManager) 
     assert result is not None
     assert result["job_hash"] == "hash_abc"
     assert "_tailor_run_id" in result
-    assert result["_tailor_run_id"] > 0
+    run_id = result["_tailor_run_id"]
+    assert isinstance(run_id, int)
+    assert run_id > 0
 
 
 @pytest.mark.asyncio
@@ -163,6 +165,7 @@ async def test_record_success_excludes_from_future_claims(
     await _insert_qualified_job(db, "hash_success")
     claimed = await db.claim_next_tailor_job(max_retries=2)
     assert claimed is not None
+    assert isinstance(claimed["_tailor_run_id"], int)
 
     await db.record_tailor_success(
         run_id=claimed["_tailor_run_id"],
@@ -194,6 +197,7 @@ async def test_record_failure_allows_retry_after_next_retry_at(
     await _insert_qualified_job(db, "hash_retry")
     claimed = await db.claim_next_tailor_job(max_retries=3)
     assert claimed is not None
+    assert isinstance(claimed["_tailor_run_id"], int)
 
     # Record failure with a retry time in the past so re-claim is immediate.
     await db.record_tailor_failure(
@@ -221,6 +225,7 @@ async def test_max_retries_excludes_job(db: DatabaseManager) -> None:
     for attempt in range(max_retries):
         claimed = await db.claim_next_tailor_job(max_retries=max_retries)
         assert claimed is not None, f"Expected claim on attempt {attempt}"
+        assert isinstance(claimed["_tailor_run_id"], int)
         await db.record_tailor_failure(
             run_id=claimed["_tailor_run_id"],
             error=f"failure {attempt}",
@@ -250,6 +255,7 @@ async def test_mark_stale_converts_old_pending_to_failed(
     await _insert_qualified_job(db, "hash_stale")
     claimed = await db.claim_next_tailor_job(max_retries=2)
     assert claimed is not None
+    assert isinstance(claimed["_tailor_run_id"], int)
 
     # Backdate the started_at to make it stale.
     conn = db._require_conn()
@@ -287,6 +293,7 @@ async def test_reset_failure_state_allows_requeue(db: DatabaseManager) -> None:
     for _ in range(2):
         claimed = await db.claim_next_tailor_job(max_retries=2)
         assert claimed is not None
+        assert isinstance(claimed["_tailor_run_id"], int)
         await db.record_tailor_failure(
             run_id=claimed["_tailor_run_id"],
             error="test",
@@ -338,7 +345,9 @@ async def test_yaml_baseline_restored_after_tailor_once(
     mock_result.final_page_count = 1
     mock_result.failure_reason = None
 
-    def fake_pipeline(*, invocation: object) -> MagicMock:
+    from src.agents.resume_tailor_pi import TailorInvocationContract
+
+    def fake_pipeline(*, invocation: TailorInvocationContract) -> MagicMock:
         """Simulate pipeline writing to the work copy, not the original.
 
         Purpose:

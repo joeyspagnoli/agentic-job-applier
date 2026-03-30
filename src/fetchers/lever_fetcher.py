@@ -9,13 +9,15 @@ pattern as :class:`GreenhouseFetcher`.
 from __future__ import annotations
 
 import re
-from typing import Optional
+from collections.abc import Mapping
+from typing import Literal, Optional
 
 import httpx
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
 from src.models.job_posting import JobPosting
+from src.utils.json_types import get_dict, get_float_opt, get_list_of_dicts, get_str
 
 # Lever's public postings API requires no authentication.
 BASE_URL = "https://api.lever.co/v0/postings"
@@ -110,7 +112,7 @@ class LeverFetcher(BaseFetcher):
         logger.debug("Fetched {} jobs from Lever {}", len(data), self.company_name)
         return [self._parse_job(posting) for posting in data]
 
-    def _parse_job(self, posting: dict) -> JobPosting:
+    def _parse_job(self, posting: Mapping[str, object]) -> JobPosting:
         """Convert one Lever posting payload into a normalized :class:`JobPosting`.
 
         Args:
@@ -119,18 +121,18 @@ class LeverFetcher(BaseFetcher):
         Returns:
             A normalized :class:`JobPosting` instance.
         """
-        categories = posting.get("categories", {}) or {}
-        location = categories.get("location", "")
-        commitment = categories.get("commitment", "")
+        categories = get_dict(posting, "categories") or {}
+        location = get_str(categories, "location")
+        commitment = get_str(categories, "commitment")
 
         # Lever provides both HTML and plaintext description variants.
-        description = posting.get("descriptionPlain", "") or ""
+        description = get_str(posting, "descriptionPlain")
 
         # Requirements and other list sections come as structured blocks.
         requirements_parts: list[str] = []
-        for section in posting.get("lists", []) or []:
-            section_text = section.get("text", "")
-            section_content = section.get("content", "")
+        for section in get_list_of_dicts(posting, "lists"):
+            section_text = get_str(section, "text")
+            section_content = get_str(section, "content")
             if section_content:
                 cleaned = self._clean_html(section_content)
                 if section_text:
@@ -142,14 +144,14 @@ class LeverFetcher(BaseFetcher):
         # Salary data is structured when present.
         salary_min, salary_max, salary_source = self._extract_salary(posting)
 
-        hosted_url = posting.get("hostedUrl", "")
+        hosted_url = get_str(posting, "hostedUrl")
 
         return JobPosting(
             source=self.get_source_name(),
             source_url=hosted_url,
             company=self.company_name,
             company_url=f"https://jobs.lever.co/{self.lever_id}",
-            title=posting.get("text", "Unknown Title"),
+            title=get_str(posting, "text", "Unknown Title"),
             location=location,
             job_type=self._map_commitment(commitment),
             description=description,
@@ -158,13 +160,13 @@ class LeverFetcher(BaseFetcher):
             salary_max=salary_max,
             salary_source=salary_source,
             is_remote=self._detect_remote(posting),
-            raw_data=posting,
+            raw_data=dict(posting),
         )
 
     @staticmethod
     def _extract_salary(
-        posting: dict,
-    ) -> tuple[int | None, int | None, str]:
+        posting: Mapping[str, object],
+    ) -> tuple[int | None, int | None, Literal["direct", "not_listed"]]:
         """Extract salary range from the Lever posting's structured field.
 
         Args:
@@ -173,13 +175,13 @@ class LeverFetcher(BaseFetcher):
         Returns:
             A ``(min_cents, max_cents, salary_source)`` tuple.
         """
-        salary_range = posting.get("salaryRange")
+        salary_range = get_dict(posting, "salaryRange")
         if not salary_range:
             return None, None, "not_listed"
 
-        raw_min = salary_range.get("min")
-        raw_max = salary_range.get("max")
-        interval = salary_range.get("interval", "annually")
+        raw_min = get_float_opt(salary_range, "min")
+        raw_max = get_float_opt(salary_range, "max")
+        interval = get_str(salary_range, "interval", "annually")
 
         if raw_min is None and raw_max is None:
             return None, None, "not_listed"
@@ -190,7 +192,9 @@ class LeverFetcher(BaseFetcher):
         return min_cents, max_cents, "direct"
 
     @staticmethod
-    def _map_commitment(commitment: str) -> str | None:
+    def _map_commitment(
+        commitment: str,
+    ) -> Literal["Full-time", "Part-time", "Contract", "Internship"] | None:
         """Map Lever's commitment category to the normalized job_type enum.
 
         Args:
@@ -213,7 +217,7 @@ class LeverFetcher(BaseFetcher):
         return None
 
     @staticmethod
-    def _detect_remote(posting: dict) -> bool | None:
+    def _detect_remote(posting: Mapping[str, object]) -> bool | None:
         """Detect remote status from Lever's workplaceType field.
 
         Args:
@@ -223,7 +227,7 @@ class LeverFetcher(BaseFetcher):
             ``True`` for remote, ``False`` for on-site, or ``None`` when
             unspecified.
         """
-        workplace = posting.get("workplaceType", "")
+        workplace = get_str(posting, "workplaceType")
         if not workplace or workplace == "unspecified":
             return None
         return workplace.lower() == "remote"

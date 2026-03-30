@@ -13,7 +13,7 @@ from src.agents.root_apply_decider import ApplyDecision
 from src.database.db_manager import DatabaseManager
 
 
-def test_map_status_maps_skip_to_filtered():
+def test_map_status_maps_skip_to_filtered() -> None:
     """Verify SKIP decisions map to FILTERED workflow status.
 
     Purpose:
@@ -27,7 +27,7 @@ def test_map_status_maps_skip_to_filtered():
     assert process_new_jobs._map_status(ApplyDecision.SKIP) == "FILTERED"
 
 
-def test_map_status_maps_apply_to_qualified():
+def test_map_status_maps_apply_to_qualified() -> None:
     """Verify APPLY decisions map to QUALIFIED workflow status.
 
     Purpose:
@@ -44,7 +44,7 @@ def test_map_status_maps_apply_to_qualified():
 @pytest.mark.asyncio
 async def test_process_once_skips_rows_missing_job_hash(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify rows without job_hash are skipped without side effects.
 
     Purpose:
@@ -73,7 +73,7 @@ async def test_process_once_skips_rows_missing_job_hash(
 
             return False
 
-        async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict]:
+        async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict[str, object]]:
             """Return one malformed row that lacks a usable hash.
 
             Purpose:
@@ -121,7 +121,7 @@ async def test_process_once_skips_rows_missing_job_hash(
 
             raise AssertionError("missing-hash rows must not record decisions")
 
-    async def should_not_run_decider(**_: object):
+    async def should_not_run_decider(**_: object) -> None:
         """Fail the test if decider execution is attempted.
 
         Purpose:
@@ -147,7 +147,7 @@ async def test_process_once_skips_rows_missing_job_hash(
 @pytest.mark.asyncio
 async def test_process_once_skips_batch_when_model_is_not_configured(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify model configuration failures raise dedicated configuration errors.
 
     Purpose:
@@ -175,7 +175,7 @@ async def test_process_once_skips_batch_when_model_is_not_configured(
 
             return False
 
-        async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict]:
+        async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict[str, object]]:
             """Raise if called during model-not-configured path.
 
             Purpose:
@@ -203,7 +203,7 @@ async def test_process_once_skips_batch_when_model_is_not_configured(
 @pytest.mark.asyncio
 async def test_main_loop_continues_after_process_cycle_exception(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify loop mode survives per-cycle exceptions and continues polling.
 
     Purpose:
@@ -283,7 +283,7 @@ async def test_main_loop_continues_after_process_cycle_exception(
 
 
 @pytest.mark.asyncio
-async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatch):
+async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify `--once` forces single-run behavior even if `--loop` is present.
 
     Purpose:

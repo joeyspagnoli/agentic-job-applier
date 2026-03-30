@@ -192,7 +192,9 @@ async def test_discovery_row_is_handed_to_gate_worker(
             assert pending[0]["status"] == "NEW"
 
             processed = await process_new_jobs.process_once(db=db, limit=10)
-            stored_row = await db.get_job_by_hash(pending[0]["job_hash"])
+            hash_val = pending[0]["job_hash"]
+            assert isinstance(hash_val, str)
+            stored_row = await db.get_job_by_hash(hash_val)
 
     assert processed == 1
     assert stored_row is not None

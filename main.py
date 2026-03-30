@@ -206,7 +206,10 @@ def resolve_job_board_default_search_terms(
     return unique_terms
 
 
-def _filter_by_title_patterns(jobs: list, include_patterns: list[str]) -> list:
+def _filter_by_title_patterns(
+    jobs: list[JobPosting],
+    include_patterns: list[str],
+) -> list[JobPosting]:
     """Keep only jobs whose title matches at least one include pattern."""
     if not include_patterns:
         return jobs
@@ -1298,3 +1301,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+__all__ = [
+    "asyncio",
+    "main",
+    "run_job_discovery",
+]

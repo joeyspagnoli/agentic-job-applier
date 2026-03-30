@@ -19,6 +19,7 @@ import asyncio
 import os
 import re
 import shutil
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -132,7 +133,7 @@ def _calculate_retry_delay_seconds(
     """
 
     exponent = max(retry_count - 1, 0)
-    return backoff_seconds * (backoff_multiplier**exponent)
+    return int(backoff_seconds * (backoff_multiplier**exponent))
 
 
 def _calculate_next_retry_at(
@@ -276,7 +277,7 @@ async def _notify_preflight_failure(error: str) -> None:
     )
 
 
-def _resolve_tailored_yaml_path(job_row: dict[str, object]) -> Path:
+def _resolve_tailored_yaml_path(job_row: Mapping[str, object]) -> Path:
     """Resolve tailored YAML work-copy path from claimed review row fields.
 
     Purpose:
@@ -488,9 +489,19 @@ async def _review_once(
         logger.info("No tailored resumes pending review processing")
         return 0
 
-    run_id = int(claimed_row["_review_run_id"])
+    review_run_id_raw = claimed_row["_review_run_id"]
+    if not isinstance(review_run_id_raw, int):
+        logger.error("Invalid _review_run_id type: {}", type(review_run_id_raw))
+        return 0
+    run_id: int = review_run_id_raw
+
     job_hash = str(claimed_row["job_hash"])
-    tailor_run_id = int(claimed_row["tailor_run_id"])
+
+    tailor_run_id_raw = claimed_row["tailor_run_id"]
+    if not isinstance(tailor_run_id_raw, int):
+        logger.error("Invalid tailor_run_id type: {}", type(tailor_run_id_raw))
+        return 0
+    tailor_run_id: int = tailor_run_id_raw
 
     try:
         _validate_job_hash(job_hash)

@@ -145,7 +145,7 @@ def _calculate_retry_delay_seconds(
     """
 
     exponent = max(retry_count - 1, 0)
-    return backoff_seconds * (backoff_multiplier**exponent)
+    return int(backoff_seconds * (backoff_multiplier**exponent))
 
 
 def _calculate_next_retry_at(
@@ -412,8 +412,17 @@ async def _tailor_once(
         logger.info("No QUALIFIED jobs pending tailor processing")
         return 0
 
-    run_id: int = job["_tailor_run_id"]
-    job_hash: str = job["job_hash"]
+    run_id_raw = job["_tailor_run_id"]
+    if not isinstance(run_id_raw, int):
+        logger.error("Invalid _tailor_run_id type: {}", type(run_id_raw))
+        return 0
+    run_id: int = run_id_raw
+
+    job_hash_raw = job["job_hash"]
+    if not isinstance(job_hash_raw, str):
+        logger.error("Invalid job_hash type: {}", type(job_hash_raw))
+        return 0
+    job_hash: str = job_hash_raw
 
     try:
         _validate_job_hash(job_hash)

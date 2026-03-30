@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Mapping
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -156,7 +157,7 @@ def _calculate_retry_delay_seconds(
     """
 
     exponent = max(retry_count - 1, 0)
-    return backoff_seconds * (backoff_multiplier**exponent)
+    return int(backoff_seconds * (backoff_multiplier**exponent))
 
 
 def _calculate_next_retry_at(
@@ -186,7 +187,7 @@ def _calculate_next_retry_at(
     return next_retry_at_utc.strftime(SQLITE_UTC_TIMESTAMP_FORMAT)
 
 
-def _resolve_resume_path(claimed_row: dict[str, object]) -> tuple[Path, str]:
+def _resolve_resume_path(claimed_row: Mapping[str, object]) -> tuple[Path, str]:
     """Determine the correct resume PDF path from the review verdict.
 
     Selects the tailored resume for PASS/TAILORED verdicts and the
@@ -424,9 +425,19 @@ async def _apply_once(
     if claimed_row is None:
         return 0
 
-    run_id: int = claimed_row["_apply_run_id"]
+    apply_run_id_raw = claimed_row["_apply_run_id"]
+    if not isinstance(apply_run_id_raw, int):
+        logger.error("Invalid _apply_run_id type: {}", type(apply_run_id_raw))
+        return 0
+    run_id: int = apply_run_id_raw
+
     job_hash: str = str(claimed_row["job_hash"])
-    review_run_id: int = claimed_row["review_run_id"]
+
+    review_run_id_raw = claimed_row["review_run_id"]
+    if not isinstance(review_run_id_raw, int):
+        logger.error("Invalid review_run_id type: {}", type(review_run_id_raw))
+        return 0
+    review_run_id: int = review_run_id_raw
     source_url: str = str(claimed_row["source_url"])
 
     logger.info(

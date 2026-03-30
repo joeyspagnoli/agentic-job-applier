@@ -14,9 +14,10 @@ import argparse
 import asyncio
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from collections.abc import Mapping
 
 from dotenv import load_dotenv
+from google.adk.agents import BaseAgent
 from loguru import logger
 
 from src.agents.root_apply_decider import (
@@ -121,7 +122,7 @@ def _calculate_retry_delay_seconds(
     """
 
     exponent = max(retry_count - 1, 0)
-    return backoff_seconds * (backoff_multiplier**exponent)
+    return int(backoff_seconds * (backoff_multiplier**exponent))
 
 
 def _calculate_next_retry_at(
@@ -209,8 +210,8 @@ async def _notify_worker_configuration_failure(error: str) -> None:
 
 async def _run_decider_for_job(
     *,
-    agent: Any,
-    job: dict[str, Any],
+    agent: BaseAgent,
+    job: Mapping[str, object],
 ) -> GateRunResult:
     """Run the ADK decider for one job and parse its raw response locally.
 
@@ -272,10 +273,11 @@ async def _process_once(
 
     processed = 0
     for job in jobs:
-        job_hash = job.get("job_hash")
-        if not job_hash:
+        job_hash_raw = job.get("job_hash")
+        if not job_hash_raw or not isinstance(job_hash_raw, str):
             logger.warning("Skipping job without job_hash")
             continue
+        job_hash: str = job_hash_raw
 
         # Each job is isolated so a single provider or parsing error does not
         # stop the rest of the batch from being evaluated and persisted.
@@ -286,7 +288,8 @@ async def _process_once(
             )
         except Exception as exc:
             error_text = str(exc)
-            retry_count = int(job.get("agent_retry_count") or 0) + 1
+            retry_count_raw = job.get("agent_retry_count")
+            retry_count = int(retry_count_raw) + 1 if isinstance(retry_count_raw, int) else 1
             await record_stage_cost_event(
                 db=db,
                 stage=PIPELINE_STAGE_GATE,
@@ -512,3 +515,11 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+__all__ = [
+    "asyncio",
+    "process_once",
+    "_process_once",
+    "main",
+]

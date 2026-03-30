@@ -10,7 +10,7 @@ from src.fetchers.jobspy_fetcher import JobSpyFetcher
 __test__ = False
 
 
-async def smoke_greenhouse():
+async def smoke_greenhouse() -> None:
     """Run a manual Greenhouse smoke test against Stripe's board.
 
     Purpose:
@@ -42,7 +42,7 @@ async def smoke_greenhouse():
         print(f"✗ Error: {e}")
 
 
-async def smoke_jobspy():
+async def smoke_jobspy() -> None:
     """Run a manual JobSpy smoke test against Indeed.
 
     Purpose:
@@ -77,7 +77,7 @@ async def smoke_jobspy():
         print(f"✗ Error: {e}")
 
 
-async def main():
+async def main() -> None:
     """Run the manual fetcher smoke-test sequence.
 
     Purpose:

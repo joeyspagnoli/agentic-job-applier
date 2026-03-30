@@ -89,6 +89,7 @@ def _parse_content_payload(
     if content_json is not None:
         parsed_payload = json.loads(content_json)
     else:
+        assert content_file is not None
         with open(
             Path(content_file).resolve(), "r", encoding="utf-8"
         ) as content_handle:

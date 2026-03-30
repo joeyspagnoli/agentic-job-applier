@@ -1,7 +1,5 @@
 """Provide helpers for filtering and measuring duplicate job postings."""
 
-from typing import List
-
 from loguru import logger
 
 from src.database.db_manager import DatabaseManager
@@ -25,7 +23,7 @@ class Deduplicator:
         """
         self.db = db_manager
 
-    async def filter_new_jobs(self, jobs: List[JobPosting]) -> List[JobPosting]:
+    async def filter_new_jobs(self, jobs: list[JobPosting]) -> list[JobPosting]:
         """Return only the jobs whose hashes are not already stored.
 
         Purpose:
@@ -69,7 +67,7 @@ class Deduplicator:
 
         return new_jobs
 
-    async def get_stats(self, jobs: List[JobPosting]) -> dict:
+    async def get_stats(self, jobs: list[JobPosting]) -> dict[str, int]:
         """Count how many jobs are new versus already present.
 
         Purpose:

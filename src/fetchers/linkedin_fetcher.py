@@ -182,7 +182,10 @@ class LinkedInFetcher(BaseFetcher):
             params = self._build_params(start)
 
             try:
-                response = await self._client.get(GUEST_JOBS_URL, params=params)
+                client = self._client
+                if client is None:
+                    raise RuntimeError("LinkedIn HTTP client was not initialized")
+                response = await client.get(GUEST_JOBS_URL, params=params)
             except httpx.RequestError as exc:
                 logger.error("LinkedIn network error on page {}: {}", page, exc)
                 break

@@ -7,12 +7,14 @@ SQLite-backed autonomous job discovery and application pipeline with a live Fast
 1. Discovers jobs from Greenhouse, Workday (Apify), and JobSpy-backed boards.
 2. Normalizes and deduplicates postings into `job_postings`.
 3. Runs staged workers:
+
 - Gate (`NEW -> QUALIFIED/FILTERED`)
 - Resume tailor (`QUALIFIED -> tailor_runs`)
 - Resume review (`tailor_runs SUCCESS -> review_runs`)
 - Apply worker (`review_runs SUCCESS -> apply_runs` + `apply_handoffs`)
-4. Exposes operational state in a FastAPI backend (`api/main.py`) and React dashboard (`dashboard/`).
-5. Tracks per-stage cost telemetry (`cost_events`) and monthly budget (`budget_settings`).
+
+1. Exposes operational state in a FastAPI backend (`api/main.py`) and React dashboard (`dashboard/`).
+2. Tracks per-stage cost telemetry (`cost_events`) and monthly budget (`budget_settings`).
 
 ## Runtime Architecture
 
@@ -167,17 +169,23 @@ Opt-in live model E2E:
 uv run pytest -q --run-live-agent-e2e -m live_agent_e2e
 ```
 
+Type checking (strict, backend settings surfaces):
+
+```bash
+uv run mypy
+```
+
 ## Docker
 
 Docker is the recommended way to run this on a server. The image is split into three build targets so you only install what you need.
 
 ### Image tiers
 
-| Target | What's included | Compose profile | Approx. build time |
-|---|---|---|---|
-| `base` | Job discovery, gate agent, API + dashboard | *(default)* | ~3–5 min |
-| `latex` | base + LaTeX + poppler + Node + pi CLI | `tailor` | +8–12 min |
-| `full` | latex + Chromium + Xvfb | `full` | +3–5 min |
+| Target  | What's included                            | Compose profile | Approx. build time |
+| ------- | ------------------------------------------ | --------------- | ------------------ |
+| `base`  | Job discovery, gate agent, API + dashboard | _(default)_     | ~3–5 min           |
+| `latex` | base + LaTeX + poppler + Node + pi CLI     | `tailor`        | +8–12 min          |
+| `full`  | latex + Chromium + Xvfb                    | `full`          | +3–5 min           |
 
 Each tier inherits from the one above it. Docker's layer cache means opting into a higher tier later only builds the delta — already-built layers are reused.
 

@@ -15,6 +15,36 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def map_job_type(
+    v: str | None,
+) -> Literal["Full-time", "Part-time", "Contract", "Internship"] | None:
+    """Map raw job-type strings to canonical Literal values.
+
+    Purpose:
+        Collapse varied job-type strings from different sources into a small
+        canonical set.  Used by the ``normalize_job_type`` field validator and
+        by fetchers that need to produce a typed value before constructing a
+        ``JobPosting``.
+    Args:
+        v: Raw incoming job-type value, or ``None``.
+    Output:
+        Returns the normalized job-type string or ``None`` when the value does
+        not map cleanly to one of the supported categories.
+    """
+    if v is None:
+        return None
+    v_lower = v.lower().strip()
+    if "full" in v_lower or v_lower == "ft":
+        return "Full-time"
+    elif "part" in v_lower or v_lower == "pt":
+        return "Part-time"
+    elif "contract" in v_lower or "freelance" in v_lower:
+        return "Contract"
+    elif "intern" in v_lower:
+        return "Internship"
+    return None
+
+
 class JobPosting(BaseModel):
     """Standardized job posting model used across all fetchers."""
 
@@ -45,8 +75,9 @@ class JobPosting(BaseModel):
     # Dates
     posted_date: Optional[str] = None
 
-    # Raw data
-    raw_data: dict = Field(default_factory=dict)
+    # Raw data - typed as dict[str, object] to accept any dict-like source payload;
+    # Pydantic serializes this correctly at runtime via json.dumps in to_db_dict.
+    raw_data: dict[str, object] = Field(default_factory=dict)
 
     @property
     def job_hash(self) -> str:
@@ -128,7 +159,7 @@ class JobPosting(BaseModel):
         return urlunsplit(normalized_parts)
 
     @model_validator(mode="after")
-    def detect_remote(self):
+    def detect_remote(self) -> "JobPosting":
         """Infer the remote flag from the location text when needed.
 
         Purpose:
@@ -151,7 +182,10 @@ class JobPosting(BaseModel):
 
     @field_validator("job_type", mode="before")
     @classmethod
-    def normalize_job_type(cls, v):
+    def normalize_job_type(
+        cls,
+        v: str | None,
+    ) -> Literal["Full-time", "Part-time", "Contract", "Internship"] | None:
         """Normalize source-specific job-type labels to the shared enum set.
 
         Purpose:
@@ -164,25 +198,9 @@ class JobPosting(BaseModel):
             Returns the normalized job-type string or `None` when the value does
             not map cleanly to one of the supported categories.
         """
-        if v is None:
-            return None
+        return map_job_type(v)
 
-        # Most sources send free-form strings, so the validator uses a few
-        # broad keyword checks instead of relying on exact matches.
-        v_lower = v.lower().strip()
-
-        if "full" in v_lower or v_lower == "ft":
-            return "Full-time"
-        elif "part" in v_lower or v_lower == "pt":
-            return "Part-time"
-        elif "contract" in v_lower or "freelance" in v_lower:
-            return "Contract"
-        elif "intern" in v_lower:
-            return "Internship"
-
-        return None  # Unknown type
-
-    def to_db_dict(self) -> dict:
+    def to_db_dict(self) -> dict[str, object]:
         """Convert the model into a database-ready dictionary payload.
 
         Purpose:

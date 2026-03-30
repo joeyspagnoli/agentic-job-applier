@@ -81,7 +81,8 @@ async def send_ntfy_notification(
         os.getenv("NTFY_SERVER", DEFAULT_NTFY_SERVER).strip() or DEFAULT_NTFY_SERVER
     )
     token = os.getenv("NTFY_TOKEN", "").strip()
-    effective_priority = priority or os.getenv("NTFY_PRIORITY", DEFAULT_NTFY_PRIORITY)
+    configured_priority = os.getenv("NTFY_PRIORITY", DEFAULT_NTFY_PRIORITY)
+    effective_priority = (priority or configured_priority).strip() or DEFAULT_NTFY_PRIORITY
 
     headers: dict[str, str] = {
         "Title": title,
@@ -112,3 +113,10 @@ async def send_ntfy_notification(
         return False
 
     return True
+
+
+__all__ = [
+    "httpx",
+    "is_ntfy_enabled",
+    "send_ntfy_notification",
+]

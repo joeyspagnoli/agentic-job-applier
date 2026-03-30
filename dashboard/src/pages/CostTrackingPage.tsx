@@ -44,18 +44,18 @@ const RECENT_FAILURES_PAGE_SIZE = 5;
  */
 function failureStageClass(stage: string): string {
   if (stage === "TAILORING") {
-    return "bg-amber-100 text-amber-700";
+    return "bg-warning-container text-on-warning-container";
   }
   if (stage === "REVIEW") {
-    return "bg-indigo-100 text-indigo-700";
+    return "bg-primary-fixed text-primary";
   }
   if (stage === "APPLY") {
     return "bg-rose-100 text-rose-700";
   }
   if (stage === "GATE") {
-    return "bg-slate-200 text-slate-700";
+    return "bg-surface-container-high text-on-surface-variant";
   }
-  return "bg-slate-100 text-slate-700";
+  return "bg-surface-container text-on-surface-variant";
 }
 
 /**
@@ -179,7 +179,7 @@ export function CostTrackingPage(): JSX.Element {
           value={kpis.totalSpend}
           icon="account_balance_wallet"
           subtitle={
-            <span className="text-slate-500 font-medium">Current month total across all stages</span>
+            <span className="text-outline font-medium">Current month total across all stages</span>
           }
         />
         <StatCard
@@ -198,7 +198,7 @@ export function CostTrackingPage(): JSX.Element {
       </div>
 
       {hasError && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-error-container bg-error-container px-4 py-3 text-sm text-on-error-container">
           Failed to load or mutate cost data. Use Sync now to retry.
         </div>
       )}
@@ -328,7 +328,7 @@ function DailySpendTrendCard({ bars, activeFilter, onFilterChange }: DailySpendT
       </div>
 
       <div
-        className={`h-64 flex items-end justify-between px-4 border-b border-slate-100 overflow-x-auto ${
+        className={`h-64 flex items-end justify-between px-4 border-b border-outline-variant/30 overflow-x-auto ${
           bars.length > 14 ? "gap-1" : "gap-4"
         }`}
       >
@@ -381,7 +381,7 @@ function CostByStageCard({ stageRows }: CostByStageCardProps): JSX.Element {
       <h3 className="text-xl font-bold text-on-surface mb-8">Cost by Stage</h3>
       <div className="space-y-6">
         {stageRows.length === 0 && (
-          <p className="text-sm text-slate-500">No stage cost data has been recorded yet.</p>
+          <p className="text-sm text-outline">No stage cost data has been recorded yet.</p>
         )}
         {stageRows.map((row) => (
           <div key={row.stage} className="space-y-2">
@@ -389,7 +389,7 @@ function CostByStageCard({ stageRows }: CostByStageCardProps): JSX.Element {
               <span>{row.stage}</span>
               <span>{formatUsd(row.spendUsd)}</span>
             </div>
-            <div className="h-2 w-full bg-slate-50 rounded-full overflow-hidden">
+            <div className="h-2 w-full bg-surface-container-low rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full"
                 style={{ width: `${row.widthPct}%`, backgroundColor: COLOR_PRIMARY }}
@@ -431,7 +431,7 @@ function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCar
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="text-[10px] font-black text-on-surface-variant/40 uppercase tracking-widest border-b border-slate-50">
+            <tr className="text-[10px] font-black text-on-surface-variant/40 uppercase tracking-widest border-b border-outline-variant/20">
               <th className="pb-4">Stage</th>
               <th className="pb-4">Job Title</th>
               <th className="pb-4">Error</th>
@@ -439,9 +439,9 @@ function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCar
               <th className="pb-4" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-outline-variant/20">
             {rows.map((row) => (
-              <tr key={row.id} className="group hover:bg-slate-50/50 transition-colors">
+              <tr key={row.id} className="group hover:bg-surface-container-low/50 transition-colors">
                 <td className="py-5">
                   <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase tracking-tighter ${failureStageClass(row.stage)}`}>
                     {row.stage}
@@ -451,7 +451,7 @@ function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCar
                   <p className="text-xs font-semibold text-on-surface">{row.position}</p>
                 </td>
                 <td className="py-5">
-                  <code className="text-[10px] font-mono text-red-500 font-bold bg-red-50 px-1.5 py-0.5 rounded">
+                  <code className="text-[10px] font-mono text-error font-bold bg-error-container px-1.5 py-0.5 rounded">
                     {row.error_code}
                   </code>
                 </td>
@@ -477,7 +477,7 @@ function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCar
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-8 text-sm text-slate-500">
+                <td colSpan={5} className="py-8 text-sm text-outline">
                   No recent failures.
                 </td>
               </tr>

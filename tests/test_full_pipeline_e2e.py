@@ -475,9 +475,9 @@ async def test_deterministic_full_pipeline_success_is_idempotent(
             assert tailor_runs[0]["artifact_tex_path"]
             assert tailor_runs[0]["artifact_pdf_path"]
 
-            review_runs = await db.get_review_runs_for_tailor_run(
-                int(tailor_runs[0]["id"]),
-            )
+            tailor_run_id = tailor_runs[0]["id"]
+            assert isinstance(tailor_run_id, int)
+            review_runs = await db.get_review_runs_for_tailor_run(tailor_run_id)
             assert len(review_runs) == 1
             assert review_runs[0]["status"] == "SUCCESS"
             assert review_runs[0]["verdict"] == "TAILORED"
@@ -650,9 +650,9 @@ async def test_full_pipeline_review_failure_persists_fallback_and_retries(
             tailor_runs = await db.get_tailor_runs_for_job(posting.job_hash)
             assert len(tailor_runs) == 1
 
-            review_runs_after_failure = await db.get_review_runs_for_tailor_run(
-                int(tailor_runs[0]["id"]),
-            )
+            tailor_run_id_2 = tailor_runs[0]["id"]
+            assert isinstance(tailor_run_id_2, int)
+            review_runs_after_failure = await db.get_review_runs_for_tailor_run(tailor_run_id_2)
             assert len(review_runs_after_failure) == 1
             assert review_runs_after_failure[0]["status"] == "FAILED"
             assert (
@@ -693,9 +693,9 @@ async def test_full_pipeline_review_failure_persists_fallback_and_retries(
                 backoff_multiplier=DEFAULT_BACKOFF_MULTIPLIER,
             )
 
-            review_runs_after_retry = await db.get_review_runs_for_tailor_run(
-                int(tailor_runs[0]["id"]),
-            )
+            tailor_run_id_3 = tailor_runs[0]["id"]
+            assert isinstance(tailor_run_id_3, int)
+            review_runs_after_retry = await db.get_review_runs_for_tailor_run(tailor_run_id_3)
             assert len(review_runs_after_retry) == 2
             assert review_runs_after_retry[0]["status"] == "FAILED"
             assert review_runs_after_retry[1]["status"] == "SUCCESS"

@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import shutil
+from collections.abc import AsyncIterator
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC
@@ -20,6 +21,8 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal
+from typing import NoReturn
+from typing import cast
 
 from fastapi import Body
 from fastapi import FastAPI
@@ -35,6 +38,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import ValidationError
+from pydantic import field_validator
+from pydantic import model_validator
 import yaml
 
 from scripts.migrate_resume_tex_to_yaml import ResumeMigrationError
@@ -76,6 +81,10 @@ LOCAL_TAILORED_RESUME_CLIENT_HOSTS = frozenset(
 JOB_HASH_PATTERN = re.compile(r"^[a-f0-9]{32,64}$")
 SETTINGS_BACKUP_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 SETTINGS_BACKUP_FILE_LIMIT = 10
+WORK_AUTH_STATUS_YES: Literal["yes"] = "yes"
+WORK_AUTH_STATUS_NO: Literal["no"] = "no"
+WORK_AUTH_STATUS_UNKNOWN: Literal["unknown"] = "unknown"
+COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
 
 TEX_SECTION_HEADER_PATTERN = re.compile(r"\\section\{\\textbf\{(?P<heading>[^}]+)\}\}")
 TEX_SECTION_HEADING_ALIASES: dict[str, str] = {
@@ -144,13 +153,158 @@ class YamlTextUpdateRequest(BaseModel):
     )
 
 
+def _normalize_optional_country_code(value: str) -> str:
+    """Normalize one optional ISO alpha-2 country code string.
+
+    Purpose:
+        Keep country-code payload values deterministic by uppercasing valid
+        alpha-2 values and rejecting malformed non-empty strings.
+    Args:
+        value: Raw country code value from request payload.
+    Output:
+        Returns an uppercase alpha-2 code, or an empty string.
+    Raises:
+        ValueError: When a non-empty value is not a valid alpha-2 code.
+    """
+
+    normalized_value = value.strip().upper()
+    if normalized_value == "":
+        return ""
+    if not COUNTRY_CODE_PATTERN.fullmatch(normalized_value):
+        raise ValueError("Country code must be a valid ISO alpha-2 code.")
+    return normalized_value
+
+
+class CandidateContactSectionPayload(BaseModel):
+    """Structured candidate contact details used by guided settings forms.
+
+    Attributes:
+        full_name: Candidate full legal/preferred name.
+        email: Primary email used for applications.
+        phone: Primary phone number used for applications.
+        city: Home city used for location defaults.
+        state_or_region: Home state or region for location defaults.
+        country_code: ISO alpha-2 home country code.
+        country_label: Human-readable home country label.
+        linkedin_url: LinkedIn profile URL.
+        github_url: GitHub profile URL.
+        portfolio_url: Portfolio or personal website URL.
+    """
+
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    city: str = ""
+    state_or_region: str = ""
+    country_code: str = ""
+    country_label: str = ""
+    linkedin_url: str = ""
+    github_url: str = ""
+    portfolio_url: str = ""
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, value: str) -> str:
+        """Validate and normalize the optional contact country code.
+
+        Purpose:
+            Enforce ISO alpha-2 format so downstream ATS mappings can rely on
+            a stable country-code representation.
+        Args:
+            value: Raw country code value for contact settings.
+        Output:
+            Returns a normalized country code string.
+        Raises:
+            ValueError: When the submitted code is not empty and not alpha-2.
+        """
+
+        return _normalize_optional_country_code(value)
+
+
+class CandidateWorkAuthorizationSectionPayload(BaseModel):
+    """Structured work-authorization details for guided settings forms.
+
+    Attributes:
+        citizenship_country_code: ISO alpha-2 citizenship country code.
+        citizenship_country_label: Human-readable citizenship country label.
+        authorized_to_work_us: Whether candidate can work in the U.S.
+        requires_sponsorship_now_or_future: Sponsorship requirement status.
+    """
+
+    citizenship_country_code: str = ""
+    citizenship_country_label: str = ""
+    authorized_to_work_us: Literal["yes", "no", "unknown"] = WORK_AUTH_STATUS_UNKNOWN
+    requires_sponsorship_now_or_future: Literal[
+        "yes",
+        "no",
+        "unknown",
+    ] = WORK_AUTH_STATUS_UNKNOWN
+
+    @field_validator("citizenship_country_code")
+    @classmethod
+    def validate_citizenship_country_code(cls, value: str) -> str:
+        """Validate and normalize the optional citizenship country code.
+
+        Purpose:
+            Keep work-authorization country values aligned with ISO alpha-2
+            formatting expected by downstream apply payload mapping.
+        Args:
+            value: Raw citizenship country code string.
+        Output:
+            Returns a normalized alpha-2 code string.
+        Raises:
+            ValueError: When the submitted code is not empty and not alpha-2.
+        """
+
+        return _normalize_optional_country_code(value)
+
+
+class CandidateEducationEntryPayload(BaseModel):
+    """Structured education row payload for guided settings forms.
+
+    Attributes:
+        id: Stable client-generated row identifier.
+        school: Institution name.
+        degree_level: Degree level label (for example BS or MS).
+        degree_name: Degree title text.
+        field_of_study: Primary major or concentration.
+        start_month: Education start month value.
+        start_year: Education start year value.
+        end_month: Education end month value.
+        end_year: Education end year value.
+        is_current: Whether this education entry is still in progress.
+        gpa: Optional GPA text.
+        location: Optional education location text.
+        highlights: Optional bullet-style highlights.
+    """
+
+    id: str = Field(
+        min_length=1,
+        description="Stable client-generated identifier for one education row.",
+    )
+    school: str = ""
+    degree_level: str = ""
+    degree_name: str = ""
+    field_of_study: str = ""
+    start_month: str = ""
+    start_year: str = ""
+    end_month: str = ""
+    end_year: str = ""
+    is_current: bool = False
+    gpa: str = ""
+    location: str = ""
+    highlights: list[str] = Field(default_factory=list)
+
+
 class CandidateProfileSectionPayload(BaseModel):
     """Structured candidate profile subsection used by guided settings forms.
 
     Attributes:
-        summary: One-line candidate summary for gate prompt context.
-        education: Education summary line used by gate prompt context.
-        citizenship: Work authorization/citizenship summary line.
+        summary: Short candidate summary used in gate prompt context.
+        contact: Structured candidate contact details.
+        work_authorization: Structured work-authorization details.
+        education_summary: High-level education summary line.
+        education_entries: Structured list of education rows.
         target_roles: Preferred role titles for matching.
         strongest_areas: Primary technical strengths.
         experience_highlights: Experience highlights for prompt grounding.
@@ -159,13 +313,42 @@ class CandidateProfileSectionPayload(BaseModel):
     """
 
     summary: str = ""
-    education: str = ""
-    citizenship: str = ""
+    contact: CandidateContactSectionPayload = Field(
+        default_factory=CandidateContactSectionPayload
+    )
+    work_authorization: CandidateWorkAuthorizationSectionPayload = Field(
+        default_factory=CandidateWorkAuthorizationSectionPayload
+    )
+    education_summary: str = ""
+    education_entries: list[CandidateEducationEntryPayload] = Field(
+        default_factory=list
+    )
     target_roles: list[str] = Field(default_factory=list)
     strongest_areas: list[str] = Field(default_factory=list)
     experience_highlights: list[str] = Field(default_factory=list)
     hard_filters: list[str] = Field(default_factory=list)
     preferences: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_education_entry_ids(self) -> CandidateProfileSectionPayload:
+        """Ensure education row identifiers remain unique within one profile.
+
+        Purpose:
+            Prevent ambiguous UI updates and backend merges by enforcing stable
+            unique IDs for each education entry row.
+        Args:
+            None.
+        Output:
+            Returns the validated model instance.
+        Raises:
+            ValueError: When duplicate education entry IDs are detected.
+        """
+
+        entry_ids = [entry.id.strip() for entry in self.education_entries]
+        unique_entry_ids = set(entry_ids)
+        if len(entry_ids) != len(unique_entry_ids):
+            raise ValueError("Education entries must use unique IDs.")
+        return self
 
 
 class CandidateSearchDefaultsPayload(BaseModel):
@@ -255,7 +438,7 @@ def _raise_api_error(
     code: str,
     message: str,
     details: dict[str, object] | None = None,
-) -> None:
+) -> NoReturn:
     """Raise an HTTPException with the project's standard error payload.
 
     Purpose:
@@ -345,6 +528,8 @@ def _salary_display(
         return f"{currency} ${salary_min / 100:,.0f}–${salary_max / 100:,.0f}"
     if salary_min is not None:
         return f"{currency} ${salary_min / 100:,.0f}+"
+    if salary_max is None:
+        return "—"
     return f"Up to {currency} ${salary_max / 100:,.0f}"
 
 
@@ -714,6 +899,7 @@ def _read_settings_text(path: Path, *, file_label: str) -> str:
             message=f"Failed to read {file_label} file.",
             details={"path": str(path), "error": str(exc)},
         )
+    raise AssertionError("Unreachable: _raise_api_error always raises HTTPException.")
 
 
 def _parse_yaml_mapping(*, yaml_text: str, context: str) -> dict[str, object]:
@@ -731,6 +917,7 @@ def _parse_yaml_mapping(*, yaml_text: str, context: str) -> dict[str, object]:
         HTTPException: When YAML is invalid or the root is not a mapping.
     """
 
+    parsed_payload: object
     try:
         parsed_payload = yaml.safe_load(yaml_text)
     except yaml.YAMLError as exc:
@@ -748,7 +935,7 @@ def _parse_yaml_mapping(*, yaml_text: str, context: str) -> dict[str, object]:
             message="YAML root must be a mapping.",
             details={"context": context},
         )
-    return parsed_payload
+    return cast(dict[str, object], parsed_payload)
 
 
 def _validate_candidate_profile_document(
@@ -776,6 +963,7 @@ def _validate_candidate_profile_document(
             message="Candidate profile settings payload is invalid.",
             details={"errors": exc.errors()},
         )
+    raise AssertionError("Unreachable: _raise_api_error always raises HTTPException.")
 
 
 def _normalize_candidate_profile_output(
@@ -829,6 +1017,7 @@ def _validate_resume_document(payload: Mapping[str, object]) -> ResumeContent:
             message="Resume settings payload is invalid.",
             details=details,
         )
+    raise AssertionError("Unreachable: _raise_api_error always raises HTTPException.")
 
 
 def _persist_yaml_mapping(path: Path, *, payload: Mapping[str, object]) -> str:
@@ -1165,7 +1354,7 @@ async def _run_startup_migrations() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(_app: FastAPI):
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Run startup migrations before the API begins serving traffic.
 
     Purpose:
@@ -1188,7 +1377,10 @@ if DASHBOARD_ASSETS_DIR.exists():
 
 
 @app.exception_handler(HTTPException)
-async def _http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
+async def _http_exception_handler(
+    _request: Request,
+    exc: HTTPException,
+) -> JSONResponse:
     """Render HTTP exceptions in the project's deterministic JSON format.
 
     Purpose:
@@ -1276,6 +1468,7 @@ async def get_dashboard_stats() -> dict[str, object]:
             """
         )
         totals_row = await totals_cursor.fetchone()
+        assert totals_row is not None  # SELECT with aggregate always returns a row
 
         source_cursor = await conn.execute(
             """
@@ -1329,6 +1522,7 @@ async def get_dashboard_stats() -> dict[str, object]:
             """
         )
         funnel_row = await funnel_cursor.fetchone()
+        assert funnel_row is not None  # SELECT with aggregate always returns a row
 
         now_utc = datetime.now(tz=UTC)
         labels = [
@@ -1527,6 +1721,7 @@ async def get_jobs(
             params,
         )
         count_row = await count_cursor.fetchone()
+        assert count_row is not None  # SELECT COUNT(*) always returns a row
         total_items = int(count_row["total_count"] or 0)
 
         jobs_cursor = await conn.execute(
@@ -1676,6 +1871,7 @@ async def download_tailored_resume(job_hash: str, request: Request) -> FileRespo
                 ),
             },
         )
+    assert resume_pdf_path is not None
 
     return FileResponse(
         resume_pdf_path,
@@ -1740,6 +1936,7 @@ async def get_human_review_queue(
             params,
         )
         count_row = await count_cursor.fetchone()
+        assert count_row is not None  # SELECT COUNT(*) always returns a row
         total_items = int(count_row["total_count"] or 0)
 
         rows_cursor = await conn.execute(
@@ -2356,6 +2553,7 @@ async def retry_failure(failure_id: str) -> dict[str, object]:
         code="NON_RETRIABLE_FAILURE",
         message="This failure stage is not retriable.",
     )
+    raise AssertionError("Unreachable: _raise_api_error always raises HTTPException.")
 
 
 @app.get("/api/costs/stats")
@@ -2388,6 +2586,7 @@ async def get_cost_stats() -> dict[str, object]:
             """
         )
         total_row = await total_cursor.fetchone()
+        assert total_row is not None  # COALESCE aggregate always returns a row
 
         today_calls_cursor = await conn.execute(
             """
@@ -2397,6 +2596,7 @@ async def get_cost_stats() -> dict[str, object]:
             """
         )
         today_calls_row = await today_calls_cursor.fetchone()
+        assert today_calls_row is not None  # SELECT COUNT(*) always returns a row
 
         applied_cursor = await conn.execute(
             """
@@ -2406,6 +2606,7 @@ async def get_cost_stats() -> dict[str, object]:
             """
         )
         applied_row = await applied_cursor.fetchone()
+        assert applied_row is not None  # SELECT COUNT(*) always returns a row
 
     total_spend = float(total_row["total_spend_usd"] or 0.0)
     applied_count = int(applied_row["applied_count"] or 0)
@@ -2454,14 +2655,14 @@ async def get_cost_daily_trend(
                 """
             )
             rows = await cursor.fetchall()
-            points = [
+            monthly_points = [
                 {
                     "label": str(row["bucket"]),
                     "spend_usd": float(row["spend_usd"] or 0.0),
                 }
                 for row in rows
             ]
-            return {"ok": True, "range": range_key, "points": points}
+            return {"ok": True, "range": range_key, "points": monthly_points}
 
         day_count = 7 if range_key == "7d" else 30
         cursor = await conn.execute(
@@ -2634,6 +2835,7 @@ async def _read_uploaded_text(file: UploadFile) -> str:
             code="INVALID_FILE_ENCODING",
             message="Uploaded file must be UTF-8 text.",
         )
+    raise AssertionError("Unreachable: _raise_api_error always raises HTTPException.")
 
 
 @app.get("/api/settings/profile")
@@ -3034,12 +3236,14 @@ async def get_filters() -> JSONResponse:
     except yaml.YAMLError:
         data = {}
 
-    return JSONResponse({
-        "ok": True,
-        "yaml_text": yaml_text,
-        "data": data,
-        "metadata": _resolve_settings_file_metadata(SETTINGS_FILTERS_PATH),
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "yaml_text": yaml_text,
+            "data": data,
+            "metadata": _resolve_settings_file_metadata(SETTINGS_FILTERS_PATH),
+        }
+    )
 
 
 class YamlPayload(BaseModel):
@@ -3079,10 +3283,12 @@ async def put_filters(payload: YamlPayload) -> JSONResponse:
     SETTINGS_FILTERS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILTERS_PATH.write_text(payload.yaml_text, encoding="utf-8")
 
-    return JSONResponse({
-        "ok": True,
-        "metadata": _resolve_settings_file_metadata(SETTINGS_FILTERS_PATH),
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "metadata": _resolve_settings_file_metadata(SETTINGS_FILTERS_PATH),
+        }
+    )
 
 
 @app.get("/api/settings/sources")
@@ -3101,12 +3307,14 @@ async def get_sources() -> JSONResponse:
     except yaml.YAMLError:
         data = {}
 
-    return JSONResponse({
-        "ok": True,
-        "yaml_text": yaml_text,
-        "data": data,
-        "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "yaml_text": yaml_text,
+            "data": data,
+            "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
+        }
+    )
 
 
 @app.put("/api/settings/sources")
@@ -3138,10 +3346,12 @@ async def put_sources(payload: YamlPayload) -> JSONResponse:
     SETTINGS_COMPANIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_COMPANIES_PATH.write_text(payload.yaml_text, encoding="utf-8")
 
-    return JSONResponse({
-        "ok": True,
-        "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
+        }
+    )
 
 
 @app.get("/{full_path:path}", include_in_schema=False)
@@ -3177,3 +3387,8 @@ async def spa_fallback(full_path: str) -> FileResponse:
         )
 
     return FileResponse(DASHBOARD_INDEX_FILE)
+
+
+__all__ = [
+    "resolve_database_path",
+]

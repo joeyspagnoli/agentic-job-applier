@@ -22,7 +22,7 @@ def query_jobs(
     remote: bool = False,
     new_only: bool = False,
     limit: int = 50,
-):
+) -> None:
     """Query the jobs database using simple CLI filters.
 
     Purpose:
@@ -55,7 +55,7 @@ def query_jobs(
             "SELECT company, title, location, is_remote, source_url, fetched_at "
             "FROM job_postings WHERE 1=1"
         )
-        params = []
+        params: list[str | int] = []
 
         if company:
             query += " AND company LIKE ?"
@@ -103,7 +103,7 @@ def query_jobs(
         db.close()
 
 
-def main():
+def main() -> None:
     """Parse CLI flags and print the filtered job list.
 
     Purpose:

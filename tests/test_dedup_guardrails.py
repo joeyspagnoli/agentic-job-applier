@@ -13,7 +13,7 @@ from src.models.job_posting import JobPosting
 from src.utils.deduplicator import Deduplicator
 
 
-def test_job_hash_distinguishes_similar_jobs_with_distinct_identity_fields():
+def test_job_hash_distinguishes_similar_jobs_with_distinct_identity_fields() -> None:
     """Verify similar postings are not collapsed when identity fields differ.
 
     Purpose:
@@ -49,7 +49,7 @@ def test_job_hash_distinguishes_similar_jobs_with_distinct_identity_fields():
 
 
 @pytest.mark.asyncio
-async def test_insert_job_raises_non_duplicate_integrity_errors():
+async def test_insert_job_raises_non_duplicate_integrity_errors() -> None:
     """Verify non-duplicate integrity violations are not masked as duplicates.
 
     Purpose:
@@ -81,7 +81,7 @@ async def test_insert_job_raises_non_duplicate_integrity_errors():
 
 
 @pytest.mark.asyncio
-async def test_deduplicator_filters_in_batch_duplicates_before_db_lookup():
+async def test_deduplicator_filters_in_batch_duplicates_before_db_lookup() -> None:
     """Verify duplicate rows in one batch are removed before DB checks.
 
     Purpose:
@@ -97,7 +97,7 @@ async def test_deduplicator_filters_in_batch_duplicates_before_db_lookup():
     class FakeDb:
         """Track `get_existing_job_hashes` calls for dedup tests."""
 
-        def __init__(self):
+        def __init__(self) -> None:
             """Initialize call tracking state.
 
             Purpose:
@@ -144,7 +144,7 @@ async def test_deduplicator_filters_in_batch_duplicates_before_db_lookup():
 
 
 @pytest.mark.asyncio
-async def test_deduplicator_uses_batch_lookup_for_persisted_hashes():
+async def test_deduplicator_uses_batch_lookup_for_persisted_hashes() -> None:
     """Verify persisted hashes are removed while unseen jobs survive.
 
     Purpose:

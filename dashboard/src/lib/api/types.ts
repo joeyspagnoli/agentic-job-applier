@@ -213,6 +213,34 @@ export interface BudgetDto {
   readonly utilization_pct: number;
 }
 
+/** Supported environment-backed API key names shown in settings UI. */
+export type ApiKeyNameDto =
+  | "OPENAI_API_KEY"
+  | "GOOGLE_API_KEY"
+  | "ANTHROPIC_API_KEY"
+  | "APIFY_API_TOKEN";
+
+/** One API key status row for write-only key management UI. */
+export interface ApiKeyStatusDto {
+  readonly name: ApiKeyNameDto;
+  readonly configured: boolean;
+}
+
+/** Response payload for API key status endpoint. */
+export interface ApiKeysResponseDto {
+  readonly ok: true;
+  readonly keys: readonly ApiKeyStatusDto[];
+}
+
+/** Supported service tier identifiers for pipeline depth controls. */
+export type ServiceTierDto = "base" | "latex" | "full";
+
+/** Response payload for service tier read/write endpoints. */
+export interface ServiceTierResponseDto {
+  readonly ok: true;
+  readonly tier: ServiceTierDto;
+}
+
 /** File metadata for settings-managed YAML files. */
 export interface SettingsFileMetadataDto {
   readonly filename: string;
@@ -242,10 +270,51 @@ export interface SettingsProfileUploadDto {
 }
 
 /** Structured candidate profile fields used by guided settings forms. */
+export interface CandidateContactSectionDto {
+  readonly full_name: string;
+  readonly email: string;
+  readonly phone: string;
+  readonly city: string;
+  readonly state_or_region: string;
+  readonly country_code: string;
+  readonly country_label: string;
+  readonly linkedin_url: string;
+  readonly github_url: string;
+  readonly portfolio_url: string;
+}
+
+/** Structured work-authorization fields used by guided settings forms. */
+export interface CandidateWorkAuthorizationSectionDto {
+  readonly citizenship_country_code: string;
+  readonly citizenship_country_label: string;
+  readonly authorized_to_work_us: "yes" | "no" | "unknown";
+  readonly requires_sponsorship_now_or_future: "yes" | "no" | "unknown";
+}
+
+/** Structured education row used by guided settings forms. */
+export interface CandidateEducationEntryDto {
+  readonly id: string;
+  readonly school: string;
+  readonly degree_level: string;
+  readonly degree_name: string;
+  readonly field_of_study: string;
+  readonly start_month: string;
+  readonly start_year: string;
+  readonly end_month: string;
+  readonly end_year: string;
+  readonly is_current: boolean;
+  readonly gpa: string;
+  readonly location: string;
+  readonly highlights: readonly string[];
+}
+
+/** Structured candidate profile fields used by guided settings forms. */
 export interface CandidateProfileSectionDto {
   readonly summary: string;
-  readonly education: string;
-  readonly citizenship: string;
+  readonly contact: CandidateContactSectionDto;
+  readonly work_authorization: CandidateWorkAuthorizationSectionDto;
+  readonly education_summary: string;
+  readonly education_entries: readonly CandidateEducationEntryDto[];
   readonly target_roles: readonly string[];
   readonly strongest_areas: readonly string[];
   readonly experience_highlights: readonly string[];

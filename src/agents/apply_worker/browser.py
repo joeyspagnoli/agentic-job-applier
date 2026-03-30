@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import httpx
 from loguru import logger
@@ -206,7 +207,7 @@ async def apply_to_job(
 
 async def _run_application_flow(
     *,
-    page: Page,
+    page: object,
     source_url: str,
     resume_pdf_path: Path,
     job_hash: str,
@@ -233,29 +234,31 @@ async def _run_application_flow(
         An ApplyRunResult with full diagnostics.
     """
 
+    playwright_page = cast(Page, page)
+
     # Step 1: Navigate to the application page
     logger.info("Navigating to {} for job_hash={}", source_url, job_hash)
     try:
-        await page.goto(source_url, timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS)
-        await page.wait_for_load_state(
+        await playwright_page.goto(source_url, timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS)
+        await playwright_page.wait_for_load_state(
             "networkidle",
             timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS,
         )
     except Exception as exc:
         logger.error("Navigation failed for {}: {}", source_url, exc)
-        await _save_screenshot_safe(page, screenshot_path)
+        await _save_screenshot_safe(playwright_page, screenshot_path)
         return ApplyRunResult(
             success=False,
             outcome=ApplyOutcome.FAILED_NAVIGATION,
             failure_reason=f"Navigation failed: {exc}",
-            page_url=page.url,
+            page_url=playwright_page.url,
             screenshot_path=str(screenshot_path)
             if screenshot_path.exists()
             else None,
         )
 
-    page_url = page.url
-    page_html = await page.content()
+    page_url = playwright_page.url
+    page_html = await playwright_page.content()
 
     # Step 2: Detect ATS platform (diagnostic only)
     ats_platform = detect_ats_platform(page_url, page_html)
@@ -263,7 +266,7 @@ async def _run_application_flow(
 
     # Step 3: Wait for Simplify extension to activate
     logger.info("Waiting for Simplify extension activation...")
-    simplify_detected: bool = await page.evaluate(
+    simplify_detected: bool = await playwright_page.evaluate(
         _JS_DETECT_SIMPLIFY,
         {
             "intervalMs": SIMPLIFY_POLL_INTERVAL_MS,
@@ -274,9 +277,9 @@ async def _run_application_flow(
     if simplify_detected:
         logger.info("Simplify extension detected for job_hash={}", job_hash)
         # Try to click the Simplify autofill button
-        await _trigger_simplify_autofill(page)
+        await _trigger_simplify_autofill(playwright_page)
         # Wait for form to stabilize after autofill
-        await page.evaluate(_JS_WAIT_FOR_STABILITY, FORM_STABILITY_WAIT_MS)
+        await playwright_page.evaluate(_JS_WAIT_FOR_STABILITY, FORM_STABILITY_WAIT_MS)
     else:
         logger.warning(
             "Simplify extension NOT detected for job_hash={}", job_hash,
@@ -284,14 +287,14 @@ async def _run_application_flow(
 
     # Step 4: Upload resume PDF (after Simplify, so it can't overwrite)
     logger.info("Uploading resume for job_hash={}...", job_hash)
-    resume_uploaded = await upload_resume(page, resume_pdf_path)
+    resume_uploaded = await upload_resume(playwright_page, resume_pdf_path)
     if resume_uploaded:
         logger.info("Resume uploaded successfully for job_hash={}", job_hash)
     else:
         logger.warning("Resume upload failed for job_hash={}", job_hash)
 
     # Step 5: Scan for unresolved fields (rich metadata for future agent)
-    unresolved_fields = await scan_unresolved_fields(page)
+    unresolved_fields = await scan_unresolved_fields(playwright_page)
     logger.info(
         "Found {} unresolved fields for job_hash={}",
         len(unresolved_fields),
@@ -300,7 +303,7 @@ async def _run_application_flow(
 
     # Step 6: Compute confidence score
     confidence_report = await compute_confidence(
-        page,
+        playwright_page,
         resume_uploaded=resume_uploaded,
         simplify_detected=simplify_detected,
         ats_platform=ats_platform,
@@ -314,8 +317,8 @@ async def _run_application_flow(
     )
 
     # Step 7: Capture artifacts
-    await _save_screenshot_safe(page, screenshot_path)
-    await _save_dom_safe(page, dom_snapshot_path)
+    await _save_screenshot_safe(playwright_page, screenshot_path)
+    await _save_dom_safe(playwright_page, dom_snapshot_path)
 
     # Save unresolved fields to JSON file
     unresolved_dicts = [f.model_dump() for f in unresolved_fields]
@@ -344,7 +347,7 @@ async def _run_application_flow(
         dom_snapshot_path=str(dom_snapshot_path),
         unresolved_fields=unresolved_fields,
         ats_platform=ats_platform,
-        page_url=page.url,
+        page_url=playwright_page.url,
     )
 
 
@@ -399,6 +402,9 @@ async def _save_dom_safe(page: Page, path: Path) -> None:
 
 
 __all__ = [
+    "ApplyRunResult",
+    "SIMPLIFY_POLL_INTERVAL_MS",
+    "SIMPLIFY_POLL_TIMEOUT_MS",
     "apply_to_job",
     "check_chrome_reachable",
 ]

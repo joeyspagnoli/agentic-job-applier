@@ -37,12 +37,12 @@ function formatDiscovered(rawValue: string): string {
  */
 function sourceBadgeClass(source: string): string {
   if (source === "GREENHOUSE") {
-    return "bg-indigo-100 text-indigo-700";
+    return "bg-primary-fixed text-primary";
   }
   if (source === "WORKDAY") {
     return "bg-emerald-100 text-emerald-700";
   }
-  return "bg-slate-100 text-slate-700";
+  return "bg-surface-container text-on-surface-variant";
 }
 
 /**
@@ -54,18 +54,18 @@ function sourceBadgeClass(source: string): string {
 function statusBadgeClass(status: string): string {
   const normalized = status.toUpperCase();
   if (normalized === "APPLIED") {
-    return "bg-green-100 text-green-700";
+    return "bg-success-container text-on-success-container";
   }
   if (normalized.includes("PENDING")) {
-    return "bg-amber-100 text-amber-700";
+    return "bg-warning-container text-on-warning-container";
   }
   if (normalized.includes("FAILED")) {
-    return "bg-red-100 text-red-700";
+    return "bg-error-container text-on-error-container";
   }
   if (normalized === "FILTERED" || normalized === "REJECTED") {
-    return "bg-slate-100 text-slate-700";
+    return "bg-surface-container text-on-surface-variant";
   }
-  return "bg-indigo-100 text-indigo-700";
+  return "bg-primary-fixed text-primary";
 }
 
 /**
@@ -147,11 +147,11 @@ export function JobsPage(): JSX.Element {
 
       <div className="bg-white p-4 rounded-xl border border-white flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="relative md:w-[420px]">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">
             search
           </span>
           <input
-            className="w-full rounded-lg border bg-slate-50 py-2 pl-10 pr-3 text-sm"
+            className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-3 text-sm"
             style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
             placeholder="Search company or role..."
             value={searchQuery}
@@ -188,7 +188,7 @@ export function JobsPage(): JSX.Element {
       </div>
 
       {jobsQuery.isError && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-error-container bg-error-container px-4 py-3 text-sm text-on-error-container">
           Failed to load jobs table data. Use Sync now to retry.
         </div>
       )}
@@ -221,14 +221,14 @@ export function JobsPage(): JSX.Element {
             ))}
             {jobsQuery.isLoading && (
               <tr>
-                <td className="px-6 py-10 text-sm text-slate-500" colSpan={9}>
+                <td className="px-6 py-10 text-sm text-outline" colSpan={9}>
                   Loading jobs...
                 </td>
               </tr>
             )}
             {!jobsQuery.isLoading && rows.length === 0 && (
               <tr>
-                <td className="px-6 py-10 text-sm text-slate-500" colSpan={9}>
+                <td className="px-6 py-10 text-sm text-outline" colSpan={9}>
                   No jobs match the current filters.
                 </td>
               </tr>
@@ -269,9 +269,9 @@ interface StatCardProps {
 function StatCard({ label, value, subtitle }: StatCardProps): JSX.Element {
   return (
     <div className="rounded-xl bg-white border border-white p-6 shadow-sm">
-      <p className="text-[11px] font-bold tracking-widest uppercase text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-black text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+      <p className="text-[11px] font-bold tracking-widest uppercase text-outline">{label}</p>
+      <p className="mt-2 text-3xl font-black text-on-surface">{value}</p>
+      <p className="mt-1 text-xs text-outline">{subtitle}</p>
     </div>
   );
 }
@@ -297,12 +297,12 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
 
   return (
     <>
-      <tr className="border-t border-slate-100 hover:bg-slate-50/50 transition-colors">
-        <td className="px-6 py-4 font-semibold text-slate-900">{row.company}</td>
-        <td className="px-6 py-4 text-slate-700">{row.position}</td>
-        <td className="px-6 py-4 text-slate-600">{row.location}</td>
-        <td className="px-6 py-4 text-slate-600">{row.pay}</td>
-        <td className="px-6 py-4 text-slate-600">{row.workType}</td>
+      <tr className="border-t border-outline-variant/30 hover:bg-surface-container-low/50 transition-colors">
+        <td className="px-6 py-4 font-semibold text-on-surface">{row.company}</td>
+        <td className="px-6 py-4 text-on-surface-variant">{row.position}</td>
+        <td className="px-6 py-4 text-on-surface-variant">{row.location}</td>
+        <td className="px-6 py-4 text-on-surface-variant">{row.pay}</td>
+        <td className="px-6 py-4 text-on-surface-variant">{row.workType}</td>
         <td className="px-6 py-4">
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${sourceBadgeClass(row.source)}`}>
             {row.source}
@@ -313,7 +313,7 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
             {row.status}
           </span>
         </td>
-        <td className="px-6 py-4 text-xs text-slate-500">{formatDiscovered(row.discovered)}</td>
+        <td className="px-6 py-4 text-xs text-outline">{formatDiscovered(row.discovered)}</td>
         <td className="px-6 py-4 text-right">
           <button className="p-1" style={{ color: COLOR_PRIMARY }} onClick={onToggle} aria-label="Toggle row details">
             <span className="material-symbols-outlined">{expanded ? "expand_less" : "expand_more"}</span>
@@ -322,16 +322,16 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
       </tr>
 
       {expanded && (
-        <tr className="bg-slate-50/50">
+        <tr className="bg-surface-container-low/50">
           <td className="px-6 py-6" colSpan={9}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">Gate Verdict</p>
-                <p className="text-sm font-semibold text-slate-900">{row.gateVerdict}</p>
-                <p className="text-xs text-slate-600 leading-5">{row.gateReasoning}</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Gate Verdict</p>
+                <p className="text-sm font-semibold text-on-surface">{row.gateVerdict}</p>
+                <p className="text-xs text-on-surface-variant leading-5">{row.gateReasoning}</p>
                 {safeJobPostingUrl !== null ? (
                   <a
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:underline"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     href={safeJobPostingUrl}
                     target="_blank"
                     rel="noreferrer"
@@ -340,35 +340,35 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
                     <span className="material-symbols-outlined text-sm">open_in_new</span>
                   </a>
                 ) : (
-                  <p className="text-xs font-semibold text-slate-500">Job posting URL unavailable</p>
+                  <p className="text-xs font-semibold text-outline">Job posting URL unavailable</p>
                 )}
               </div>
 
               <div className="space-y-2 lg:col-span-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">Pipeline</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Pipeline</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {row.pipeline.map((step) => (
-                    <div key={step.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                    <div key={step.label} className="rounded-lg border border-outline-variant bg-white px-3 py-2 text-xs">
                       <div className="flex items-center gap-2">
                         <span
                           className={`w-2 h-2 rounded-full ${
                             step.status === "complete"
-                              ? "bg-green-500"
+                              ? "bg-success"
                               : step.status === "active"
-                                ? "bg-indigo-500"
-                                : "bg-slate-300"
+                                ? "bg-primary"
+                                : "bg-surface-container-high"
                           }`}
                         />
-                        <span className="font-semibold text-slate-700">{step.label}</span>
+                        <span className="font-semibold text-on-surface-variant">{step.label}</span>
                       </div>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-on-surface-variant">
                   Tailored Resume:{" "}
                   {row.tailoredResume ? (
                     <a
-                      className="font-semibold text-indigo-700 hover:underline"
+                      className="font-semibold text-primary hover:underline"
                       href={getTailoredResumeUrl(row.jobHash)}
                       target="_blank"
                       rel="noreferrer"
@@ -410,13 +410,13 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
   const safeTotalPages = Math.max(1, totalPages);
 
   return (
-    <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
-      <p className="text-xs font-medium text-slate-500">
+    <div className="px-6 py-4 border-t border-outline-variant/30 flex items-center justify-between">
+      <p className="text-xs font-medium text-outline">
         Showing page {currentPage} of {safeTotalPages} ({totalItems.toLocaleString()} jobs)
       </p>
       <div className="flex items-center gap-2">
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"
+          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
           onClick={() => {
             onPageChange(Math.max(1, currentPage - 1));
           }}
@@ -425,7 +425,7 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
           Prev
         </button>
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"
+          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
           onClick={() => {
             onPageChange(Math.min(safeTotalPages, currentPage + 1));
           }}

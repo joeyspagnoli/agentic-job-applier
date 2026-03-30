@@ -8,7 +8,7 @@ from pathlib import Path
 import scripts.test_fetchers as smoke_script
 
 
-def test_uv_lock_excludes_known_vulnerable_versions():
+def test_uv_lock_excludes_known_vulnerable_versions() -> None:
     """Verify lockfile does not contain known vulnerable package versions.
 
     Purpose:
@@ -34,7 +34,7 @@ def test_uv_lock_excludes_known_vulnerable_versions():
     assert installed_versions.get("python-multipart") != "0.0.21"
 
 
-def test_manual_smoke_script_is_not_pytest_collectable():
+def test_manual_smoke_script_is_not_pytest_collectable() -> None:
     """Verify manual smoke script stays out of automated pytest collection.
 
     Purpose:

@@ -141,3 +141,10 @@ async def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(main()))
+
+
+__all__ = [
+    "logger",
+    "run_pipeline_once",
+    "main",
+]

@@ -117,7 +117,7 @@ export function DashboardPage(): JSX.Element {
       </div>
 
       {(statsQuery.isError || trendQuery.isError) && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-error-container bg-error-container px-4 py-3 text-sm text-on-error-container">
           Failed to load dashboard data. Use Sync now to retry.
         </div>
       )}
@@ -128,7 +128,7 @@ export function DashboardPage(): JSX.Element {
             <h3 className="text-lg font-bold" style={{ color: COLOR_ON_SURFACE }}>
               Discovery Trends
             </h3>
-            <div className="flex items-center gap-2 rounded-full bg-slate-100 p-1">
+            <div className="flex items-center gap-2 rounded-full bg-surface-container p-1">
               <RangeButton
                 active={trendRange === "7d"}
                 label="Last 7 days"

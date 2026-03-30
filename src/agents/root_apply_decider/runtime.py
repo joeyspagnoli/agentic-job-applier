@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from collections.abc import Mapping
 
+from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -17,7 +18,7 @@ from .schemas import ApplyDecision
 from .schemas import GateRunResult
 
 
-def extract_event_text(event: Any) -> str:
+def extract_event_text(event: object) -> str:
     """Pull plain text content out of an ADK event when text is present.
 
     Purpose:
@@ -60,8 +61,8 @@ def map_decision_to_status(decision: ApplyDecision) -> str:
 
 async def run_decider_for_job(
     *,
-    agent: Any,
-    job: dict[str, Any],
+    agent: BaseAgent,
+    job: Mapping[str, object],
 ) -> GateRunResult:
     """Run the ADK decider for one job and parse its raw response locally.
 
@@ -76,7 +77,8 @@ async def run_decider_for_job(
         decision cannot be recovered from the model response.
     """
 
-    session_service = InMemorySessionService()
+    # google-adk currently lacks strict type hints for this constructor.
+    session_service = InMemorySessionService()  # type: ignore[no-untyped-call]
     app_name = "job_apply_decider"
     user_id = "worker"
     session_id = str(uuid.uuid4())
@@ -118,7 +120,8 @@ async def run_decider_for_job(
             if hasattr(event, "is_final_response") and event.is_final_response():
                 final_response_text = event_text
     finally:
-        await runner.close()
+        # google-adk currently lacks strict type hints for this method.
+        await runner.close()  # type: ignore[no-untyped-call]
 
     raw_response = final_response_text or "".join(streamed_text_fragments).strip()
     if not raw_response:
@@ -129,4 +132,3 @@ async def run_decider_for_job(
         provider=get_decider_provider(),
         model=get_decider_model_name(),
     )
-

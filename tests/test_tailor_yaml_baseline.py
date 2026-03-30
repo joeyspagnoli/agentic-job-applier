@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 
 from scripts.process_qualified_jobs import _tailor_once
+from src.agents.resume_tailor_pi import TailorInvocationContract
 from src.database.db_manager import DatabaseManager
 
 
@@ -104,7 +105,7 @@ async def test_yaml_unchanged_after_successful_pipeline_run(
     mock_result.final_page_count = 1
     mock_result.failure_reason = None
 
-    def fake_pipeline(*, invocation: object) -> MagicMock:
+    def fake_pipeline(*, invocation: TailorInvocationContract) -> MagicMock:
         """Write tailored content to the work copy path.
 
         Purpose:
@@ -166,7 +167,7 @@ async def test_yaml_unchanged_after_pipeline_failure(
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
-    def fake_pipeline(*, invocation: object) -> MagicMock:
+    def fake_pipeline(*, invocation: TailorInvocationContract) -> MagicMock:
         """Raise to simulate a pipeline crash.
 
         Purpose:
@@ -237,7 +238,9 @@ async def test_yaml_copy_fails_when_source_deleted_records_failure(
     runs = await db.get_tailor_runs_for_job(job_hash)
     assert len(runs) == 1
     assert runs[0]["status"] == "FAILED"
-    assert "yaml_copy_failed" in runs[0]["error"]
+    run_error = runs[0]["error"]
+    assert isinstance(run_error, str)
+    assert "yaml_copy_failed" in run_error
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +278,7 @@ async def test_yaml_externally_modified_does_not_affect_work_copy(
     mock_result.final_page_count = 1
     mock_result.failure_reason = None
 
-    def fake_pipeline(*, invocation: object) -> MagicMock:
+    def fake_pipeline(*, invocation: TailorInvocationContract) -> MagicMock:
         """Capture the content seen by the pipeline via work copy path.
 
         Purpose:

@@ -53,6 +53,8 @@ async def test_db_get_job_context_supports_hash_and_id_selectors() -> None:
             stored_row = await db.get_job_by_hash(inserted_job.job_hash)
 
         assert stored_row is not None
+        stored_row_id = stored_row["id"]
+        assert isinstance(stored_row_id, int)
 
         by_hash = await db_get_job_context(
             database_path=db_path,
@@ -60,7 +62,7 @@ async def test_db_get_job_context_supports_hash_and_id_selectors() -> None:
         )
         by_id = await db_get_job_context(
             database_path=db_path,
-            job_id=stored_row["id"],
+            job_id=stored_row_id,
         )
 
     assert by_hash["job_hash"] == inserted_job.job_hash

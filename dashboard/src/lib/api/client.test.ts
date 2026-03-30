@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchBudget, uploadProfile, uploadResume } from "@/lib/api/client";
+import {
+  fetchApiKeysSettings,
+  fetchBudget,
+  updateServiceTierSetting,
+  uploadProfile,
+  uploadResume,
+} from "@/lib/api/client";
 
 /**
  * Build one JSON response object for fetch-mock test scenarios.
@@ -98,5 +104,46 @@ describe("api client success parsing", () => {
 
     expect(payload.ok).toBe(true);
     expect(payload.profile.filename).toBe("candidate_profile.yaml");
+  });
+
+  it("fetches API key statuses for write-only key management", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        keys: [
+          { name: "OPENAI_API_KEY", configured: true },
+          { name: "APIFY_API_TOKEN", configured: false },
+        ],
+      }),
+    );
+
+    const payload = await fetchApiKeysSettings();
+
+    expect(payload.ok).toBe(true);
+    expect(payload.keys).toEqual([
+      { name: "OPENAI_API_KEY", configured: true },
+      { name: "APIFY_API_TOKEN", configured: false },
+    ]);
+  });
+
+  it("persists selected service tier with a typed payload", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        tier: "latex",
+      }),
+    );
+
+    const payload = await updateServiceTierSetting("latex");
+
+    expect(payload.ok).toBe(true);
+    expect(payload.tier).toBe("latex");
+    expect(fetchSpy).toHaveBeenCalledWith("/api/settings/service-tier", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tier: "latex" }),
+    });
   });
 });

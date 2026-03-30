@@ -19,7 +19,7 @@ from src.models.job_posting import JobPosting
 async def test_status_failed_24h_filter_uses_sqlite_compatible_timestamps(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-):
+) -> None:
     """Verify status script reports only failures from the last 24 hours.
 
     Purpose:
@@ -73,7 +73,7 @@ async def test_status_failed_24h_filter_uses_sqlite_compatible_timestamps(
 async def test_query_jobs_new_only_filters_by_today_window(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-):
+) -> None:
     """Verify `--new` style filtering includes only current-day jobs.
 
     Purpose:
@@ -122,7 +122,7 @@ async def test_query_jobs_new_only_filters_by_today_window(
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_today_counts_only_current_day_rows():
+async def test_get_jobs_today_counts_only_current_day_rows() -> None:
     """Verify database helper counts rows within today's timestamp window.
 
     Purpose:
@@ -166,7 +166,7 @@ async def test_get_jobs_today_counts_only_current_day_rows():
 
 
 @pytest.mark.asyncio
-async def test_agent_queries_auto_migrate_legacy_schema():
+async def test_agent_queries_auto_migrate_legacy_schema() -> None:
     """Verify agent-query methods self-heal legacy schema before querying.
 
     Purpose:
@@ -235,7 +235,7 @@ async def test_agent_queries_auto_migrate_legacy_schema():
 
 
 @pytest.mark.asyncio
-async def test_migrate_agent_schema_is_idempotent():
+async def test_migrate_agent_schema_is_idempotent() -> None:
     """Verify running agent migration repeatedly does not fail.
 
     Purpose:

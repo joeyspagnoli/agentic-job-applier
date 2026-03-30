@@ -12,6 +12,7 @@ from typing import Optional
 
 import aiosqlite
 from loguru import logger
+from src.utils.json_types import JSONObject, get_float_opt
 
 DEFAULT_AGENT_CLAIM_LEASE_SECONDS = 900
 DEFAULT_TAILOR_CLAIM_LEASE_SECONDS = 7200
@@ -133,7 +134,7 @@ class DatabaseManager:
         await conn.executescript(schema)
         await conn.commit()
 
-    async def insert_job(self, job_data: dict) -> bool:
+    async def insert_job(self, job_data: dict[str, object]) -> bool:
         """Insert a normalized job posting into the database.
 
         Purpose:
@@ -180,7 +181,7 @@ class DatabaseManager:
             logger.error("Unexpected insert integrity error: {}", exc)
             raise
 
-    async def get_job_by_hash(self, job_hash: str) -> Optional[dict]:
+    async def get_job_by_hash(self, job_hash: str) -> Optional[JSONObject]:
         """Fetch one job row by its deduplication hash.
 
         Purpose:
@@ -202,7 +203,7 @@ class DatabaseManager:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def get_job_by_id(self, job_id: int) -> Optional[dict]:
+    async def get_job_by_id(self, job_id: int) -> Optional[JSONObject]:
         """Fetch one job row by its numeric primary key.
 
         Purpose:
@@ -228,7 +229,7 @@ class DatabaseManager:
         *,
         job_hash: str | None = None,
         job_id: int | None = None,
-    ) -> Optional[dict]:
+    ) -> Optional[JSONObject]:
         """Fetch the job context payload used by resume-tailor workflows.
 
         Purpose:
@@ -349,7 +350,11 @@ class DatabaseManager:
         )
         await conn.commit()
 
-    async def get_jobs_by_status(self, status: str, limit: int = 100) -> list[dict]:
+    async def get_jobs_by_status(
+        self,
+        status: str,
+        limit: int = 100,
+    ) -> list[JSONObject]:
         """Fetch jobs matching a specific workflow status.
 
         Purpose:
@@ -372,7 +377,10 @@ class DatabaseManager:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def get_jobs_pending_agent_processing(self, limit: int = 100) -> list[dict]:
+    async def get_jobs_pending_agent_processing(
+        self,
+        limit: int = 100,
+    ) -> list[JSONObject]:
         """Atomically claim and fetch pending NEW jobs for agent processing.
 
         Purpose:
@@ -438,7 +446,7 @@ class DatabaseManager:
                 """,
                 (claim_token, claim_cutoff_modifier, limit),
             )
-            rows = await cursor.fetchall()
+            rows = list(await cursor.fetchall())
             await conn.commit()
         except Exception:
             await conn.rollback()
@@ -934,7 +942,7 @@ class DatabaseManager:
 
         if row is None:
             raise RuntimeError("Failed to fetch COUNT(*) from job_postings")
-        return row[0]
+        return int(row[0])
 
     async def get_jobs_today(self) -> int:
         """Return how many jobs were fetched on the current date.
@@ -961,7 +969,7 @@ class DatabaseManager:
 
         if row is None:
             raise RuntimeError("Failed to fetch today's job count")
-        return row[0]
+        return int(row[0])
 
     # ------------------------------------------------------------------
     # Tailor-run schema and claim methods
@@ -1052,7 +1060,7 @@ class DatabaseManager:
         *,
         max_retries: int,
         lease_seconds: int = DEFAULT_TAILOR_CLAIM_LEASE_SECONDS,
-    ) -> Optional[dict]:
+    ) -> Optional[dict[str, object]]:
         """Atomically claim the next eligible QUALIFIED job for tailoring.
 
         Purpose:
@@ -1143,9 +1151,6 @@ class DatabaseManager:
             job_row = await job_cursor.fetchone()
 
             await conn.commit()
-            logger.info(
-                "Claimed tailor job: job_hash={} run_id={}", job_hash, run_row["id"]
-            )
         except Exception:
             await conn.rollback()
             raise
@@ -1153,6 +1158,7 @@ class DatabaseManager:
         if run_row is None or job_row is None:
             return None
 
+        logger.info("Claimed tailor job: job_hash={} run_id={}", job_hash, run_row["id"])
         merged = dict(job_row)
         merged["_tailor_run_id"] = run_row["id"]
         merged["_tailor_claim_token"] = run_row["claim_token"]
@@ -1300,7 +1306,7 @@ class DatabaseManager:
         )
         await conn.commit()
 
-    async def get_tailor_runs_for_job(self, job_hash: str) -> list[dict]:
+    async def get_tailor_runs_for_job(self, job_hash: str) -> list[JSONObject]:
         """Fetch all tailor runs for a given job hash.
 
         Purpose:
@@ -1435,7 +1441,7 @@ class DatabaseManager:
         *,
         max_retries: int,
         lease_seconds: int = DEFAULT_REVIEW_CLAIM_LEASE_SECONDS,
-    ) -> Optional[dict]:
+    ) -> Optional[JSONObject]:
         """Atomically claim one eligible tailor SUCCESS run for review.
 
         Purpose:
@@ -1720,7 +1726,10 @@ class DatabaseManager:
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def get_review_runs_for_tailor_run(self, tailor_run_id: int) -> list[dict]:
+    async def get_review_runs_for_tailor_run(
+        self,
+        tailor_run_id: int,
+    ) -> list[JSONObject]:
         """Fetch review run history for one tailor run.
 
         Purpose:
@@ -1867,7 +1876,7 @@ class DatabaseManager:
         *,
         max_retries: int,
         lease_seconds: int = DEFAULT_APPLY_CLAIM_LEASE_SECONDS,
-    ) -> Optional[dict]:
+    ) -> Optional[JSONObject]:
         """Atomically claim one eligible reviewed job for browser application.
 
         Purpose:
@@ -2219,7 +2228,7 @@ class DatabaseManager:
         *,
         handoff_status: str | None = None,
         limit: int = 100,
-    ) -> list[dict]:
+    ) -> list[JSONObject]:
         """Fetch persisted apply handoffs for operator review workflows.
 
         Purpose:
@@ -2441,7 +2450,7 @@ class DatabaseManager:
         )
         await conn.commit()
 
-    async def get_budget_settings(self) -> dict:
+    async def get_budget_settings(self) -> JSONObject:
         """Fetch monthly budget with current month spend rollup.
 
         Purpose:
@@ -2503,10 +2512,14 @@ class DatabaseManager:
         """
 
         budget_snapshot = await self.get_budget_settings()
-        remaining_usd = float(budget_snapshot.get("remaining_usd", 0.0))
+        remaining_usd = get_float_opt(budget_snapshot, "remaining_usd") or 0.0
         return remaining_usd <= 0.0
 
-    async def set_budget_settings(self, *, monthly_budget_usd: float) -> dict:
+    async def set_budget_settings(
+        self,
+        *,
+        monthly_budget_usd: float,
+    ) -> JSONObject:
         """Persist a new monthly budget value and return the updated snapshot.
 
         Purpose:
@@ -2545,7 +2558,7 @@ class DatabaseManager:
         handoff_id: int,
         target_status: str,
         reviewer_notes: str | None = None,
-    ) -> dict:
+    ) -> JSONObject:
         """Resolve a human-review handoff and update job status atomically.
 
         Purpose:
@@ -2695,7 +2708,7 @@ class DatabaseManager:
             await self.conn.close()
             self.conn = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "DatabaseManager":
         """Open the database connection when entering the async context.
 
         Purpose:
@@ -2710,7 +2723,12 @@ class DatabaseManager:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Close the database connection when exiting the async context.
 
         Purpose:

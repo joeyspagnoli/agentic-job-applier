@@ -2,18 +2,19 @@
 
 import asyncio
 import math
+from collections.abc import Mapping
 from datetime import date
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional
 
-from jobspy import scrape_jobs
+from jobspy import scrape_jobs  # type: ignore[import-untyped]
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
 from src.fetchers.errors import FetchError
-from src.models.job_posting import JobPosting
+from src.models.job_posting import JobPosting, map_job_type
 
 
-def clean_value(val: Any, default: Any = None) -> Any:
+def clean_value(val: object, default: object | None = None) -> object | None:
     """Normalize JobSpy values that may contain NaNs or date objects.
 
     Purpose:
@@ -44,7 +45,7 @@ def clean_value(val: Any, default: Any = None) -> Any:
     return val
 
 
-def clean_str(val: Any, default: str = "") -> str:
+def clean_str(val: object, default: str = "") -> str:
     """Normalize a JobSpy value into a safe string.
 
     Purpose:
@@ -63,6 +64,32 @@ def clean_str(val: Any, default: str = "") -> str:
     return str(cleaned)
 
 
+def _coerce_float(value: object | None) -> float | None:
+    """Convert a cleaned scalar value to float when possible.
+
+    Purpose:
+        Normalize numeric salary inputs into a concrete float type before
+        annual-cents conversion logic runs.
+    Args:
+        value: Cleaned scalar value from JobSpy payload.
+    Output:
+        Returns parsed float value or `None` when conversion fails.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
 class JobSpyFetcher(BaseFetcher):
     """Fetch job postings from JobSpy-supported job boards."""
 
@@ -73,7 +100,7 @@ class JobSpyFetcher(BaseFetcher):
         location: str = "Remote",
         results_wanted: int = 25,
         country: str = "USA",
-    ):
+    ) -> None:
         """Store the JobSpy search settings for one crawl variant.
 
         Purpose:
@@ -118,7 +145,7 @@ class JobSpyFetcher(BaseFetcher):
         term_slug = self.search_term.lower().replace(" ", "_")[:30]
         return f"jobspy_{self.site_name}_{term_slug}"
 
-    async def fetch_jobs(self) -> List[JobPosting]:
+    async def fetch_jobs(self) -> list[JobPosting]:
         """Run the JobSpy scrape and normalize each returned row.
 
         Purpose:
@@ -162,7 +189,7 @@ class JobSpyFetcher(BaseFetcher):
 
         return jobs
 
-    def _scrape_sync(self):
+    def _scrape_sync(self) -> Any:
         """Run JobSpy's blocking scrape function.
 
         Purpose:
@@ -182,7 +209,7 @@ class JobSpyFetcher(BaseFetcher):
             hours_old=72,
         )
 
-    def _parse_job(self, job_data: dict) -> JobPosting:
+    def _parse_job(self, job_data: Mapping[str, object]) -> JobPosting:
         """Convert one JobSpy row dictionary into a normalized `JobPosting`.
 
         Purpose:
@@ -203,26 +230,24 @@ class JobSpyFetcher(BaseFetcher):
         description = clean_str(job_data.get("description"), "")
         job_url = clean_str(job_data.get("job_url"), "")
 
-        company_url = clean_value(job_data.get("company_url"))
-        if company_url is not None:
-            company_url = str(company_url)
+        company_url_raw = clean_value(job_data.get("company_url"))
+        company_url: str | None = str(company_url_raw) if company_url_raw is not None else None
 
-        job_type = clean_value(job_data.get("job_type"))
-        if job_type is not None:
-            job_type = str(job_type)
+        # Map job_type using the canonical mapping so we get a proper Literal type.
+        job_type_raw = clean_value(job_data.get("job_type"))
+        job_type_str: str | None = str(job_type_raw) if job_type_raw is not None else None
+        job_type = map_job_type(job_type_str)
 
         # Dates and salary intervals are normalized to strings before they are
         # handed to the shared model and JSON serializer.
-        date_posted = clean_value(job_data.get("date_posted"))
-        if date_posted is not None:
-            date_posted = str(date_posted)
+        date_posted_raw = clean_value(job_data.get("date_posted"))
+        date_posted: str | None = str(date_posted_raw) if date_posted_raw is not None else None
 
-        min_amount = clean_value(job_data.get("min_amount"))
-        max_amount = clean_value(job_data.get("max_amount"))
+        min_amount = _coerce_float(clean_value(job_data.get("min_amount")))
+        max_amount = _coerce_float(clean_value(job_data.get("max_amount")))
         currency = clean_str(job_data.get("currency"), "USD")
-        interval = clean_value(job_data.get("interval"))
-        if interval is not None:
-            interval = str(interval)
+        interval_raw = clean_value(job_data.get("interval"))
+        interval: str | None = str(interval_raw) if interval_raw is not None else None
 
         salary_min, salary_max = self._normalize_salary(
             min_amount,
@@ -232,7 +257,7 @@ class JobSpyFetcher(BaseFetcher):
 
         # The raw payload is cleaned field-by-field so JSON serialization never
         # has to deal with NaNs or other pandas-specific sentinel values.
-        cleaned_raw_data = {}
+        cleaned_raw_data: dict[str, object] = {}
         for key, value in job_data.items():
             cleaned_raw_data[key] = clean_value(value)
 

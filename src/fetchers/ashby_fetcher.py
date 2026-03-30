@@ -8,13 +8,15 @@ postings for a given company.
 from __future__ import annotations
 
 import re
-from typing import Optional
+from collections.abc import Mapping
+from typing import Literal, Optional
 
 import httpx
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
 from src.models.job_posting import JobPosting
+from src.utils.json_types import get_dict, get_float_opt, get_str
 
 BASE_URL = "https://api.ashbyhq.com/posting-api/job-board"
 
@@ -109,7 +111,7 @@ class AshbyFetcher(BaseFetcher):
         logger.debug("Fetched {} jobs from Ashby {}", len(jobs), self.company_name)
         return [self._parse_job(posting) for posting in jobs]
 
-    def _parse_job(self, posting: dict) -> JobPosting:
+    def _parse_job(self, posting: Mapping[str, object]) -> JobPosting:
         """Convert one Ashby posting payload into a normalized :class:`JobPosting`.
 
         Args:
@@ -119,26 +121,28 @@ class AshbyFetcher(BaseFetcher):
             A normalized :class:`JobPosting` instance.
         """
         # Ashby nests location under different possible keys.
-        location = posting.get("location", "") or ""
-        if isinstance(location, dict):
-            location = location.get("name", "")
+        location_dict = get_dict(posting, "location")
+        if location_dict is not None:
+            location = get_str(location_dict, "name")
+        else:
+            location = get_str(posting, "location")
 
         # Description may be HTML.
-        description_html = posting.get("descriptionHtml", "") or ""
+        description_html = get_str(posting, "descriptionHtml")
         description = self._clean_html(description_html)
         if not description:
-            description = posting.get("descriptionPlain", "") or ""
+            description = get_str(posting, "descriptionPlain")
 
         # Employment type mapping.
-        employment_type = posting.get("employmentType", "") or ""
+        employment_type = get_str(posting, "employmentType")
 
         # Compensation info.
         salary_min, salary_max, salary_source = self._extract_salary(posting)
 
         # Build the posting URL.
-        job_url = posting.get("jobUrl", "") or posting.get("applyUrl", "") or ""
+        job_url = get_str(posting, "jobUrl") or get_str(posting, "applyUrl")
         if not job_url:
-            posting_id = posting.get("id", "")
+            posting_id = get_str(posting, "id")
             if posting_id:
                 job_url = f"https://jobs.ashbyhq.com/{self.board_id}/{posting_id}"
 
@@ -147,20 +151,20 @@ class AshbyFetcher(BaseFetcher):
             source_url=job_url,
             company=self.company_name,
             company_url=f"https://jobs.ashbyhq.com/{self.board_id}",
-            title=posting.get("title", "Unknown Title"),
+            title=get_str(posting, "title", "Unknown Title"),
             location=location,
             job_type=self._map_employment_type(employment_type),
             description=description,
             salary_min=salary_min,
             salary_max=salary_max,
             salary_source=salary_source,
-            raw_data=posting,
+            raw_data=dict(posting),
         )
 
     @staticmethod
     def _extract_salary(
-        posting: dict,
-    ) -> tuple[int | None, int | None, str]:
+        posting: Mapping[str, object],
+    ) -> tuple[int | None, int | None, Literal["direct", "not_listed"]]:
         """Extract salary info from Ashby's compensation field.
 
         Args:
@@ -169,22 +173,29 @@ class AshbyFetcher(BaseFetcher):
         Returns:
             A ``(min_cents, max_cents, salary_source)`` tuple.
         """
-        comp = posting.get("compensation")
+        comp = get_dict(posting, "compensation")
         if not comp:
             return None, None, "not_listed"
 
-        raw_min = comp.get("min") or comp.get("salaryMin")
-        raw_max = comp.get("max") or comp.get("salaryMax")
+        raw_min = get_float_opt(comp, "min")
+        if raw_min is None:
+            raw_min = get_float_opt(comp, "salaryMin")
+        raw_max = get_float_opt(comp, "max")
+        if raw_max is None:
+            raw_max = get_float_opt(comp, "salaryMax")
+
         if raw_min is None and raw_max is None:
             return None, None, "not_listed"
 
         # Ashby usually reports annual amounts.
-        min_cents = int(float(raw_min) * 100) if raw_min is not None else None
-        max_cents = int(float(raw_max) * 100) if raw_max is not None else None
+        min_cents = int(raw_min * 100) if raw_min is not None else None
+        max_cents = int(raw_max * 100) if raw_max is not None else None
         return min_cents, max_cents, "direct"
 
     @staticmethod
-    def _map_employment_type(employment_type: str) -> str | None:
+    def _map_employment_type(
+        employment_type: str,
+    ) -> Literal["Full-time", "Part-time", "Contract", "Internship"] | None:
         """Map Ashby's employment type to the normalized job_type enum.
 
         Args:

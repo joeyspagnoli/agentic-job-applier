@@ -12,7 +12,7 @@ from src.fetchers.jobspy_fetcher import JobSpyFetcher
 @pytest.mark.asyncio
 async def test_apify_fetcher_raises_fetch_error_when_actor_call_fails(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify actor-call failures bubble up as `FetchError`.
 
     Purpose:
@@ -24,7 +24,7 @@ async def test_apify_fetcher_raises_fetch_error_when_actor_call_fails(
         Returns `None`; the test passes when `FetchError` is raised.
     """
 
-    def raise_actor_error():
+    def raise_actor_error() -> None:
         """Raise a deterministic actor failure.
 
         Purpose:
@@ -38,7 +38,7 @@ async def test_apify_fetcher_raises_fetch_error_when_actor_call_fails(
         raise RuntimeError("actor failed")
 
     fetcher = ApifyWorkdayFetcher("Example", "https://example.workday.com")
-    fetcher._client = object()
+    fetcher._client = object()  # type: ignore[assignment]  # sentinel to skip lazy init
     monkeypatch.setattr(fetcher, "_run_actor_sync", raise_actor_error)
 
     with pytest.raises(FetchError):
@@ -48,7 +48,7 @@ async def test_apify_fetcher_raises_fetch_error_when_actor_call_fails(
 @pytest.mark.asyncio
 async def test_jobspy_fetcher_raises_fetch_error_when_scrape_fails(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify scrape failures bubble up as `FetchError`.
 
     Purpose:
@@ -60,7 +60,7 @@ async def test_jobspy_fetcher_raises_fetch_error_when_scrape_fails(
         Returns `None`; the test passes when `FetchError` is raised.
     """
 
-    def raise_scrape_error():
+    def raise_scrape_error() -> None:
         """Raise a deterministic scrape failure.
 
         Purpose:

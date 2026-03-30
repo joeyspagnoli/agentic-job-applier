@@ -83,7 +83,7 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
   const syncSubLabel = hasSyncError
     ? "One or more requests failed"
     : formatSyncTimestamp(lastSuccessfulSyncAt);
-  const syncDotColor = hasSyncError ? "bg-red-500" : isSyncing ? "bg-green-500" : "bg-slate-400";
+  const syncDotColor = hasSyncError ? "bg-error" : isSyncing ? "bg-success" : "bg-outline";
 
   function handleSyncNow(): void {
     void queryClient.invalidateQueries({
@@ -103,11 +103,11 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
       </h1>
 
       <div className="flex items-center gap-6">
-        <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-full border border-indigo-100">
+        <div className="flex items-center gap-2 px-3 py-2 bg-primary-fixed rounded-full border border-primary-fixed">
           <span className={`w-2 h-2 rounded-full ${syncDotColor} ${isSyncing ? "animate-pulse" : ""}`} />
           <div className="flex flex-col leading-tight">
-            <span className="text-[10px] font-bold text-indigo-700 tracking-wider">{syncLabel}</span>
-            <span className="text-[10px] text-indigo-500">{syncSubLabel}</span>
+            <span className="text-[10px] font-bold text-primary tracking-wider">{syncLabel}</span>
+            <span className="text-[10px] text-primary/70">{syncSubLabel}</span>
           </div>
         </div>
 

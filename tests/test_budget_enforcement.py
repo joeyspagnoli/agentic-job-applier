@@ -233,7 +233,9 @@ async def test_budget_reads_do_not_insert_default_budget_row(
     after_row = await after_cursor.fetchone()
     after_count = int(after_row["row_count"]) if after_row else 0
 
-    assert snapshot["monthly_budget_usd"] >= 0.0
+    monthly_budget = snapshot["monthly_budget_usd"]
+    assert isinstance(monthly_budget, (int, float))
+    assert monthly_budget >= 0.0
     assert exceeded is False
     assert after_count == before_count
 
@@ -325,8 +327,8 @@ async def test_gate_worker_skips_pending_query_when_budget_exceeded(
     monkeypatch.setattr(process_new_jobs, "build_root_agent", lambda model: object())
 
     fake_db = FakeGateDb()
-    processed = await process_new_jobs._process_once(  # type: ignore[arg-type]
-        db=fake_db,
+    processed = await process_new_jobs._process_once(
+        db=fake_db,  # type: ignore[arg-type]  # FakeGateDb satisfies the duck-type contract
         limit=5,
     )
 
@@ -376,8 +378,8 @@ async def test_tailor_worker_skips_claim_when_budget_exceeded(
             return True
 
     fake_db = FakeTailorDb()
-    processed = await process_qualified_jobs._tailor_once(  # type: ignore[arg-type]
-        db=fake_db,
+    processed = await process_qualified_jobs._tailor_once(
+        db=fake_db,  # type: ignore[arg-type]  # FakeTailorDb satisfies the duck-type contract
         output_base_dir=tmp_path / "output",
         resume_yaml_path=tmp_path / "resume.yaml",
         max_retries=2,
@@ -433,8 +435,8 @@ async def test_review_worker_skips_claim_when_budget_exceeded(
             return True
 
     fake_db = FakeReviewDb()
-    processed = await process_reviewed_resumes._review_once(  # type: ignore[arg-type]
-        db=fake_db,
+    processed = await process_reviewed_resumes._review_once(
+        db=fake_db,  # type: ignore[arg-type]  # FakeReviewDb satisfies the duck-type contract
         output_base_dir=tmp_path / "output",
         base_yaml_path=tmp_path / "base.yaml",
         base_tex_path=tmp_path / "base.tex",
@@ -492,8 +494,8 @@ async def test_apply_worker_skips_claim_when_budget_exceeded(
             return True
 
     fake_db = FakeApplyDb()
-    processed = await process_apply_jobs._apply_once(  # type: ignore[arg-type]
-        db=fake_db,
+    processed = await process_apply_jobs._apply_once(
+        db=fake_db,  # type: ignore[arg-type]  # FakeApplyDb satisfies the duck-type contract
         output_base_dir=tmp_path / "output",
         cdp_url="http://localhost:9222",
         max_retries=2,

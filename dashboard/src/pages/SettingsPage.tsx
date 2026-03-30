@@ -1,8 +1,9 @@
 /**
  * @packageDocumentation
  *
- * Full settings page with guided and advanced editors for budget, candidate
- * profile, and canonical resume content.
+ * Tabbed settings page with guided and advanced editors for budget controls,
+ * API keys, service tier, candidate profile, resume content, and YAML-managed
+ * filters/sources files.
  */
 
 import type { ChangeEvent, JSX } from "react";
@@ -11,10 +12,13 @@ import Editor, { type Monaco } from "@monaco-editor/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd } from "@/lib/api/adapters";
 import {
+  deleteApiKeySetting,
+  fetchApiKeysSettings,
   fetchBudget,
   fetchFiltersSettings,
   fetchProfileSettings,
   fetchResumeSettings,
+  fetchServiceTierSetting,
   fetchSettingsFiles,
   fetchSourcesSettings,
   getProfileDownloadUrl,
@@ -25,29 +29,173 @@ import {
   updateProfileYaml,
   updateResumeStructured,
   updateResumeYaml,
+  updateServiceTierSetting,
   updateSourcesYaml,
   uploadProfile,
   uploadResume,
   uploadResumeTex,
+  upsertApiKeySetting,
 } from "@/lib/api/client";
 import type {
+  ApiKeyNameDto,
+  CandidateEducationEntryDto,
   ResumeContentDto,
   ResumeSkillListingDto,
+  ServiceTierDto,
   SettingsProfileDto,
   SettingsResumeDto,
 } from "@/lib/api/types";
-import { configureYamlSchemas, PROFILE_EDITOR_MODEL_URI, RESUME_EDITOR_MODEL_URI } from "@/lib/monaco/yaml-config";
+import { buildPrioritizedCountryOptions } from "@/lib/constants/countries";
 import {
+  configureYamlSchemas,
+  PROFILE_EDITOR_MODEL_URI,
+  RESUME_EDITOR_MODEL_URI,
+} from "@/lib/monaco/yaml-config";
+import {
+  COLOR_ERROR,
+  COLOR_ERROR_CONTAINER,
+  COLOR_ON_ERROR_CONTAINER,
   COLOR_ON_SURFACE,
   COLOR_ON_SURFACE_VARIANT,
+  COLOR_ON_WARNING_CONTAINER,
+  COLOR_OUTLINE,
   COLOR_OUTLINE_VARIANT,
   COLOR_PRIMARY,
+  COLOR_PRIMARY_FIXED,
+  COLOR_SUCCESS,
+  COLOR_WARNING,
+  COLOR_WARNING_CONTAINER,
 } from "@/lib/design-tokens";
 
+type TopLevelTab = "general" | "candidate" | "filters";
 type CandidateTab = "guided" | "yaml" | "files";
 type ResumeTab = "guided" | "yaml" | "tex" | "files";
+type FiltersTab = "filters" | "sources";
+
+interface ApiKeyConfig {
+  readonly name: ApiKeyNameDto;
+  readonly icon: string;
+  readonly description: string;
+}
+
+interface ServiceTierCard {
+  readonly tier: ServiceTierDto;
+  readonly icon: string;
+  readonly title: string;
+  readonly description: string;
+  readonly features: readonly string[];
+  readonly badge?: string;
+}
+
+interface FeedbackMessage {
+  readonly type: "success" | "error";
+  readonly message: string;
+}
+
+interface SelectOption {
+  readonly value: string;
+  readonly label: string;
+}
 
 const EDITOR_HEIGHT_PX = 420;
+const TOP_LEVEL_TABS: readonly { id: TopLevelTab; label: string }[] = [
+  { id: "general", label: "General Settings" },
+  { id: "candidate", label: "Candidate Profile & Resume" },
+  { id: "filters", label: "Company & Job Filters" },
+];
+const API_KEYS: readonly ApiKeyConfig[] = [
+  {
+    name: "OPENAI_API_KEY",
+    icon: "terminal",
+    description: "Required for gate review, resume tailoring, and full automation.",
+  },
+  {
+    name: "GOOGLE_API_KEY",
+    icon: "google",
+    description: "Optional provider key for alternative model routing.",
+  },
+  {
+    name: "ANTHROPIC_API_KEY",
+    icon: "auto_awesome",
+    description: "Optional provider key for alternative model routing.",
+  },
+  {
+    name: "APIFY_API_TOKEN",
+    icon: "api",
+    description: "Required for Workday and JobSpy-backed source coverage.",
+  },
+];
+const SERVICE_TIER_REQUIREMENTS: Readonly<Record<ServiceTierDto, readonly ApiKeyNameDto[]>> = {
+  base: [],
+  latex: ["OPENAI_API_KEY"],
+  full: ["OPENAI_API_KEY", "APIFY_API_TOKEN"],
+};
+const SERVICE_TIER_CARDS: readonly ServiceTierCard[] = [
+  {
+    tier: "base",
+    icon: "search",
+    title: "Base",
+    description:
+      "Find and filter jobs from configured sources. Gate review is attempted when a provider key exists.",
+    features: [
+      "Job discovery (Greenhouse, JobSpy, Workday)",
+      "Gate filtering (apply/skip decisions)",
+      "Works as pure job aggregator without AI keys",
+    ],
+  },
+  {
+    tier: "latex",
+    icon: "description",
+    title: "LaTeX",
+    badge: "Recommended",
+    description: "Find jobs + tailor resume + human review queue.",
+    features: ["Everything in Base", "Resume tailoring (LaTeX/PDF)", "Human review queue"],
+  },
+  {
+    tier: "full",
+    icon: "rocket_launch",
+    title: "Full",
+    description: "Full automation including browser-based application workflows.",
+    features: [
+      "Everything in LaTeX",
+      "Automated browser apply (Playwright + Chromium)",
+      "End-to-end autonomous pipeline",
+    ],
+  },
+];
+const CONFIRM_SWITCH_MESSAGE =
+  "You have unsaved settings changes. Switch tabs and discard unsaved edits?";
+const MONTH_OPTIONS: readonly SelectOption[] = [
+  { value: "", label: "Month" },
+  { value: "01", label: "January" },
+  { value: "02", label: "February" },
+  { value: "03", label: "March" },
+  { value: "04", label: "April" },
+  { value: "05", label: "May" },
+  { value: "06", label: "June" },
+  { value: "07", label: "July" },
+  { value: "08", label: "August" },
+  { value: "09", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+];
+const DEGREE_LEVEL_OPTIONS: readonly SelectOption[] = [
+  { value: "", label: "Select degree level" },
+  { value: "high_school", label: "High School" },
+  { value: "associate", label: "Associate" },
+  { value: "bachelor", label: "Bachelor's" },
+  { value: "master", label: "Master's" },
+  { value: "mba", label: "MBA" },
+  { value: "doctorate", label: "Doctorate" },
+  { value: "certificate", label: "Certificate" },
+  { value: "other", label: "Other" },
+];
+const YES_NO_UNKNOWN_OPTIONS: readonly SelectOption[] = [
+  { value: "unknown", label: "Prefer not to say" },
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
 
 /**
  * Convert list items to a newline-separated textarea value.
@@ -86,6 +234,12 @@ function toProfileDraft(response: SettingsProfileDto): {
   return {
     profile: {
       ...response.profile,
+      contact: { ...response.profile.contact },
+      work_authorization: { ...response.profile.work_authorization },
+      education_entries: response.profile.education_entries.map((entry) => ({
+        ...entry,
+        highlights: [...entry.highlights],
+      })),
       target_roles: [...response.profile.target_roles],
       strongest_areas: [...response.profile.strongest_areas],
       experience_highlights: [...response.profile.experience_highlights],
@@ -127,36 +281,131 @@ function nextGeneratedId(prefix: string, existingIds: readonly string[]): string
 }
 
 /**
+ * Build one empty education entry row for guided profile editing.
+ *
+ * @param entryId - Stable identifier for the new education row.
+ * @returns New education entry payload with safe defaults.
+ */
+function buildDefaultEducationEntry(entryId: string): CandidateEducationEntryDto {
+  return {
+    id: entryId,
+    school: "",
+    degree_level: "",
+    degree_name: "",
+    field_of_study: "",
+    start_month: "",
+    start_year: "",
+    end_month: "",
+    end_year: "",
+    is_current: false,
+    gpa: "",
+    location: "",
+    highlights: [],
+  };
+}
+
+/**
+ * Extract one human-readable error message from unknown mutation/query errors.
+ *
+ * @param error - Unknown error object from React Query.
+ * @returns A message safe to show in UI.
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
+}
+
+/**
+ * Build a deterministic configured-status map for all known API keys.
+ *
+ * @param keys - API key status rows from backend or fallback defaults.
+ * @returns Map of key name to configured boolean.
+ */
+function buildConfiguredKeyMap(
+  keys: readonly { name: ApiKeyNameDto; configured: boolean }[],
+): Record<ApiKeyNameDto, boolean> {
+  const configuredMap: Record<ApiKeyNameDto, boolean> = {
+    OPENAI_API_KEY: false,
+    GOOGLE_API_KEY: false,
+    ANTHROPIC_API_KEY: false,
+    APIFY_API_TOKEN: false,
+  };
+  keys.forEach((key) => {
+    configuredMap[key.name] = key.configured;
+  });
+  return configuredMap;
+}
+
+/**
+ * Resolve missing API-key prerequisites for one service tier.
+ *
+ * @param tier - Candidate service tier.
+ * @param configuredKeyMap - Current configured statuses by key name.
+ * @returns Required keys that are still missing.
+ */
+function getMissingKeysForTier(
+  tier: ServiceTierDto,
+  configuredKeyMap: Readonly<Record<ApiKeyNameDto, boolean>>,
+): ApiKeyNameDto[] {
+  const requiredKeys = SERVICE_TIER_REQUIREMENTS[tier];
+  return requiredKeys.filter((keyName) => !configuredKeyMap[keyName]);
+}
+
+/**
+ * Count normalized list values currently present in one multiline field.
+ *
+ * @param value - Raw textarea value.
+ * @returns Number of non-empty lines.
+ */
+function countListItems(value: string): number {
+  return linesToList(value).length;
+}
+
+/**
  * Settings page component.
  *
- * @returns Full settings page with guided and advanced editors.
+ * @returns Full tabbed settings page with guided + advanced editors.
  */
 export function SettingsPage(): JSX.Element {
   const queryClient = useQueryClient();
-  const resumeYamlInputRef = useRef<HTMLInputElement | null>(null);
   const profileYamlInputRef = useRef<HTMLInputElement | null>(null);
+  const resumeYamlInputRef = useRef<HTMLInputElement | null>(null);
   const resumeTexInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [activeTopLevelTab, setActiveTopLevelTab] = useState<TopLevelTab>("general");
+  const [activeFiltersTab, setActiveFiltersTab] = useState<FiltersTab>("filters");
   const [candidateTab, setCandidateTab] = useState<CandidateTab>("guided");
   const [resumeTab, setResumeTab] = useState<ResumeTab>("guided");
+
   const [budgetInput, setBudgetInput] = useState("0.00");
   const [profileDraft, setProfileDraft] = useState<ReturnType<typeof toProfileDraft> | null>(null);
   const [resumeDraft, setResumeDraft] = useState<ResumeContentDto | null>(null);
   const [profileYamlDraft, setProfileYamlDraft] = useState("");
   const [resumeYamlDraft, setResumeYamlDraft] = useState("");
+  const [filtersYamlDraft, setFiltersYamlDraft] = useState("");
+  const [sourcesYamlDraft, setSourcesYamlDraft] = useState("");
+
   const [isBudgetDirty, setIsBudgetDirty] = useState(false);
   const [isProfileDirty, setIsProfileDirty] = useState(false);
   const [isResumeDirty, setIsResumeDirty] = useState(false);
-  const [lastResumeMigrationSummary, setLastResumeMigrationSummary] = useState<string | null>(null);
-  const [filtersYamlDraft, setFiltersYamlDraft] = useState("");
-  const [sourcesYamlDraft, setSourcesYamlDraft] = useState("");
   const [isFiltersDirty, setIsFiltersDirty] = useState(false);
   const [isSourcesDirty, setIsSourcesDirty] = useState(false);
+  const [isTierDirty, setIsTierDirty] = useState(false);
+
+  const [selectedServiceTier, setSelectedServiceTier] = useState<ServiceTierDto>("base");
+  const [editingApiKeyName, setEditingApiKeyName] = useState<ApiKeyNameDto | null>(null);
+  const [editingApiKeyValue, setEditingApiKeyValue] = useState("");
+  const [lastResumeMigrationSummary, setLastResumeMigrationSummary] = useState<string | null>(null);
+  const [apiKeyFeedback, setApiKeyFeedback] = useState<FeedbackMessage | null>(null);
+  const [tierFeedback, setTierFeedback] = useState<FeedbackMessage | null>(null);
 
   const budgetQuery = useQuery({
     queryKey: ["budget"],
     queryFn: fetchBudget,
     refetchInterval: false,
+    refetchOnWindowFocus: false,
   });
   const profileQuery = useQuery({
     queryKey: ["settings", "profile"],
@@ -186,6 +435,18 @@ export function SettingsPage(): JSX.Element {
     queryKey: ["settings", "sources"],
     queryFn: fetchSourcesSettings,
     refetchInterval: false,
+    refetchOnWindowFocus: false,
+  });
+  const apiKeysQuery = useQuery({
+    queryKey: ["settings", "api-keys"],
+    queryFn: fetchApiKeysSettings,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const tierQuery = useQuery({
+    queryKey: ["settings", "service-tier"],
+    queryFn: fetchServiceTierSetting,
+    retry: false,
     refetchOnWindowFocus: false,
   });
 
@@ -225,6 +486,37 @@ export function SettingsPage(): JSX.Element {
       setSourcesYamlDraft(sourcesQuery.data.yaml_text);
     }
   }, [sourcesQuery.data, isSourcesDirty]);
+
+  useEffect(() => {
+    if (tierQuery.data !== undefined && !isTierDirty) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedServiceTier(tierQuery.data.tier);
+    }
+  }, [tierQuery.data, isTierDirty]);
+
+  useEffect(() => {
+    if (apiKeyFeedback === null) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setApiKeyFeedback(null);
+    }, 3000);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [apiKeyFeedback]);
+
+  useEffect(() => {
+    if (tierFeedback === null) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setTierFeedback(null);
+    }, 3000);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [tierFeedback]);
 
   const budgetMutation = useMutation({
     mutationFn: updateBudget,
@@ -334,6 +626,127 @@ export function SettingsPage(): JSX.Element {
     },
   });
 
+  const apiKeyUpsertMutation = useMutation({
+    mutationFn: (payload: { keyName: ApiKeyNameDto; keyValue: string }) =>
+      upsertApiKeySetting(payload.keyName, payload.keyValue),
+    onSuccess: async (response, payload) => {
+      queryClient.setQueryData(["settings", "api-keys"], response);
+      setEditingApiKeyName(null);
+      setEditingApiKeyValue("");
+      setApiKeyFeedback({
+        type: "success",
+        message: `${payload.keyName} saved.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["settings", "api-keys"] });
+    },
+    onError: (error, payload) => {
+      setApiKeyFeedback({
+        type: "error",
+        message: `Failed to save ${payload.keyName}: ${getErrorMessage(error)}`,
+      });
+    },
+  });
+
+  const apiKeyDeleteMutation = useMutation({
+    mutationFn: (keyName: ApiKeyNameDto) => deleteApiKeySetting(keyName),
+    onSuccess: async (response, keyName) => {
+      queryClient.setQueryData(["settings", "api-keys"], response);
+      if (editingApiKeyName === keyName) {
+        setEditingApiKeyName(null);
+        setEditingApiKeyValue("");
+      }
+      setApiKeyFeedback({
+        type: "success",
+        message: `${keyName} removed.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["settings", "api-keys"] });
+    },
+    onError: (error, keyName) => {
+      setApiKeyFeedback({
+        type: "error",
+        message: `Failed to remove ${keyName}: ${getErrorMessage(error)}`,
+      });
+    },
+  });
+
+  const tierMutation = useMutation({
+    mutationFn: updateServiceTierSetting,
+    onSuccess: async (response) => {
+      queryClient.setQueryData(["settings", "service-tier"], response);
+      setSelectedServiceTier(response.tier);
+      setIsTierDirty(false);
+      setTierFeedback({
+        type: "success",
+        message: `Service tier saved as ${response.tier.toUpperCase()}.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["settings", "service-tier"] });
+    },
+    onError: (error) => {
+      setTierFeedback({
+        type: "error",
+        message: `Failed to save service tier: ${getErrorMessage(error)}`,
+      });
+    },
+  });
+
+  const profileMetadata = profileQuery.data?.metadata ?? filesQuery.data?.profile;
+  const resumeMetadata = resumeQuery.data?.metadata ?? filesQuery.data?.resume;
+  const budgetUsedPct = Math.max(
+    0,
+    Math.min(100, Math.round(budgetQuery.data?.utilization_pct ?? 0)),
+  );
+  const budgetProgressColor = budgetUsedPct >= 100 ? COLOR_ERROR : COLOR_PRIMARY;
+
+  const normalizedApiKeys = useMemo(
+    () =>
+      API_KEYS.map((apiKey) => ({
+        name: apiKey.name,
+        configured:
+          apiKeysQuery.data?.keys.find((responseKey) => responseKey.name === apiKey.name)
+            ?.configured ?? false,
+      })),
+    [apiKeysQuery.data],
+  );
+  const configuredApiKeyMap = useMemo(
+    () => buildConfiguredKeyMap(normalizedApiKeys),
+    [normalizedApiKeys],
+  );
+  const countryOptions = useMemo(() => buildPrioritizedCountryOptions(), []);
+  const countryLabelByCode = useMemo(
+    () =>
+      new Map<string, string>(
+        countryOptions.map((countryOption) => [countryOption.code, countryOption.label]),
+      ),
+    [countryOptions],
+  );
+  const selectedTierMissingKeys = useMemo(
+    () => getMissingKeysForTier(selectedServiceTier, configuredApiKeyMap),
+    [configuredApiKeyMap, selectedServiceTier],
+  );
+
+  const canOpenResumeEditor = selectedServiceTier === "latex" || selectedServiceTier === "full";
+
+  const resumeCountsText = useMemo(() => {
+    if (resumeQuery.data === undefined) {
+      return "Loading resume counts...";
+    }
+    return [
+      `${resumeQuery.data.counts.education_entries} education entries`,
+      `${resumeQuery.data.counts.experience_listings} experience listings`,
+      `${resumeQuery.data.counts.project_listings} project listings`,
+      `${resumeQuery.data.counts.skill_rows} skills rows`,
+    ].join(" • ");
+  }, [resumeQuery.data]);
+
+  const hasUnsavedChanges =
+    isBudgetDirty ||
+    isProfileDirty ||
+    isResumeDirty ||
+    isFiltersDirty ||
+    isSourcesDirty ||
+    isTierDirty ||
+    editingApiKeyName !== null;
+
   const hasAnyError =
     budgetQuery.isError ||
     profileQuery.isError ||
@@ -351,22 +764,6 @@ export function SettingsPage(): JSX.Element {
     resumeTexMutation.isError ||
     filtersYamlMutation.isError ||
     sourcesYamlMutation.isError;
-
-  const profileMetadata = profileQuery.data?.metadata ?? filesQuery.data?.profile;
-  const resumeMetadata = resumeQuery.data?.metadata ?? filesQuery.data?.resume;
-  const budgetUsedPct = Math.max(0, Math.min(100, Math.round(budgetQuery.data?.utilization_pct ?? 0)));
-
-  const resumeCountsText = useMemo(() => {
-    if (resumeQuery.data === undefined) {
-      return "Loading resume counts...";
-    }
-    return [
-      `${resumeQuery.data.counts.education_entries} education entries`,
-      `${resumeQuery.data.counts.experience_listings} experience listings`,
-      `${resumeQuery.data.counts.project_listings} project listings`,
-      `${resumeQuery.data.counts.skill_rows} skills rows`,
-    ].join(" • ");
-  }, [resumeQuery.data]);
 
   function updateProfileDraft(nextDraft: ReturnType<typeof toProfileDraft>): void {
     setProfileDraft(nextDraft);
@@ -386,6 +783,29 @@ export function SettingsPage(): JSX.Element {
   function updateResumeYamlDraft(nextYaml: string): void {
     setResumeYamlDraft(nextYaml);
     setIsResumeDirty(true);
+  }
+
+  function handleTopLevelTabChange(nextTab: TopLevelTab): void {
+    if (nextTab === activeTopLevelTab) {
+      return;
+    }
+    if (hasUnsavedChanges && !window.confirm(CONFIRM_SWITCH_MESSAGE)) {
+      return;
+    }
+    setActiveTopLevelTab(nextTab);
+  }
+
+  function handleFiltersTabChange(nextTab: FiltersTab): void {
+    if (nextTab === activeFiltersTab) {
+      return;
+    }
+    const hasCurrentTabUnsavedChanges =
+      (activeFiltersTab === "filters" && isFiltersDirty) ||
+      (activeFiltersTab === "sources" && isSourcesDirty);
+    if (hasCurrentTabUnsavedChanges && !window.confirm(CONFIRM_SWITCH_MESSAGE)) {
+      return;
+    }
+    setActiveFiltersTab(nextTab);
   }
 
   function handleBudgetSave(): void {
@@ -421,7 +841,7 @@ export function SettingsPage(): JSX.Element {
   }
 
   function handleProfileScalarUpdate(
-    fieldName: "summary" | "education" | "citizenship",
+    fieldName: "summary" | "education_summary",
     value: string,
   ): void {
     if (profileDraft === null) {
@@ -432,6 +852,125 @@ export function SettingsPage(): JSX.Element {
       profile: {
         ...profileDraft.profile,
         [fieldName]: value,
+      },
+    });
+  }
+
+  function handleProfileContactFieldUpdate(
+    fieldName: keyof SettingsProfileDto["profile"]["contact"],
+    value: string,
+  ): void {
+    if (profileDraft === null) {
+      return;
+    }
+    updateProfileDraft({
+      ...profileDraft,
+      profile: {
+        ...profileDraft.profile,
+        contact: {
+          ...profileDraft.profile.contact,
+          [fieldName]: value,
+        },
+      },
+    });
+  }
+
+  function handleProfileWorkAuthorizationFieldUpdate(
+    fieldName: keyof SettingsProfileDto["profile"]["work_authorization"],
+    value: string,
+  ): void {
+    if (profileDraft === null) {
+      return;
+    }
+    updateProfileDraft({
+      ...profileDraft,
+      profile: {
+        ...profileDraft.profile,
+        work_authorization: {
+          ...profileDraft.profile.work_authorization,
+          [fieldName]: value,
+        },
+      },
+    });
+  }
+
+  function handleProfileEducationEntryFieldUpdate(
+    index: number,
+    fieldName: keyof CandidateEducationEntryDto,
+    value: string | boolean,
+  ): void {
+    if (profileDraft === null) {
+      return;
+    }
+    const updatedEntries = profileDraft.profile.education_entries.map((entry, entryIndex) => {
+      if (entryIndex !== index) {
+        return entry;
+      }
+      return {
+        ...entry,
+        [fieldName]: value,
+      };
+    });
+    updateProfileDraft({
+      ...profileDraft,
+      profile: {
+        ...profileDraft.profile,
+        education_entries: updatedEntries,
+      },
+    });
+  }
+
+  function handleProfileEducationEntryHighlightsUpdate(index: number, value: string): void {
+    if (profileDraft === null) {
+      return;
+    }
+    const updatedEntries = profileDraft.profile.education_entries.map((entry, entryIndex) => {
+      if (entryIndex !== index) {
+        return entry;
+      }
+      return {
+        ...entry,
+        highlights: linesToList(value),
+      };
+    });
+    updateProfileDraft({
+      ...profileDraft,
+      profile: {
+        ...profileDraft.profile,
+        education_entries: updatedEntries,
+      },
+    });
+  }
+
+  function addEducationEntry(): void {
+    if (profileDraft === null) {
+      return;
+    }
+    const existingIds = profileDraft.profile.education_entries.map((entry) => entry.id);
+    const entryId = nextGeneratedId("education", existingIds);
+    updateProfileDraft({
+      ...profileDraft,
+      profile: {
+        ...profileDraft.profile,
+        education_entries: [
+          ...profileDraft.profile.education_entries,
+          buildDefaultEducationEntry(entryId),
+        ],
+      },
+    });
+  }
+
+  function removeEducationEntry(index: number): void {
+    if (profileDraft === null) {
+      return;
+    }
+    updateProfileDraft({
+      ...profileDraft,
+      profile: {
+        ...profileDraft.profile,
+        education_entries: profileDraft.profile.education_entries.filter(
+          (_entry, entryIndex) => entryIndex !== index,
+        ),
       },
     });
   }
@@ -478,7 +1017,10 @@ export function SettingsPage(): JSX.Element {
     event.target.value = "";
   }
 
-  function handleResumeLayoutUpdate(fieldName: keyof ResumeContentDto["layout"], value: string): void {
+  function handleResumeLayoutUpdate(
+    fieldName: keyof ResumeContentDto["layout"],
+    value: string,
+  ): void {
     if (resumeDraft === null) {
       return;
     }
@@ -586,7 +1128,9 @@ export function SettingsPage(): JSX.Element {
       ...resumeDraft,
       experience: {
         ...resumeDraft.experience,
-        listings: resumeDraft.experience.listings.filter((_listing, listingIndex) => listingIndex !== index),
+        listings: resumeDraft.experience.listings.filter(
+          (_listing, listingIndex) => listingIndex !== index,
+        ),
       },
     });
   }
@@ -682,7 +1226,9 @@ export function SettingsPage(): JSX.Element {
       ...resumeDraft,
       projects: {
         ...resumeDraft.projects,
-        listings: resumeDraft.projects.listings.filter((_listing, listingIndex) => listingIndex !== index),
+        listings: resumeDraft.projects.listings.filter(
+          (_listing, listingIndex) => listingIndex !== index,
+        ),
       },
     });
   }
@@ -695,15 +1241,17 @@ export function SettingsPage(): JSX.Element {
     if (resumeDraft === null) {
       return;
     }
-    const updatedListings = resumeDraft.skills_achievements.listings.map((listing, listingIndex) => {
-      if (listingIndex !== index) {
-        return listing;
-      }
-      return {
-        ...listing,
-        [fieldName]: value,
-      };
-    });
+    const updatedListings = resumeDraft.skills_achievements.listings.map(
+      (listing, listingIndex) => {
+        if (listingIndex !== index) {
+          return listing;
+        }
+        return {
+          ...listing,
+          [fieldName]: value,
+        };
+      },
+    );
     updateResumeDraft({
       ...resumeDraft,
       skills_achievements: {
@@ -763,601 +1311,1521 @@ export function SettingsPage(): JSX.Element {
     resumeYamlMutation.mutate(resumeYamlDraft);
   }
 
+  function handleServiceTierSelection(nextTier: ServiceTierDto): void {
+    const missingKeys = getMissingKeysForTier(nextTier, configuredApiKeyMap);
+    if (nextTier !== "base" && missingKeys.length > 0) {
+      setTierFeedback({
+        type: "error",
+        message: `Cannot select ${nextTier.toUpperCase()}. Missing: ${missingKeys.join(", ")}.`,
+      });
+      return;
+    }
+    setSelectedServiceTier(nextTier);
+    setIsTierDirty(true);
+  }
+
+  function handleServiceTierSave(): void {
+    if (selectedServiceTier !== "base" && selectedTierMissingKeys.length > 0) {
+      setTierFeedback({
+        type: "error",
+        message: `Cannot save ${selectedServiceTier.toUpperCase()}. Missing: ${selectedTierMissingKeys.join(", ")}.`,
+      });
+      return;
+    }
+    tierMutation.mutate(selectedServiceTier);
+  }
+
+  function startApiKeyEdit(keyName: ApiKeyNameDto): void {
+    setEditingApiKeyName(keyName);
+    setEditingApiKeyValue("");
+    setApiKeyFeedback(null);
+  }
+
+  function cancelApiKeyEdit(): void {
+    setEditingApiKeyName(null);
+    setEditingApiKeyValue("");
+  }
+
+  function handleApiKeySave(keyName: ApiKeyNameDto): void {
+    if (editingApiKeyValue.trim() === "") {
+      setApiKeyFeedback({
+        type: "error",
+        message: `${keyName} cannot be empty.`,
+      });
+      return;
+    }
+    apiKeyUpsertMutation.mutate({
+      keyName,
+      keyValue: editingApiKeyValue.trim(),
+    });
+  }
+
+  function handleApiKeyDelete(keyName: ApiKeyNameDto): void {
+    if (!window.confirm(`Delete ${keyName}? This action cannot be undone.`)) {
+      return;
+    }
+    apiKeyDeleteMutation.mutate(keyName);
+  }
+
+  const parsedBudgetInput = Number.parseFloat(budgetInput);
+  const isBudgetInputValid = Number.isFinite(parsedBudgetInput) && parsedBudgetInput >= 0;
+
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
-        <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-7xl space-y-6 p-8">
+      <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
-              Monthly Budget
+              Settings
             </h2>
             <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Control monthly spend guardrails for pipeline API costs.
+              Configure budget, pipeline depth, candidate context, and source filters in one place.
             </p>
           </div>
-          <button
-            className="px-4 py-2 rounded-lg text-white text-sm font-semibold"
-            style={{ backgroundColor: COLOR_PRIMARY }}
-            onClick={handleBudgetSave}
-            disabled={budgetMutation.isPending}
+          <div className="flex flex-wrap items-center gap-2">
+            {TOP_LEVEL_TABS.map((tab) => (
+              <TabButton
+                key={tab.id}
+                active={activeTopLevelTab === tab.id}
+                label={tab.label}
+                onClick={() => handleTopLevelTabChange(tab.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {hasUnsavedChanges && (
+          <div
+            className="rounded-xl border px-4 py-3 text-sm"
+            style={{
+              borderColor: COLOR_WARNING,
+              color: COLOR_ON_WARNING_CONTAINER,
+              backgroundColor: COLOR_WARNING_CONTAINER,
+            }}
           >
-            {budgetMutation.isPending ? "Saving..." : "Save Budget"}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <label className="text-sm font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-            Budget Limit (USD)
-            <input
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
-              type="number"
-              min="0"
-              step="0.01"
-              value={budgetInput}
-              onChange={(event) => {
-                setBudgetInput(event.target.value);
-                setIsBudgetDirty(true);
-              }}
-            />
-          </label>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs uppercase tracking-wide" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Spent
-            </p>
-            <p className="text-lg font-bold">{formatUsd(budgetQuery.data?.spent_usd ?? 0)}</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs uppercase tracking-wide" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Remaining
-            </p>
-            <p className="text-lg font-bold">{formatUsd(budgetQuery.data?.remaining_usd ?? 0)}</p>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${budgetUsedPct}%` }} />
-          </div>
-          <p className="text-xs text-right" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-            {budgetUsedPct}% consumed
-          </p>
-        </div>
-      </section>
-
-      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
-              Candidate Profile
-            </h2>
-            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Edit gate-decider context without manual file juggling.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <TabButton active={candidateTab === "guided"} label="Guided" onClick={() => setCandidateTab("guided")} />
-            <TabButton active={candidateTab === "yaml"} label="Advanced YAML" onClick={() => setCandidateTab("yaml")} />
-            <TabButton active={candidateTab === "files"} label="File Actions" onClick={() => setCandidateTab("files")} />
-          </div>
-        </div>
-
-        {candidateTab === "guided" && profileDraft !== null && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <LabeledInput
-                label="Summary"
-                value={profileDraft.profile.summary}
-                onChange={(value) => handleProfileScalarUpdate("summary", value)}
-              />
-              <LabeledInput
-                label="Education"
-                value={profileDraft.profile.education}
-                onChange={(value) => handleProfileScalarUpdate("education", value)}
-              />
-              <LabeledInput
-                label="Citizenship"
-                value={profileDraft.profile.citizenship}
-                onChange={(value) => handleProfileScalarUpdate("citizenship", value)}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <LabeledTextarea
-                label="Target Roles (one per line)"
-                value={listToLines(profileDraft.profile.target_roles)}
-                onChange={(value) => handleProfileListUpdate("target_roles", value)}
-              />
-              <LabeledTextarea
-                label="Strongest Areas (one per line)"
-                value={listToLines(profileDraft.profile.strongest_areas)}
-                onChange={(value) => handleProfileListUpdate("strongest_areas", value)}
-              />
-              <LabeledTextarea
-                label="Experience Highlights (one per line)"
-                value={listToLines(profileDraft.profile.experience_highlights)}
-                onChange={(value) => handleProfileListUpdate("experience_highlights", value)}
-              />
-              <LabeledTextarea
-                label="Hard Filters (one per line)"
-                value={listToLines(profileDraft.profile.hard_filters)}
-                onChange={(value) => handleProfileListUpdate("hard_filters", value)}
-              />
-              <LabeledTextarea
-                label="Preferences (one per line)"
-                value={listToLines(profileDraft.profile.preferences)}
-                onChange={(value) => handleProfileListUpdate("preferences", value)}
-              />
-              <LabeledTextarea
-                label="Search Terms (one per line)"
-                value={listToLines(profileDraft.search_defaults.job_board_search_terms)}
-                onChange={(value) => {
-                  updateProfileDraft({
-                    ...profileDraft,
-                    search_defaults: { job_board_search_terms: linesToList(value) },
-                  });
-                }}
-              />
-            </div>
-
-            <LabeledTextarea
-              label="Prompt Context Override (optional)"
-              value={profileDraft.prompt_context ?? ""}
-              onChange={(value) => {
-                updateProfileDraft({
-                  ...profileDraft,
-                  prompt_context: value.trim() === "" ? null : value,
-                });
-              }}
-              rows={6}
-            />
-
-            <div className="flex justify-end">
-              <button
-                className="px-4 py-2 rounded-lg text-white text-sm font-semibold"
-                style={{ backgroundColor: COLOR_PRIMARY }}
-                onClick={handleProfileGuidedSave}
-                disabled={profileStructuredMutation.isPending}
-              >
-                {profileStructuredMutation.isPending ? "Saving..." : "Save Guided Profile"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {candidateTab === "yaml" && (
-          <div className="space-y-4">
-            <YamlEditor
-              modelPath={PROFILE_EDITOR_MODEL_URI}
-              value={profileYamlDraft}
-              onChange={updateProfileYamlDraft}
-            />
-            <div className="flex justify-end">
-              <button
-                className="px-4 py-2 rounded-lg text-white text-sm font-semibold"
-                style={{ backgroundColor: COLOR_PRIMARY }}
-                onClick={handleProfileYamlSave}
-                disabled={profileYamlMutation.isPending}
-              >
-                {profileYamlMutation.isPending ? "Saving..." : "Save YAML"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {candidateTab === "files" && (
-          <div className="space-y-4">
-            <SettingsFileCard
-              title="Candidate Profile YAML"
-              subtitle={profileMetadata?.modified_at ? new Date(profileMetadata.modified_at).toLocaleString() : "No file timestamp"}
-              downloadUrl={getProfileDownloadUrl()}
-            />
-            <input
-              ref={profileYamlInputRef}
-              type="file"
-              accept=".yaml,.yml,text/yaml,application/x-yaml"
-              className="hidden"
-              onChange={handleProfileYamlUpload}
-            />
-            <button
-              className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold"
-              onClick={() => profileYamlInputRef.current?.click()}
-              disabled={profileUploadMutation.isPending}
-            >
-              {profileUploadMutation.isPending ? "Uploading..." : "Replace Profile YAML"}
-            </button>
+            You have unsaved changes. Save before switching tabs to avoid losing edits.
           </div>
         )}
       </section>
 
-      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
-              Resume Content
-            </h2>
-            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Guided edits for listings and layout, with advanced YAML and TeX migration support.
-            </p>
-            <p className="text-xs mt-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              {resumeCountsText}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <TabButton active={resumeTab === "guided"} label="Guided" onClick={() => setResumeTab("guided")} />
-            <TabButton active={resumeTab === "yaml"} label="Advanced YAML" onClick={() => setResumeTab("yaml")} />
-            <TabButton active={resumeTab === "tex"} label="Upload TeX" onClick={() => setResumeTab("tex")} />
-            <TabButton active={resumeTab === "files"} label="File Actions" onClick={() => setResumeTab("files")} />
-          </div>
-        </div>
-
-        {resumeTab === "guided" && resumeDraft !== null && (
-          <div className="space-y-6">
-            <div className="rounded-xl border border-slate-200 p-4 bg-slate-50">
-              <h3 className="text-sm font-bold uppercase tracking-wide">Locked Sections (Read-Only)</h3>
-              <p className="text-xs mt-2" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-                Personal and education sections are locked by resume policy and cannot be edited here.
-              </p>
-              <p className="text-sm mt-3">
-                <strong>{resumeDraft.personal.name}</strong> • {resumeDraft.personal.email} • {resumeDraft.personal.phone}
-              </p>
-              {resumeDraft.education.entries.map((entry) => (
-                <div key={entry.id} className="mt-2 text-sm">
-                  <p>
-                    <strong>{entry.institution}</strong> ({entry.date_range})
-                  </p>
-                  <p>{entry.degree}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4 space-y-4">
-              <h3 className="text-sm font-bold uppercase tracking-wide">Layout Knobs</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                {Object.entries(resumeDraft.layout).map(([fieldName, fieldValue]) => (
-                  <label key={fieldName} className="text-xs font-semibold">
-                    {fieldName}
-                    <input
-                      className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
-                      type="number"
-                      step="0.01"
-                      value={fieldValue}
-                      onChange={(event) => handleResumeLayoutUpdate(fieldName as keyof ResumeContentDto["layout"], event.target.value)}
-                    />
-                  </label>
-                ))}
+      {activeTopLevelTab === "general" && (
+        <>
+          <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                  Monthly Budget
+                </h3>
+                <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                  Set a monthly spend cap for all automation-related API usage.
+                </p>
               </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-sm font-bold uppercase tracking-wide">Experience Listings</h3>
-                <button className="text-sm font-semibold text-indigo-700" onClick={addExperienceListing}>
-                  + Add Listing
-                </button>
-              </div>
-              {resumeDraft.experience.listings.map((listing, index) => (
-                <div key={`experience-${index}`} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <LabeledInput
-                      label="ID"
-                      value={listing.id}
-                      onChange={(value) => handleExperienceListingFieldUpdate(index, "id", value)}
-                    />
-                    <LabeledInput
-                      label="Title"
-                      value={listing.title}
-                      onChange={(value) => handleExperienceListingFieldUpdate(index, "title", value)}
-                    />
-                    <LabeledInput
-                      label="Date Range"
-                      value={listing.date_range}
-                      onChange={(value) => handleExperienceListingFieldUpdate(index, "date_range", value)}
-                    />
-                    <LabeledInput
-                      label="Organization"
-                      value={listing.organization}
-                      onChange={(value) => handleExperienceListingFieldUpdate(index, "organization", value)}
-                    />
-                  </div>
-                  <LabeledTextarea
-                    label="Bullets (one per line)"
-                    value={listing.bullets.map((bullet) => bullet.text).join("\n")}
-                    onChange={(value) => handleExperienceBulletsUpdate(index, value)}
-                  />
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={listing.enabled}
-                        onChange={(event) => handleExperienceListingFieldUpdate(index, "enabled", event.target.checked)}
-                      />{" "}
-                      Enabled
-                    </label>
-                    <button className="text-xs font-semibold text-red-600" onClick={() => removeExperienceListing(index)}>
-                      Remove Listing
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-sm font-bold uppercase tracking-wide">Project Listings</h3>
-                <button className="text-sm font-semibold text-indigo-700" onClick={addProjectListing}>
-                  + Add Project
-                </button>
-              </div>
-              {resumeDraft.projects.listings.map((listing, index) => (
-                <div key={`project-${index}`} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <LabeledInput
-                      label="ID"
-                      value={listing.id}
-                      onChange={(value) => handleProjectListingFieldUpdate(index, "id", value)}
-                    />
-                    <LabeledInput
-                      label="Title"
-                      value={listing.title}
-                      onChange={(value) => handleProjectListingFieldUpdate(index, "title", value)}
-                    />
-                    <LabeledInput
-                      label="Tech Stack"
-                      value={listing.tech_stack}
-                      onChange={(value) => handleProjectListingFieldUpdate(index, "tech_stack", value)}
-                    />
-                    <LabeledInput
-                      label="Date Range"
-                      value={listing.date_range}
-                      onChange={(value) => handleProjectListingFieldUpdate(index, "date_range", value)}
-                    />
-                  </div>
-                  <LabeledTextarea
-                    label="Bullets (one per line)"
-                    value={listing.bullets.map((bullet) => bullet.text).join("\n")}
-                    onChange={(value) => handleProjectBulletsUpdate(index, value)}
-                  />
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={listing.enabled}
-                        onChange={(event) => handleProjectListingFieldUpdate(index, "enabled", event.target.checked)}
-                      />{" "}
-                      Enabled
-                    </label>
-                    <button className="text-xs font-semibold text-red-600" onClick={() => removeProjectListing(index)}>
-                      Remove Project
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-sm font-bold uppercase tracking-wide">Skills & Achievements</h3>
-                <button className="text-sm font-semibold text-indigo-700" onClick={addSkillListing}>
-                  + Add Skill Row
-                </button>
-              </div>
-              {resumeDraft.skills_achievements.listings.map((listing, index) => (
-                <div key={`skill-${index}`} className="rounded-xl border border-slate-100 p-3 bg-slate-50 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <LabeledInput
-                      label="ID"
-                      value={listing.id}
-                      onChange={(value) => handleSkillListingUpdate(index, "id", value)}
-                    />
-                    <LabeledInput
-                      label="Category"
-                      value={listing.category}
-                      onChange={(value) => handleSkillListingUpdate(index, "category", value)}
-                    />
-                    <LabeledInput
-                      label="Text"
-                      value={listing.text}
-                      onChange={(value) => handleSkillListingUpdate(index, "text", value)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={listing.enabled}
-                        onChange={(event) => handleSkillListingUpdate(index, "enabled", event.target.checked)}
-                      />{" "}
-                      Enabled
-                    </label>
-                    <button className="text-xs font-semibold text-red-600" onClick={() => removeSkillListing(index)}>
-                      Remove Row
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-end">
               <button
-                className="px-4 py-2 rounded-lg text-white text-sm font-semibold"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 style={{ backgroundColor: COLOR_PRIMARY }}
-                onClick={handleResumeGuidedSave}
-                disabled={resumeStructuredMutation.isPending}
+                onClick={handleBudgetSave}
+                disabled={!isBudgetDirty || !isBudgetInputValid || budgetMutation.isPending}
               >
-                {resumeStructuredMutation.isPending ? "Saving..." : "Save Guided Resume"}
+                {budgetMutation.isPending ? "Saving..." : "Save Budget"}
               </button>
             </div>
-          </div>
-        )}
 
-        {resumeTab === "yaml" && (
-          <div className="space-y-4">
-            <YamlEditor
-              modelPath={RESUME_EDITOR_MODEL_URI}
-              value={resumeYamlDraft}
-              onChange={updateResumeYamlDraft}
-            />
-            <div className="flex justify-end">
-              <button
-                className="px-4 py-2 rounded-lg text-white text-sm font-semibold"
-                style={{ backgroundColor: COLOR_PRIMARY }}
-                onClick={handleResumeYamlSave}
-                disabled={resumeYamlMutation.isPending}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label
+                className="block text-xs font-semibold"
+                style={{ color: COLOR_ON_SURFACE_VARIANT }}
               >
-                {resumeYamlMutation.isPending ? "Saving..." : "Save YAML"}
-              </button>
+                Monthly Limit ($)
+                <input
+                  className="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={budgetInput}
+                  onChange={(event) => {
+                    setBudgetInput(event.target.value);
+                    setIsBudgetDirty(true);
+                  }}
+                />
+              </label>
+              <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low px-4 py-3">
+                <p
+                  className="text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                >
+                  Spent This Month
+                </p>
+                <p className="mt-1 text-lg font-bold">
+                  {formatUsd(budgetQuery.data?.spent_usd ?? 0)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low px-4 py-3">
+                <p
+                  className="text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                >
+                  Remaining
+                </p>
+                <p className="mt-1 text-lg font-bold">
+                  {formatUsd(budgetQuery.data?.remaining_usd ?? 0)}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
 
-        {resumeTab === "tex" && (
-          <div className="space-y-4">
-            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Upload a LaTeX resume source (`.tex`) and convert it into canonical YAML automatically.
-            </p>
-            <input
-              ref={resumeTexInputRef}
-              type="file"
-              accept=".tex,text/plain"
-              className="hidden"
-              onChange={handleResumeTexUpload}
-            />
-            <button
-              className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold"
-              onClick={() => resumeTexInputRef.current?.click()}
-              disabled={resumeTexMutation.isPending}
-            >
-              {resumeTexMutation.isPending ? "Converting..." : "Upload TeX and Convert"}
-            </button>
-            {lastResumeMigrationSummary !== null && (
-              <p className="text-xs text-emerald-700">Latest migration: {lastResumeMigrationSummary}</p>
+            <div className="space-y-2">
+              <div className="h-2 rounded-full bg-surface-container overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${budgetUsedPct}%`, backgroundColor: budgetProgressColor }}
+                />
+              </div>
+              <p className="text-right text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                {budgetUsedPct}% consumed
+              </p>
+            </div>
+            {budgetMutation.isError && (
+              <InlineErrorText
+                message={`Budget save failed: ${getErrorMessage(budgetMutation.error)}`}
+              />
             )}
-          </div>
-        )}
+          </section>
 
-        {resumeTab === "files" && (
-          <div className="space-y-4">
-            <SettingsFileCard
-              title="Resume YAML"
-              subtitle={resumeMetadata?.modified_at ? new Date(resumeMetadata.modified_at).toLocaleString() : "No file timestamp"}
-              downloadUrl={getResumeDownloadUrl()}
-            />
-            <input
-              ref={resumeYamlInputRef}
-              type="file"
-              accept=".yaml,.yml,text/yaml,application/x-yaml"
-              className="hidden"
-              onChange={handleResumeYamlUpload}
-            />
-            <button
-              className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold"
-              onClick={() => resumeYamlInputRef.current?.click()}
-              disabled={resumeUploadMutation.isPending}
+          <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-5">
+            <div>
+              <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                API Keys
+              </h3>
+              <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                Manage provider and service secrets. Keys are write-only and cannot be read after
+                saving.
+              </p>
+            </div>
+
+            {apiKeysQuery.isError && (
+              <div
+                className="rounded-xl border px-4 py-3 text-sm"
+                style={{
+                  borderColor: COLOR_WARNING,
+                  color: COLOR_ON_WARNING_CONTAINER,
+                  backgroundColor: COLOR_WARNING_CONTAINER,
+                }}
+              >
+                API key status endpoint is not available yet. UI is ready; backend wiring is still
+                required.
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {API_KEYS.map((apiKey) => {
+                const isConfigured =
+                  normalizedApiKeys.find((entry) => entry.name === apiKey.name)?.configured ??
+                  false;
+                const isEditing = editingApiKeyName === apiKey.name;
+                const isSavingThisKey =
+                  apiKeyUpsertMutation.isPending &&
+                  apiKeyUpsertMutation.variables?.keyName === apiKey.name;
+                const isDeletingThisKey =
+                  apiKeyDeleteMutation.isPending && apiKeyDeleteMutation.variables === apiKey.name;
+
+                return (
+                  <div
+                    key={apiKey.name}
+                    className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-outline-variant/30">
+                          <span
+                            className="material-symbols-outlined text-base"
+                            style={{ color: COLOR_PRIMARY }}
+                          >
+                            {apiKey.icon}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold" style={{ color: COLOR_ON_SURFACE }}>
+                            {apiKey.name}
+                          </p>
+                          <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                            {isConfigured ? "● Configured" : "○ Not configured"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {!isConfigured && !isEditing && (
+                          <button
+                            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            style={{ backgroundColor: COLOR_PRIMARY }}
+                            onClick={() => startApiKeyEdit(apiKey.name)}
+                            disabled={isSavingThisKey || isDeletingThisKey}
+                          >
+                            Add Key
+                          </button>
+                        )}
+
+                        {isConfigured && !isEditing && (
+                          <>
+                            <button
+                              className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-sm font-semibold"
+                              style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                              onClick={() => startApiKeyEdit(apiKey.name)}
+                              disabled={isSavingThisKey || isDeletingThisKey}
+                            >
+                              Update
+                            </button>
+                            <button
+                              className="text-sm font-semibold disabled:opacity-50"
+                              style={{ color: COLOR_ERROR }}
+                              onClick={() => handleApiKeyDelete(apiKey.name)}
+                              disabled={isDeletingThisKey || isSavingThisKey}
+                            >
+                              {isDeletingThisKey ? "Deleting..." : "Delete"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                      {apiKey.description}
+                    </p>
+
+                    {isEditing && (
+                      <div className="rounded-lg border border-outline-variant/40 bg-white p-3 space-y-3">
+                        <label
+                          className="block text-xs font-semibold"
+                          style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                        >
+                          Secret Value
+                          <input
+                            className="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm"
+                            style={{ filter: "blur(1.2px)" }}
+                            type="password"
+                            autoComplete="new-password"
+                            placeholder="sk-..."
+                            value={editingApiKeyValue}
+                            onChange={(event) => {
+                              setEditingApiKeyValue(event.target.value);
+                            }}
+                          />
+                        </label>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            className="rounded-lg px-3 py-2 text-sm font-semibold"
+                            style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                            onClick={cancelApiKeyEdit}
+                            disabled={isSavingThisKey}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            style={{ backgroundColor: COLOR_PRIMARY }}
+                            onClick={() => handleApiKeySave(apiKey.name)}
+                            disabled={isSavingThisKey || editingApiKeyValue.trim() === ""}
+                          >
+                            {isSavingThisKey ? "Saving..." : "Save Key"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {apiKeyFeedback !== null && apiKeyFeedback.type === "success" && (
+              <p className="text-sm" style={{ color: COLOR_SUCCESS }}>
+                {apiKeyFeedback.message}
+              </p>
+            )}
+            {apiKeyFeedback !== null && apiKeyFeedback.type === "error" && (
+              <InlineErrorText message={apiKeyFeedback.message} />
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-5">
+            <div>
+              <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                Service Tier
+              </h3>
+              <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                Choose how much of the pipeline runs. Base includes discovery + gate logic and still
+                works without provider keys.
+              </p>
+            </div>
+
+            <div
+              className="rounded-xl border px-4 py-3 text-sm"
+              style={{
+                borderColor: COLOR_WARNING,
+                color: COLOR_ON_WARNING_CONTAINER,
+                backgroundColor: COLOR_WARNING_CONTAINER,
+              }}
             >
-              {resumeUploadMutation.isPending ? "Uploading..." : "Replace Resume YAML"}
-            </button>
-          </div>
-        )}
-      </section>
+              Changing tiers requires restarting Docker Compose services. Check the deployment
+              README for restart steps.
+            </div>
 
-      {/* ── Filters YAML Editor ─────────────────────────────────────── */}
-      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
-              Job Filters
-            </h2>
-            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Hard filters auto-reject obvious non-matches. Soft filters flag ambiguous jobs for review.
-            </p>
-          </div>
-          <button
-            className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50"
-            style={{ backgroundColor: COLOR_PRIMARY }}
-            onClick={() => {
-              filtersYamlMutation.mutate(filtersYamlDraft);
-            }}
-            disabled={filtersYamlMutation.isPending || !isFiltersDirty}
-          >
-            {filtersYamlMutation.isPending ? "Saving..." : "Save Filters"}
-          </button>
-        </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              {SERVICE_TIER_CARDS.map((tierCard) => {
+                const missingKeys = getMissingKeysForTier(tierCard.tier, configuredApiKeyMap);
+                const isBlocked = tierCard.tier !== "base" && missingKeys.length > 0;
+                const isSelected = selectedServiceTier === tierCard.tier;
+                return (
+                  <button
+                    key={tierCard.tier}
+                    type="button"
+                    className="rounded-xl border p-4 text-left space-y-3 transition-colors disabled:opacity-70"
+                    style={{
+                      borderColor: isSelected ? COLOR_PRIMARY : `${COLOR_OUTLINE_VARIANT}80`,
+                      borderWidth: isSelected ? 2 : 1,
+                      backgroundColor: isSelected ? COLOR_PRIMARY_FIXED : "#ffffff",
+                    }}
+                    onClick={() => {
+                      handleServiceTierSelection(tierCard.tier);
+                    }}
+                    disabled={isBlocked || tierMutation.isPending}
+                    title={
+                      isBlocked ? `Missing required keys: ${missingKeys.join(", ")}` : undefined
+                    }
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="material-symbols-outlined text-base"
+                          style={{ color: COLOR_PRIMARY }}
+                        >
+                          {tierCard.icon}
+                        </span>
+                        <p className="text-sm font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                          {tierCard.title}
+                        </p>
+                      </div>
+                      {tierCard.badge !== undefined && (
+                        <span
+                          className="rounded-full px-2 py-1 text-[10px] font-bold text-white"
+                          style={{ backgroundColor: COLOR_PRIMARY }}
+                        >
+                          {tierCard.badge}
+                        </span>
+                      )}
+                    </div>
 
-        {filtersQuery.isLoading && (
-          <p className="text-sm text-slate-400">Loading filters configuration...</p>
-        )}
-        {filtersQuery.isError && (
-          <p className="text-sm text-red-600">Failed to load filters configuration.</p>
-        )}
-        {filtersQuery.data !== undefined && (
-          <YamlEditor
-            modelPath="filters.yaml"
-            value={filtersYamlDraft}
-            onChange={(nextValue) => {
-              setFiltersYamlDraft(nextValue);
-              setIsFiltersDirty(true);
-            }}
-          />
-        )}
-        {filtersYamlMutation.isError && (
-          <p className="text-sm text-red-600">
-            Save failed: {filtersYamlMutation.error instanceof Error ? filtersYamlMutation.error.message : "Unknown error"}
-          </p>
-        )}
-      </section>
+                    <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                      {tierCard.description}
+                    </p>
 
-      {/* ── Sources & Danger Zone YAML Editor ────────────────────────── */}
-      <section className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
-              Job Sources &amp; Danger Zone
-            </h2>
-            <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-              Configure company lists, job boards, LinkedIn scraping, GitHub repos, career page watchers, and polling intervals.
-            </p>
-          </div>
-          <button
-            className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50"
-            style={{ backgroundColor: COLOR_PRIMARY }}
-            onClick={() => {
-              sourcesYamlMutation.mutate(sourcesYamlDraft);
-            }}
-            disabled={sourcesYamlMutation.isPending || !isSourcesDirty}
-          >
-            {sourcesYamlMutation.isPending ? "Saving..." : "Save Sources"}
-          </button>
-        </div>
+                    <ul className="space-y-1">
+                      {tierCard.features.map((feature) => (
+                        <li
+                          key={`${tierCard.tier}-${feature}`}
+                          className="text-xs"
+                          style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                        >
+                          ✓ {feature}
+                        </li>
+                      ))}
+                    </ul>
 
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>Danger Zone:</strong> LinkedIn aggressive mode, shorter time ranges, and higher page counts
-          may trigger rate limiting or IP blocks. Use proxy settings for heavy scraping.
-        </div>
+                    {isBlocked && (
+                      <p className="text-xs font-semibold" style={{ color: COLOR_ERROR }}>
+                        Missing keys: {missingKeys.join(", ")}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
 
-        {sourcesQuery.isLoading && (
-          <p className="text-sm text-slate-400">Loading sources configuration...</p>
-        )}
-        {sourcesQuery.isError && (
-          <p className="text-sm text-red-600">Failed to load sources configuration.</p>
-        )}
-        {sourcesQuery.data !== undefined && (
-          <YamlEditor
-            modelPath="companies.yaml"
-            value={sourcesYamlDraft}
-            onChange={(nextValue) => {
-              setSourcesYamlDraft(nextValue);
-              setIsSourcesDirty(true);
-            }}
-          />
-        )}
-        {sourcesYamlMutation.isError && (
-          <p className="text-sm text-red-600">
-            Save failed: {sourcesYamlMutation.error instanceof Error ? sourcesYamlMutation.error.message : "Unknown error"}
-          </p>
-        )}
-      </section>
+            <div className="flex justify-end">
+              <button
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: COLOR_PRIMARY }}
+                onClick={handleServiceTierSave}
+                disabled={
+                  !isTierDirty ||
+                  tierMutation.isPending ||
+                  (selectedServiceTier !== "base" && selectedTierMissingKeys.length > 0)
+                }
+              >
+                {tierMutation.isPending ? "Saving..." : "Save Tier"}
+              </button>
+            </div>
+
+            {tierFeedback !== null && tierFeedback.type === "success" && (
+              <p className="text-sm" style={{ color: COLOR_SUCCESS }}>
+                {tierFeedback.message}
+              </p>
+            )}
+            {tierFeedback !== null && tierFeedback.type === "error" && (
+              <InlineErrorText message={tierFeedback.message} />
+            )}
+          </section>
+        </>
+      )}
+
+      {activeTopLevelTab === "candidate" && (
+        <>
+          <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                  Candidate Profile
+                </h3>
+                <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                  This profile is always available and drives gate-agent decision quality.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <TabButton
+                  active={candidateTab === "guided"}
+                  label="Guided"
+                  onClick={() => setCandidateTab("guided")}
+                />
+                <TabButton
+                  active={candidateTab === "yaml"}
+                  label="Advanced YAML"
+                  onClick={() => setCandidateTab("yaml")}
+                />
+                <TabButton
+                  active={candidateTab === "files"}
+                  label="File Actions"
+                  onClick={() => setCandidateTab("files")}
+                />
+              </div>
+            </div>
+
+            {candidateTab === "guided" && profileDraft !== null && (
+              <div className="space-y-6">
+                <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 space-y-4">
+                  <h4
+                    className="text-sm font-bold uppercase tracking-wide"
+                    style={{ color: COLOR_ON_SURFACE }}
+                  >
+                    Core Context
+                  </h4>
+                  <LabeledTextarea
+                    label="Summary"
+                    value={profileDraft.profile.summary}
+                    onChange={(value) => handleProfileScalarUpdate("summary", value)}
+                    rows={4}
+                    helperText={`${profileDraft.profile.summary.trim().length} character(s)`}
+                  />
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h5 className="text-sm font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                        Contact
+                      </h5>
+                      <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                        Standard fields reused across job applications.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <LabeledInput
+                        label="Full Name"
+                        value={profileDraft.profile.contact.full_name}
+                        onChange={(value) => handleProfileContactFieldUpdate("full_name", value)}
+                      />
+                      <LabeledInput
+                        label="Email"
+                        value={profileDraft.profile.contact.email}
+                        onChange={(value) => handleProfileContactFieldUpdate("email", value)}
+                      />
+                      <LabeledInput
+                        label="Phone"
+                        value={profileDraft.profile.contact.phone}
+                        onChange={(value) => handleProfileContactFieldUpdate("phone", value)}
+                      />
+                      <LabeledInput
+                        label="City"
+                        value={profileDraft.profile.contact.city}
+                        onChange={(value) => handleProfileContactFieldUpdate("city", value)}
+                      />
+                      <LabeledInput
+                        label="State / Region"
+                        value={profileDraft.profile.contact.state_or_region}
+                        onChange={(value) =>
+                          handleProfileContactFieldUpdate("state_or_region", value)
+                        }
+                      />
+                      <LabeledSelect
+                        label="Country"
+                        value={profileDraft.profile.contact.country_code}
+                        onChange={(value) => {
+                          handleProfileContactFieldUpdate("country_code", value);
+                          const selectedCountryLabel = countryLabelByCode.get(value) ?? "";
+                          handleProfileContactFieldUpdate("country_label", selectedCountryLabel);
+                        }}
+                        options={[
+                          { value: "", label: "Select country" },
+                          ...countryOptions.map((countryOption) => ({
+                            value: countryOption.code,
+                            label: countryOption.label,
+                          })),
+                        ]}
+                      />
+                      <LabeledInput
+                        label="LinkedIn URL"
+                        value={profileDraft.profile.contact.linkedin_url}
+                        onChange={(value) => handleProfileContactFieldUpdate("linkedin_url", value)}
+                      />
+                      <LabeledInput
+                        label="GitHub URL"
+                        value={profileDraft.profile.contact.github_url}
+                        onChange={(value) => handleProfileContactFieldUpdate("github_url", value)}
+                      />
+                      <LabeledInput
+                        label="Portfolio URL"
+                        value={profileDraft.profile.contact.portfolio_url}
+                        onChange={(value) =>
+                          handleProfileContactFieldUpdate("portfolio_url", value)
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h5 className="text-sm font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                      Work Authorization
+                    </h5>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <LabeledSelect
+                        label="Citizenship"
+                        value={profileDraft.profile.work_authorization.citizenship_country_code}
+                        onChange={(value) => {
+                          handleProfileWorkAuthorizationFieldUpdate(
+                            "citizenship_country_code",
+                            value,
+                          );
+                          const selectedCountryLabel = countryLabelByCode.get(value) ?? "";
+                          handleProfileWorkAuthorizationFieldUpdate(
+                            "citizenship_country_label",
+                            selectedCountryLabel,
+                          );
+                        }}
+                        options={[
+                          { value: "", label: "Select citizenship country" },
+                          ...countryOptions.map((countryOption) => ({
+                            value: countryOption.code,
+                            label: countryOption.label,
+                          })),
+                        ]}
+                        helperText="United States is pinned first for faster selection."
+                      />
+                      <LabeledSelect
+                        label="Authorized to work in U.S.?"
+                        value={profileDraft.profile.work_authorization.authorized_to_work_us}
+                        onChange={(value) =>
+                          handleProfileWorkAuthorizationFieldUpdate("authorized_to_work_us", value)
+                        }
+                        options={YES_NO_UNKNOWN_OPTIONS}
+                      />
+                      <LabeledSelect
+                        label="Need sponsorship now or later?"
+                        value={
+                          profileDraft.profile.work_authorization.requires_sponsorship_now_or_future
+                        }
+                        onChange={(value) =>
+                          handleProfileWorkAuthorizationFieldUpdate(
+                            "requires_sponsorship_now_or_future",
+                            value,
+                          )
+                        }
+                        options={YES_NO_UNKNOWN_OPTIONS}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h5 className="text-sm font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                        Education
+                      </h5>
+                      <button
+                        className="text-sm font-semibold"
+                        style={{ color: COLOR_PRIMARY }}
+                        onClick={addEducationEntry}
+                      >
+                        + Add Education
+                      </button>
+                    </div>
+                    <LabeledInput
+                      label="Education Summary"
+                      value={profileDraft.profile.education_summary}
+                      onChange={(value) => handleProfileScalarUpdate("education_summary", value)}
+                    />
+                    {profileDraft.profile.education_entries.map((entry, entryIndex) => (
+                      <div
+                        key={entry.id}
+                        className="rounded-xl border border-outline-variant/40 bg-white p-4 space-y-3"
+                      >
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <LabeledInput
+                            label="School"
+                            value={entry.school}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(entryIndex, "school", value)
+                            }
+                          />
+                          <LabeledSelect
+                            label="Degree Level"
+                            value={entry.degree_level}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(
+                                entryIndex,
+                                "degree_level",
+                                value,
+                              )
+                            }
+                            options={DEGREE_LEVEL_OPTIONS}
+                          />
+                          <LabeledInput
+                            label="Degree Name"
+                            value={entry.degree_name}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(
+                                entryIndex,
+                                "degree_name",
+                                value,
+                              )
+                            }
+                          />
+                          <LabeledInput
+                            label="Field of Study"
+                            value={entry.field_of_study}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(
+                                entryIndex,
+                                "field_of_study",
+                                value,
+                              )
+                            }
+                          />
+                          <LabeledInput
+                            label="Location"
+                            value={entry.location}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(entryIndex, "location", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="GPA (optional)"
+                            value={entry.gpa}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(entryIndex, "gpa", value)
+                            }
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                          <LabeledSelect
+                            label="Start Month"
+                            value={entry.start_month}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(
+                                entryIndex,
+                                "start_month",
+                                value,
+                              )
+                            }
+                            options={MONTH_OPTIONS}
+                          />
+                          <LabeledInput
+                            label="Start Year"
+                            value={entry.start_year}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(
+                                entryIndex,
+                                "start_year",
+                                value,
+                              )
+                            }
+                          />
+                          <LabeledSelect
+                            label="End Month"
+                            value={entry.end_month}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(entryIndex, "end_month", value)
+                            }
+                            options={MONTH_OPTIONS}
+                          />
+                          <LabeledInput
+                            label="End Year"
+                            value={entry.end_year}
+                            onChange={(value) =>
+                              handleProfileEducationEntryFieldUpdate(entryIndex, "end_year", value)
+                            }
+                          />
+                          <label
+                            className="mt-6 text-xs font-semibold"
+                            style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={entry.is_current}
+                              onChange={(event) =>
+                                handleProfileEducationEntryFieldUpdate(
+                                  entryIndex,
+                                  "is_current",
+                                  event.target.checked,
+                                )
+                              }
+                            />{" "}
+                            Currently enrolled
+                          </label>
+                        </div>
+                        <LabeledTextarea
+                          label="Highlights (one per line)"
+                          value={listToLines(entry.highlights)}
+                          onChange={(value) =>
+                            handleProfileEducationEntryHighlightsUpdate(entryIndex, value)
+                          }
+                          rows={3}
+                          helperText={`${entry.highlights.length} item(s)`}
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            className="text-xs font-semibold"
+                            style={{ color: COLOR_ERROR }}
+                            onClick={() => removeEducationEntry(entryIndex)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 space-y-4">
+                  <h4
+                    className="text-sm font-bold uppercase tracking-wide"
+                    style={{ color: COLOR_ON_SURFACE }}
+                  >
+                    Role Targeting
+                  </h4>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <LabeledTextarea
+                      label="Target Roles (one per line)"
+                      value={listToLines(profileDraft.profile.target_roles)}
+                      onChange={(value) => handleProfileListUpdate("target_roles", value)}
+                      helperText={`${countListItems(listToLines(profileDraft.profile.target_roles))} item(s)`}
+                    />
+                    <LabeledTextarea
+                      label="Strongest Areas (one per line)"
+                      value={listToLines(profileDraft.profile.strongest_areas)}
+                      onChange={(value) => handleProfileListUpdate("strongest_areas", value)}
+                      helperText={`${countListItems(listToLines(profileDraft.profile.strongest_areas))} item(s)`}
+                    />
+                    <LabeledTextarea
+                      label="Experience Highlights (one per line)"
+                      value={listToLines(profileDraft.profile.experience_highlights)}
+                      onChange={(value) => handleProfileListUpdate("experience_highlights", value)}
+                      helperText={`${countListItems(listToLines(profileDraft.profile.experience_highlights))} item(s)`}
+                    />
+                    <LabeledTextarea
+                      label="Search Terms (one per line)"
+                      value={listToLines(profileDraft.search_defaults.job_board_search_terms)}
+                      onChange={(value) => {
+                        updateProfileDraft({
+                          ...profileDraft,
+                          search_defaults: { job_board_search_terms: linesToList(value) },
+                        });
+                      }}
+                      helperText={`${countListItems(listToLines(profileDraft.search_defaults.job_board_search_terms))} item(s)`}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 space-y-4">
+                  <h4
+                    className="text-sm font-bold uppercase tracking-wide"
+                    style={{ color: COLOR_ON_SURFACE }}
+                  >
+                    Decision Rules
+                  </h4>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <LabeledTextarea
+                      label="Hard Filters (one per line)"
+                      value={listToLines(profileDraft.profile.hard_filters)}
+                      onChange={(value) => handleProfileListUpdate("hard_filters", value)}
+                      helperText={`${countListItems(listToLines(profileDraft.profile.hard_filters))} item(s)`}
+                    />
+                    <LabeledTextarea
+                      label="Preferences (one per line)"
+                      value={listToLines(profileDraft.profile.preferences)}
+                      onChange={(value) => handleProfileListUpdate("preferences", value)}
+                      helperText={`${countListItems(listToLines(profileDraft.profile.preferences))} item(s)`}
+                    />
+                  </div>
+                </div>
+
+                <LabeledTextarea
+                  label="Prompt Context Override (optional)"
+                  value={profileDraft.prompt_context ?? ""}
+                  onChange={(value) => {
+                    updateProfileDraft({
+                      ...profileDraft,
+                      prompt_context: value.trim() === "" ? null : value,
+                    });
+                  }}
+                  rows={6}
+                  helperText="Additional context injected into AI prompts."
+                />
+
+                <div className="flex justify-end">
+                  <button
+                    className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: COLOR_PRIMARY }}
+                    onClick={handleProfileGuidedSave}
+                    disabled={profileStructuredMutation.isPending || !isProfileDirty}
+                  >
+                    {profileStructuredMutation.isPending ? "Saving..." : "Save Profile"}
+                  </button>
+                </div>
+                {profileStructuredMutation.isError && (
+                  <InlineErrorText
+                    message={`Profile save failed: ${getErrorMessage(profileStructuredMutation.error)}`}
+                  />
+                )}
+              </div>
+            )}
+
+            {candidateTab === "yaml" && (
+              <div className="space-y-4">
+                <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                  Advanced: editing YAML here overrides guided form values.
+                </p>
+                <YamlEditor
+                  modelPath={PROFILE_EDITOR_MODEL_URI}
+                  value={profileYamlDraft}
+                  onChange={updateProfileYamlDraft}
+                />
+                <div className="flex justify-end">
+                  <button
+                    className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: COLOR_PRIMARY }}
+                    onClick={handleProfileYamlSave}
+                    disabled={profileYamlMutation.isPending || !isProfileDirty}
+                  >
+                    {profileYamlMutation.isPending ? "Saving..." : "Save YAML"}
+                  </button>
+                </div>
+                {profileYamlMutation.isError && (
+                  <InlineErrorText
+                    message={`YAML save failed: ${getErrorMessage(profileYamlMutation.error)}`}
+                  />
+                )}
+              </div>
+            )}
+
+            {candidateTab === "files" && (
+              <div className="space-y-4">
+                <SettingsFileCard
+                  title="Candidate Profile YAML"
+                  subtitle={
+                    profileMetadata?.modified_at
+                      ? new Date(profileMetadata.modified_at).toLocaleString()
+                      : "No file timestamp"
+                  }
+                  downloadUrl={getProfileDownloadUrl()}
+                />
+                <input
+                  ref={profileYamlInputRef}
+                  type="file"
+                  accept=".yaml,.yml,text/yaml,application/x-yaml"
+                  className="hidden"
+                  onChange={handleProfileYamlUpload}
+                />
+                <button
+                  className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-sm font-semibold"
+                  style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                  onClick={() => profileYamlInputRef.current?.click()}
+                  disabled={profileUploadMutation.isPending}
+                >
+                  {profileUploadMutation.isPending ? "Uploading..." : "Replace Profile YAML"}
+                </button>
+                {profileUploadMutation.isError && (
+                  <InlineErrorText
+                    message={`Upload failed: ${getErrorMessage(profileUploadMutation.error)}`}
+                  />
+                )}
+              </div>
+            )}
+          </section>
+
+          {canOpenResumeEditor ? (
+            <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                    Resume Editor
+                  </h3>
+                  <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                    Resume editing is enabled for LaTeX and Full tiers.
+                  </p>
+                  <p className="mt-1 text-xs" style={{ color: COLOR_OUTLINE }}>
+                    {resumeCountsText}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <TabButton
+                    active={resumeTab === "guided"}
+                    label="Guided"
+                    onClick={() => setResumeTab("guided")}
+                  />
+                  <TabButton
+                    active={resumeTab === "yaml"}
+                    label="Advanced YAML"
+                    onClick={() => setResumeTab("yaml")}
+                  />
+                  <TabButton
+                    active={resumeTab === "tex"}
+                    label="Upload TeX"
+                    onClick={() => setResumeTab("tex")}
+                  />
+                  <TabButton
+                    active={resumeTab === "files"}
+                    label="File Actions"
+                    onClick={() => setResumeTab("files")}
+                  />
+                </div>
+              </div>
+
+              {resumeTab === "guided" && resumeDraft !== null && (
+                <div className="space-y-6">
+                  <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4">
+                    <h4 className="text-sm font-bold uppercase tracking-wide">
+                      Locked Sections (Read-Only)
+                    </h4>
+                    <p className="mt-2 text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                      Personal and education sections are locked by resume policy.
+                    </p>
+                    <p className="mt-3 text-sm">
+                      <strong>{resumeDraft.personal.name}</strong> • {resumeDraft.personal.email} •{" "}
+                      {resumeDraft.personal.phone}
+                    </p>
+                    {resumeDraft.education.entries.map((entry) => (
+                      <div key={entry.id} className="mt-2 text-sm">
+                        <p>
+                          <strong>{entry.institution}</strong> ({entry.date_range})
+                        </p>
+                        <p>{entry.degree}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-xl border border-outline-variant/30 p-4 space-y-4">
+                    <h4 className="text-sm font-bold uppercase tracking-wide">Layout Knobs</h4>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                      {Object.entries(resumeDraft.layout).map(([fieldName, fieldValue]) => (
+                        <label key={fieldName} className="text-xs font-semibold">
+                          {fieldName}
+                          <input
+                            className="mt-1 w-full rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1.5 text-sm"
+                            type="number"
+                            step="0.01"
+                            value={fieldValue}
+                            onChange={(event) =>
+                              handleResumeLayoutUpdate(
+                                fieldName as keyof ResumeContentDto["layout"],
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-outline-variant/30 p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold uppercase tracking-wide">Work Experience</h4>
+                      <button
+                        className="text-sm font-semibold"
+                        style={{ color: COLOR_PRIMARY }}
+                        onClick={addExperienceListing}
+                      >
+                        + Add Experience
+                      </button>
+                    </div>
+                    {resumeDraft.experience.listings.map((listing, index) => (
+                      <div
+                        key={`experience-${index}`}
+                        className="rounded-xl border border-outline-variant/50 bg-surface-container-low p-3 space-y-3"
+                      >
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <LabeledInput
+                            label="ID"
+                            value={listing.id}
+                            onChange={(value) =>
+                              handleExperienceListingFieldUpdate(index, "id", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="Title"
+                            value={listing.title}
+                            onChange={(value) =>
+                              handleExperienceListingFieldUpdate(index, "title", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="Date Range"
+                            value={listing.date_range}
+                            onChange={(value) =>
+                              handleExperienceListingFieldUpdate(index, "date_range", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="Company"
+                            value={listing.organization}
+                            onChange={(value) =>
+                              handleExperienceListingFieldUpdate(index, "organization", value)
+                            }
+                          />
+                        </div>
+                        <LabeledTextarea
+                          label="Bullet Points (one per line)"
+                          value={listing.bullets.map((bullet) => bullet.text).join("\n")}
+                          onChange={(value) => handleExperienceBulletsUpdate(index, value)}
+                          rows={4}
+                        />
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={listing.enabled}
+                              onChange={(event) =>
+                                handleExperienceListingFieldUpdate(
+                                  index,
+                                  "enabled",
+                                  event.target.checked,
+                                )
+                              }
+                            />{" "}
+                            Enabled
+                          </label>
+                          <button
+                            className="text-xs font-semibold"
+                            style={{ color: COLOR_ERROR }}
+                            onClick={() => removeExperienceListing(index)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-xl border border-outline-variant/30 p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold uppercase tracking-wide">Projects</h4>
+                      <button
+                        className="text-sm font-semibold"
+                        style={{ color: COLOR_PRIMARY }}
+                        onClick={addProjectListing}
+                      >
+                        + Add Project
+                      </button>
+                    </div>
+                    {resumeDraft.projects.listings.map((listing, index) => (
+                      <div
+                        key={`project-${index}`}
+                        className="rounded-xl border border-outline-variant/50 bg-surface-container-low p-3 space-y-3"
+                      >
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <LabeledInput
+                            label="ID"
+                            value={listing.id}
+                            onChange={(value) =>
+                              handleProjectListingFieldUpdate(index, "id", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="Name"
+                            value={listing.title}
+                            onChange={(value) =>
+                              handleProjectListingFieldUpdate(index, "title", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="Tech Stack"
+                            value={listing.tech_stack}
+                            onChange={(value) =>
+                              handleProjectListingFieldUpdate(index, "tech_stack", value)
+                            }
+                          />
+                          <LabeledInput
+                            label="Date"
+                            value={listing.date_range}
+                            onChange={(value) =>
+                              handleProjectListingFieldUpdate(index, "date_range", value)
+                            }
+                          />
+                        </div>
+                        <LabeledTextarea
+                          label="Bullet Points (one per line)"
+                          value={listing.bullets.map((bullet) => bullet.text).join("\n")}
+                          onChange={(value) => handleProjectBulletsUpdate(index, value)}
+                          rows={3}
+                        />
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={listing.enabled}
+                              onChange={(event) =>
+                                handleProjectListingFieldUpdate(
+                                  index,
+                                  "enabled",
+                                  event.target.checked,
+                                )
+                              }
+                            />{" "}
+                            Enabled
+                          </label>
+                          <button
+                            className="text-xs font-semibold"
+                            style={{ color: COLOR_ERROR }}
+                            onClick={() => removeProjectListing(index)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-xl border border-outline-variant/30 p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold uppercase tracking-wide">
+                        Skills & Achievements
+                      </h4>
+                      <button
+                        className="text-sm font-semibold"
+                        style={{ color: COLOR_PRIMARY }}
+                        onClick={addSkillListing}
+                      >
+                        + Add Skill Row
+                      </button>
+                    </div>
+                    {resumeDraft.skills_achievements.listings.map((listing, index) => (
+                      <div
+                        key={`skill-${index}`}
+                        className="rounded-xl border border-outline-variant/50 bg-surface-container-low p-3 space-y-3"
+                      >
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <LabeledInput
+                            label="ID"
+                            value={listing.id}
+                            onChange={(value) => handleSkillListingUpdate(index, "id", value)}
+                          />
+                          <LabeledInput
+                            label="Category"
+                            value={listing.category}
+                            onChange={(value) => handleSkillListingUpdate(index, "category", value)}
+                          />
+                          <LabeledInput
+                            label="Text"
+                            value={listing.text}
+                            onChange={(value) => handleSkillListingUpdate(index, "text", value)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={listing.enabled}
+                              onChange={(event) =>
+                                handleSkillListingUpdate(index, "enabled", event.target.checked)
+                              }
+                            />{" "}
+                            Enabled
+                          </label>
+                          <button
+                            className="text-xs font-semibold"
+                            style={{ color: COLOR_ERROR }}
+                            onClick={() => removeSkillListing(index)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      style={{ backgroundColor: COLOR_PRIMARY }}
+                      onClick={handleResumeGuidedSave}
+                      disabled={resumeStructuredMutation.isPending || !isResumeDirty}
+                    >
+                      {resumeStructuredMutation.isPending ? "Saving..." : "Save Resume"}
+                    </button>
+                  </div>
+                  {resumeStructuredMutation.isError && (
+                    <InlineErrorText
+                      message={`Resume save failed: ${getErrorMessage(resumeStructuredMutation.error)}`}
+                    />
+                  )}
+                </div>
+              )}
+
+              {resumeTab === "yaml" && (
+                <div className="space-y-4">
+                  <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                    Advanced: edit raw resume YAML. Changes here override guided edits.
+                  </p>
+                  <YamlEditor
+                    modelPath={RESUME_EDITOR_MODEL_URI}
+                    value={resumeYamlDraft}
+                    onChange={updateResumeYamlDraft}
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      style={{ backgroundColor: COLOR_PRIMARY }}
+                      onClick={handleResumeYamlSave}
+                      disabled={resumeYamlMutation.isPending || !isResumeDirty}
+                    >
+                      {resumeYamlMutation.isPending ? "Saving..." : "Save YAML"}
+                    </button>
+                  </div>
+                  {resumeYamlMutation.isError && (
+                    <InlineErrorText
+                      message={`YAML save failed: ${getErrorMessage(resumeYamlMutation.error)}`}
+                    />
+                  )}
+                </div>
+              )}
+
+              {resumeTab === "tex" && (
+                <div className="space-y-4">
+                  <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                    Upload a LaTeX resume source (`.tex`) and convert it into canonical YAML
+                    automatically.
+                  </p>
+                  <input
+                    ref={resumeTexInputRef}
+                    type="file"
+                    accept=".tex,text/plain"
+                    className="hidden"
+                    onChange={handleResumeTexUpload}
+                  />
+                  <button
+                    className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-sm font-semibold"
+                    style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                    onClick={() => resumeTexInputRef.current?.click()}
+                    disabled={resumeTexMutation.isPending}
+                  >
+                    {resumeTexMutation.isPending ? "Converting..." : "Upload TeX and Convert"}
+                  </button>
+                  {lastResumeMigrationSummary !== null && (
+                    <p className="text-sm" style={{ color: COLOR_SUCCESS }}>
+                      Latest migration: {lastResumeMigrationSummary}
+                    </p>
+                  )}
+                  {resumeTexMutation.isError && (
+                    <InlineErrorText
+                      message={`TeX conversion failed: ${getErrorMessage(resumeTexMutation.error)}`}
+                    />
+                  )}
+                </div>
+              )}
+
+              {resumeTab === "files" && (
+                <div className="space-y-4">
+                  <SettingsFileCard
+                    title="Resume YAML"
+                    subtitle={
+                      resumeMetadata?.modified_at
+                        ? new Date(resumeMetadata.modified_at).toLocaleString()
+                        : "No file timestamp"
+                    }
+                    downloadUrl={getResumeDownloadUrl()}
+                  />
+                  <input
+                    ref={resumeYamlInputRef}
+                    type="file"
+                    accept=".yaml,.yml,text/yaml,application/x-yaml"
+                    className="hidden"
+                    onChange={handleResumeYamlUpload}
+                  />
+                  <button
+                    className="rounded-lg border border-outline-variant bg-white px-4 py-2 text-sm font-semibold"
+                    style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                    onClick={() => resumeYamlInputRef.current?.click()}
+                    disabled={resumeUploadMutation.isPending}
+                  >
+                    {resumeUploadMutation.isPending ? "Uploading..." : "Replace Resume YAML"}
+                  </button>
+                  {resumeUploadMutation.isError && (
+                    <InlineErrorText
+                      message={`Upload failed: ${getErrorMessage(resumeUploadMutation.error)}`}
+                    />
+                  )}
+                </div>
+              )}
+            </section>
+          ) : (
+            <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-4">
+              <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                Resume Editor
+              </h3>
+              <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                Resume editor is available only for LaTeX or Full tiers.
+              </p>
+              <div
+                className="rounded-xl border px-4 py-3 text-sm"
+                style={{
+                  borderColor: COLOR_WARNING,
+                  color: COLOR_ON_WARNING_CONTAINER,
+                  backgroundColor: COLOR_WARNING_CONTAINER,
+                }}
+              >
+                Select LaTeX or Full in <strong>General Settings → Service Tier</strong> to enable
+                resume tailoring and review workflows.
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {activeTopLevelTab === "filters" && (
+        <>
+          <section className="rounded-2xl border border-outline-variant/30 bg-white p-6 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold" style={{ color: COLOR_ON_SURFACE }}>
+                  Company & Job Filters
+                </h3>
+                <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                  Configure filtering rules and discovery source lists used by the ingestion
+                  pipeline.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <TabButton
+                  active={activeFiltersTab === "filters"}
+                  label="Job Filters"
+                  onClick={() => handleFiltersTabChange("filters")}
+                />
+                <TabButton
+                  active={activeFiltersTab === "sources"}
+                  label="Company Sources"
+                  onClick={() => handleFiltersTabChange("sources")}
+                />
+              </div>
+            </div>
+
+            {activeFiltersTab === "filters" && (
+              <div className="space-y-4">
+                <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                  Advanced: edit `filters.yaml` directly.
+                </p>
+                <YamlEditor
+                  modelPath="filters.yaml"
+                  value={filtersYamlDraft}
+                  onChange={(nextValue) => {
+                    setFiltersYamlDraft(nextValue);
+                    setIsFiltersDirty(true);
+                  }}
+                />
+                <div className="flex justify-end">
+                  <button
+                    className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: COLOR_PRIMARY }}
+                    onClick={() => {
+                      filtersYamlMutation.mutate(filtersYamlDraft);
+                    }}
+                    disabled={filtersYamlMutation.isPending || !isFiltersDirty}
+                  >
+                    {filtersYamlMutation.isPending ? "Saving..." : "Save Filters"}
+                  </button>
+                </div>
+                {filtersQuery.isLoading && (
+                  <p className="text-sm" style={{ color: COLOR_OUTLINE }}>
+                    Loading filters configuration...
+                  </p>
+                )}
+                {filtersQuery.isError && (
+                  <InlineErrorText message="Failed to load filters configuration." />
+                )}
+                {filtersYamlMutation.isError && (
+                  <InlineErrorText
+                    message={`Save failed: ${getErrorMessage(filtersYamlMutation.error)}`}
+                  />
+                )}
+              </div>
+            )}
+
+            {activeFiltersTab === "sources" && (
+              <div className="space-y-4">
+                <div
+                  className="rounded-xl border px-4 py-3 text-sm"
+                  style={{
+                    borderColor: COLOR_WARNING,
+                    color: COLOR_ON_WARNING_CONTAINER,
+                    backgroundColor: COLOR_WARNING_CONTAINER,
+                  }}
+                >
+                  Danger Zone: aggressive LinkedIn/source settings may cause rate limiting or IP
+                  blocks.
+                </div>
+                <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+                  Advanced: edit `companies.yaml` directly.
+                </p>
+                <YamlEditor
+                  modelPath="companies.yaml"
+                  value={sourcesYamlDraft}
+                  onChange={(nextValue) => {
+                    setSourcesYamlDraft(nextValue);
+                    setIsSourcesDirty(true);
+                  }}
+                />
+                <div className="flex justify-end">
+                  <button
+                    className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: COLOR_PRIMARY }}
+                    onClick={() => {
+                      sourcesYamlMutation.mutate(sourcesYamlDraft);
+                    }}
+                    disabled={sourcesYamlMutation.isPending || !isSourcesDirty}
+                  >
+                    {sourcesYamlMutation.isPending ? "Saving..." : "Save Sources"}
+                  </button>
+                </div>
+                {sourcesQuery.isLoading && (
+                  <p className="text-sm" style={{ color: COLOR_OUTLINE }}>
+                    Loading sources configuration...
+                  </p>
+                )}
+                {sourcesQuery.isError && (
+                  <InlineErrorText message="Failed to load sources configuration." />
+                )}
+                {sourcesYamlMutation.isError && (
+                  <InlineErrorText
+                    message={`Save failed: ${getErrorMessage(sourcesYamlMutation.error)}`}
+                  />
+                )}
+              </div>
+            )}
+          </section>
+        </>
+      )}
 
       {hasAnyError && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div
+          className="rounded-xl border px-4 py-3 text-sm"
+          style={{
+            borderColor: COLOR_ERROR,
+            color: COLOR_ON_ERROR_CONTAINER,
+            backgroundColor: COLOR_ERROR_CONTAINER,
+          }}
+        >
           One or more settings actions failed. Inspect field values and retry.
         </div>
       )}
@@ -1391,9 +2859,14 @@ interface TabButtonProps {
 function TabButton({ active, label, onClick }: TabButtonProps): JSX.Element {
   return (
     <button
-      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-        active ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"
+      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        active ? "text-white" : "bg-white"
       }`}
+      style={
+        active
+          ? { backgroundColor: COLOR_PRIMARY, borderColor: COLOR_PRIMARY }
+          : { color: COLOR_ON_SURFACE_VARIANT, borderColor: COLOR_OUTLINE_VARIANT }
+      }
       onClick={onClick}
     >
       {label}
@@ -1419,15 +2892,67 @@ interface LabeledInputProps {
  */
 function LabeledInput({ label, value, onChange }: LabeledInputProps): JSX.Element {
   return (
-    <label className="text-xs font-semibold block">
+    <label className="block text-xs font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
       {label}
       <input
-        className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm"
+        className="mt-1 w-full rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1.5 text-sm"
         value={value}
         onChange={(event) => {
           onChange(event.target.value);
         }}
       />
+    </label>
+  );
+}
+
+/** Props for labeled select input. */
+interface LabeledSelectProps {
+  /** Field label text. */
+  readonly label: string;
+  /** Current field value. */
+  readonly value: string;
+  /** Callback for value changes. */
+  readonly onChange: (value: string) => void;
+  /** Select options in display order. */
+  readonly options: readonly SelectOption[];
+  /** Optional helper text shown below select. */
+  readonly helperText?: string;
+}
+
+/**
+ * Render one labeled select input.
+ *
+ * @param props - Labeled select props.
+ * @returns One select field block.
+ */
+function LabeledSelect({
+  label,
+  value,
+  onChange,
+  options,
+  helperText,
+}: LabeledSelectProps): JSX.Element {
+  return (
+    <label className="block text-xs font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+      {label}
+      <select
+        className="mt-1 w-full rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1.5 text-sm"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      >
+        {options.map((option) => (
+          <option key={`${label}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {helperText !== undefined && (
+        <p className="mt-1 text-xs" style={{ color: COLOR_OUTLINE }}>
+          {helperText}
+        </p>
+      )}
     </label>
   );
 }
@@ -1442,6 +2967,8 @@ interface LabeledTextareaProps {
   readonly onChange: (value: string) => void;
   /** Optional row count override. */
   readonly rows?: number;
+  /** Optional helper text shown below textarea. */
+  readonly helperText?: string;
 }
 
 /**
@@ -1450,18 +2977,29 @@ interface LabeledTextareaProps {
  * @param props - Labeled textarea props.
  * @returns One textarea block.
  */
-function LabeledTextarea({ label, value, onChange, rows = 5 }: LabeledTextareaProps): JSX.Element {
+function LabeledTextarea({
+  label,
+  value,
+  onChange,
+  rows = 5,
+  helperText,
+}: LabeledTextareaProps): JSX.Element {
   return (
-    <label className="text-xs font-semibold block">
+    <label className="block text-xs font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
       {label}
       <textarea
-        className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-sm"
+        className="mt-1 w-full rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-sm"
         rows={rows}
         value={value}
         onChange={(event) => {
           onChange(event.target.value);
         }}
       />
+      {helperText !== undefined && (
+        <p className="mt-1 text-xs" style={{ color: COLOR_OUTLINE }}>
+          {helperText}
+        </p>
+      )}
     </label>
   );
 }
@@ -1484,12 +3022,20 @@ interface SettingsFileCardProps {
  */
 function SettingsFileCard({ title, subtitle, downloadUrl }: SettingsFileCardProps): JSX.Element {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between">
+    <div className="flex items-center justify-between rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
       <div>
         <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs text-slate-500">{subtitle}</p>
+        <p className="text-xs" style={{ color: COLOR_OUTLINE }}>
+          {subtitle}
+        </p>
       </div>
-      <a className="text-sm font-semibold text-indigo-700 hover:underline" href={downloadUrl} target="_blank" rel="noreferrer">
+      <a
+        className="text-sm font-semibold hover:underline"
+        href={downloadUrl}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: COLOR_PRIMARY }}
+      >
         Download
       </a>
     </div>
@@ -1518,7 +3064,7 @@ function YamlEditor({ modelPath, value, onChange }: YamlEditorProps): JSX.Elemen
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-outline-variant">
       <Editor
         beforeMount={handleBeforeMount}
         path={modelPath}
@@ -1537,5 +3083,25 @@ function YamlEditor({ modelPath, value, onChange }: YamlEditorProps): JSX.Elemen
         }}
       />
     </div>
+  );
+}
+
+/** Props for inline settings error text snippets. */
+interface InlineErrorTextProps {
+  /** Error text content. */
+  readonly message: string;
+}
+
+/**
+ * Render one compact inline error message.
+ *
+ * @param props - Error message props.
+ * @returns One styled error paragraph.
+ */
+function InlineErrorText({ message }: InlineErrorTextProps): JSX.Element {
+  return (
+    <p className="text-sm" style={{ color: COLOR_ERROR }}>
+      {message}
+    </p>
   );
 }

@@ -44,7 +44,7 @@ function formatAppliedDate(rawValue: string): string {
  */
 function statusBadgeClass(status: string): string {
   if (status === "PENDING_REVIEW") {
-    return "bg-amber-100 text-amber-700";
+    return "bg-warning-container text-on-warning-container";
   }
   if (status === "APPROVED") {
     return "bg-emerald-100 text-emerald-700";
@@ -52,7 +52,7 @@ function statusBadgeClass(status: string): string {
   if (status === "REJECTED") {
     return "bg-rose-100 text-rose-700";
   }
-  return "bg-slate-100 text-slate-700";
+  return "bg-surface-container text-on-surface-variant";
 }
 
 /**
@@ -85,7 +85,7 @@ function confidenceClass(confidence: string): string {
     return "bg-emerald-50 text-emerald-700 border border-emerald-200";
   }
   if (confidence === "medium") {
-    return "bg-amber-50 text-amber-700 border border-amber-200";
+    return "bg-warning-container text-on-warning-container border border-warning";
   }
   return "bg-rose-50 text-rose-700 border border-rose-200";
 }
@@ -180,7 +180,7 @@ export function HumanReviewPage(): JSX.Element {
           <h2 className="text-3xl font-black tracking-tight" style={{ color: COLOR_ON_SURFACE }}>
             Human Review Queue
           </h2>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-on-surface-variant mt-1">
             Verify unresolved fields and complete or dismiss applications.
           </p>
         </div>
@@ -188,7 +188,7 @@ export function HumanReviewPage(): JSX.Element {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="rounded-full border px-5 py-2.5 text-sm font-semibold text-slate-600"
+            className="rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface-variant"
             style={{ borderColor: `${COLOR_OUTLINE_VARIANT}99` }}
             disabled
             title="CSV export is deferred for this pass."
@@ -214,11 +214,11 @@ export function HumanReviewPage(): JSX.Element {
 
       <div className="bg-white rounded-xl border border-white p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="relative md:w-[420px]">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">
             search
           </span>
           <input
-            className="w-full rounded-lg border bg-slate-50 py-2 pl-10 pr-3 text-sm"
+            className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-3 text-sm"
             style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
             placeholder="Search company or position..."
             value={searchQuery}
@@ -240,7 +240,7 @@ export function HumanReviewPage(): JSX.Element {
       </div>
 
       {(reviewQuery.isError || hasMutationError) && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-error-container bg-error-container px-4 py-3 text-sm text-on-error-container">
           Failed to load or update review queue data. Use Sync now to retry.
         </div>
       )}
@@ -281,7 +281,7 @@ export function HumanReviewPage(): JSX.Element {
 
             {reviewQuery.isLoading && (
               <tr>
-                <td className="px-6 py-10 text-sm text-slate-500" colSpan={6}>
+                <td className="px-6 py-10 text-sm text-outline" colSpan={6}>
                   Loading review queue...
                 </td>
               </tr>
@@ -289,7 +289,7 @@ export function HumanReviewPage(): JSX.Element {
 
             {!reviewQuery.isLoading && rows.length === 0 && (
               <tr>
-                <td className="px-6 py-10 text-sm text-slate-500" colSpan={6}>
+                <td className="px-6 py-10 text-sm text-outline" colSpan={6}>
                   No review records match the current filters.
                 </td>
               </tr>
@@ -330,11 +330,11 @@ interface SummaryCardProps {
 function SummaryCard({ label, value, subtitle }: SummaryCardProps): JSX.Element {
   return (
     <div className="rounded-xl bg-white border border-white p-6 shadow-sm">
-      <p className="text-[11px] font-bold tracking-widest uppercase text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-black" style={{ color: COLOR_ON_SURFACE }}>
+      <p className="text-[11px] font-bold tracking-widest uppercase text-outline">{label}</p>
+      <p className="mt-2 text-3xl font-black text-on-surface">
         {value}
       </p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+      <p className="mt-1 text-xs text-outline">{subtitle}</p>
     </div>
   );
 }
@@ -393,35 +393,35 @@ function ReviewRow({
 
   return (
     <>
-      <tr className="border-t border-slate-100 hover:bg-slate-50/50 transition-colors">
-        <td className="px-6 py-4 font-semibold text-slate-900">{row.company_name}</td>
-        <td className="px-6 py-4 text-slate-700">{row.position}</td>
+      <tr className="border-t border-outline-variant/30 hover:bg-surface-container-low/50 transition-colors">
+        <td className="px-6 py-4 font-semibold text-on-surface">{row.company_name}</td>
+        <td className="px-6 py-4 text-on-surface-variant">{row.position}</td>
         <td className="px-6 py-4">
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}>
             {statusLabel(row.status)}
           </span>
         </td>
-        <td className="px-6 py-4 text-xs font-semibold text-slate-700">{row.confidence_pct}%</td>
-        <td className="px-6 py-4 text-xs text-slate-600">{formatAppliedDate(row.applied_date)}</td>
+        <td className="px-6 py-4 text-xs font-semibold text-on-surface-variant">{row.confidence_pct}%</td>
+        <td className="px-6 py-4 text-xs text-on-surface-variant">{formatAppliedDate(row.applied_date)}</td>
         <td className="px-6 py-4 text-right">
-          <button className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600" onClick={onToggle}>
+          <button className="rounded-lg border border-outline-variant px-2 py-1 text-xs font-semibold text-on-surface-variant" onClick={onToggle}>
             {expanded ? "Hide" : isPending ? "Review" : "View"}
           </button>
         </td>
       </tr>
 
       {expanded && (
-        <tr className="bg-slate-50/60">
+        <tr className="bg-surface-container-low/60">
           <td className="px-6 py-6" colSpan={6}>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-3">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">Why Flagged</p>
-                <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 leading-6">
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Why Flagged</p>
+                <div className="rounded-xl border border-outline-variant bg-white p-4 text-sm text-on-surface-variant leading-6">
                   {row.agent_diagnostic}
                 </div>
                 <div className="flex flex-col gap-2 text-xs">
                   <a
-                    className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:underline"
+                    className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
                     href={row.job_posting_url}
                     target="_blank"
                     rel="noreferrer"
@@ -429,16 +429,16 @@ function ReviewRow({
                     View Job Posting
                     <span className="material-symbols-outlined text-sm">open_in_new</span>
                   </a>
-                  <p className="text-slate-600">Resume: {row.resume_file_name}</p>
+                  <p className="text-on-surface-variant">Resume: {row.resume_file_name}</p>
                 </div>
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-widest font-bold text-slate-500">
+                  <p className="text-[11px] uppercase tracking-widest font-bold text-outline">
                     AI Recommended Answers
                   </p>
-                  <span className="text-xs font-semibold text-slate-500">
+                  <span className="text-xs font-semibold text-outline">
                     {unresolvedCount} unresolved field{unresolvedCount === 1 ? "" : "s"}
                   </span>
                 </div>
@@ -450,9 +450,9 @@ function ReviewRow({
                 ) : (
                   <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
                     {row.unresolved_fields.map((field) => (
-                      <div key={field.field_name} className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+                      <div key={field.field_name} className="rounded-xl border border-outline-variant bg-white p-4 space-y-2">
                         <div className="flex items-start justify-between gap-3">
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          <p className="text-xs font-bold uppercase tracking-wider text-outline">
                             {field.field_name}
                           </p>
                           <span
@@ -461,8 +461,8 @@ function ReviewRow({
                             {field.answer_confidence}
                           </span>
                         </div>
-                        <p className="text-sm font-semibold text-slate-900">{field.ai_answer}</p>
-                        <p className="text-xs italic text-slate-600">{field.reasoning}</p>
+                        <p className="text-sm font-semibold text-on-surface">{field.ai_answer}</p>
+                        <p className="text-xs italic text-on-surface-variant">{field.reasoning}</p>
                       </div>
                     ))}
                   </div>
@@ -470,10 +470,10 @@ function ReviewRow({
               </div>
             </div>
 
-            <div className="mt-6 border-t border-slate-200 pt-4 flex justify-end gap-3">
+            <div className="mt-6 border-t border-outline-variant pt-4 flex justify-end gap-3">
               <button
                 type="button"
-                className="rounded-full border px-5 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                className="rounded-full border border-outline-variant px-5 py-2 text-sm font-semibold text-on-surface-variant disabled:opacity-50"
                 style={{ borderColor: `${COLOR_OUTLINE_VARIANT}99` }}
                 onClick={onDismiss}
                 disabled={!isPending || pendingDismiss || pendingComplete}
@@ -519,13 +519,13 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
   const safeTotalPages = Math.max(1, totalPages);
 
   return (
-    <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
-      <p className="text-xs font-medium text-slate-500">
+    <div className="px-6 py-4 border-t border-outline-variant/30 flex items-center justify-between">
+      <p className="text-xs font-medium text-outline">
         Showing page {currentPage} of {safeTotalPages} ({totalItems} records)
       </p>
       <div className="flex items-center gap-2">
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"
+          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
           onClick={() => {
             onPageChange(Math.max(1, currentPage - 1));
           }}
@@ -534,7 +534,7 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
           Previous
         </button>
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"
+          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
           onClick={() => {
             onPageChange(Math.min(safeTotalPages, currentPage + 1));
           }}

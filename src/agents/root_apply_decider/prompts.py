@@ -49,6 +49,9 @@ DEFAULT_CANDIDATE_PROFILE_PATH = "config/candidate_profile.yaml"
 MAX_PROMPT_CONTEXT_CHARS = 2_000
 MAX_DESCRIPTION_CHARS = 4_000
 MAX_REQUIREMENTS_CHARS = 2_000
+WORK_AUTH_STATUS_YES = "yes"
+WORK_AUTH_STATUS_NO = "no"
+WORK_AUTH_STATUS_UNKNOWN = "unknown"
 
 ROOT_APPLY_DECIDER_CANDIDATE_CONTEXT_FALLBACK = """
 Candidate Context
@@ -125,6 +128,153 @@ def _coerce_string_list(value: Any) -> list[str]:
     return normalized_values
 
 
+def _coerce_mapping(value: Any) -> Mapping[str, Any]:
+    """Normalize one profile subsection value to a mapping.
+
+    Purpose:
+        Keep context rendering resilient when profile YAML contains malformed
+        subsection values by safely coercing non-mapping inputs to empty maps.
+    Args:
+        value: Raw profile subsection value from parsed YAML.
+    Output:
+        Returns the original mapping value or an empty mapping.
+    """
+
+    if isinstance(value, Mapping):
+        return value
+    return {}
+
+
+def _coerce_education_entries(value: Any) -> list[Mapping[str, Any]]:
+    """Normalize education entries to a list of mapping rows.
+
+    Purpose:
+        Ensure context rendering can iterate deterministic education rows even
+        when profile YAML contains mixed or malformed list values.
+    Args:
+        value: Raw `education_entries` value from profile YAML.
+    Output:
+        Returns a list containing only mapping entries.
+    """
+
+    if not isinstance(value, list):
+        return []
+
+    normalized_entries: list[Mapping[str, Any]] = []
+    for entry in value:
+        if isinstance(entry, Mapping):
+            normalized_entries.append(entry)
+    return normalized_entries
+
+
+def _render_contact_line(contact_section: Mapping[str, Any]) -> str:
+    """Render one concise contact line from structured contact fields.
+
+    Purpose:
+        Keep candidate context compact while still surfacing the highest-value
+        contact defaults commonly used during ATS application mapping.
+    Args:
+        contact_section: Structured contact subsection mapping.
+    Output:
+        Returns a formatted contact summary line or an empty string.
+    """
+
+    contact_parts = [
+        str(contact_section.get("full_name") or "").strip(),
+        str(contact_section.get("email") or "").strip(),
+        str(contact_section.get("phone") or "").strip(),
+    ]
+    normalized_contact_parts = [part for part in contact_parts if part]
+    if not normalized_contact_parts:
+        return ""
+    return ", ".join(normalized_contact_parts)
+
+
+def _render_work_authorization_lines(
+    work_authorization_section: Mapping[str, Any],
+) -> list[str]:
+    """Render work-authorization lines from structured profile fields.
+
+    Purpose:
+        Preserve explicit sponsorship and U.S. authorization context in the
+        gate prompt without relying on one free-text citizenship field.
+    Args:
+        work_authorization_section: Structured work-authorization subsection.
+    Output:
+        Returns zero or more rendered work-authorization lines.
+    """
+
+    rendered_lines: list[str] = []
+    citizenship_country = str(
+        work_authorization_section.get("citizenship_country_label")
+        or work_authorization_section.get("citizenship_country_code")
+        or ""
+    ).strip()
+    if citizenship_country:
+        rendered_lines.append(f"- Citizenship country: {citizenship_country}")
+
+    authorized_to_work_us = str(
+        work_authorization_section.get("authorized_to_work_us") or ""
+    ).strip()
+    if authorized_to_work_us in {
+        WORK_AUTH_STATUS_YES,
+        WORK_AUTH_STATUS_NO,
+        WORK_AUTH_STATUS_UNKNOWN,
+    }:
+        rendered_lines.append(f"- Authorized to work in US: {authorized_to_work_us}")
+
+    sponsorship_status = str(
+        work_authorization_section.get("requires_sponsorship_now_or_future") or ""
+    ).strip()
+    if sponsorship_status in {
+        WORK_AUTH_STATUS_YES,
+        WORK_AUTH_STATUS_NO,
+        WORK_AUTH_STATUS_UNKNOWN,
+    }:
+        rendered_lines.append(
+            f"- Requires sponsorship now or future: {sponsorship_status}"
+        )
+    return rendered_lines
+
+
+def _render_education_entry(entry: Mapping[str, Any]) -> str:
+    """Render one structured education entry as a concise prompt bullet.
+
+    Purpose:
+        Expose degree metadata in a compact deterministic sentence so the gate
+        model can infer student status and domain alignment more reliably.
+    Args:
+        entry: One education entry mapping from profile YAML.
+    Output:
+        Returns a compact education bullet string, or an empty string.
+    """
+
+    school = str(entry.get("school") or "").strip()
+    degree_level = str(entry.get("degree_level") or "").strip()
+    degree_name = str(entry.get("degree_name") or "").strip()
+    field_of_study = str(entry.get("field_of_study") or "").strip()
+    end_year = str(entry.get("end_year") or "").strip()
+    is_current = bool(entry.get("is_current"))
+
+    education_parts = [
+        part for part in [degree_level, degree_name, field_of_study] if part
+    ]
+    details = ", ".join(education_parts)
+
+    rendered_parts: list[str] = []
+    if school:
+        rendered_parts.append(school)
+    if details:
+        rendered_parts.append(details)
+    if is_current:
+        rendered_parts.append("in progress")
+    elif end_year:
+        rendered_parts.append(f"completed {end_year}")
+    if not rendered_parts:
+        return ""
+    return " - ".join(rendered_parts)
+
+
 def _render_candidate_context_from_profile(profile_data: Mapping[str, Any]) -> str:
     """Render candidate context text from structured profile configuration.
 
@@ -138,9 +288,14 @@ def _render_candidate_context_from_profile(profile_data: Mapping[str, Any]) -> s
         structured fields are present.
     """
 
-    profile_section = profile_data.get("profile", {})
-    if not isinstance(profile_section, Mapping):
-        profile_section = {}
+    profile_section = _coerce_mapping(profile_data.get("profile"))
+    contact_section = _coerce_mapping(profile_section.get("contact"))
+    work_authorization_section = _coerce_mapping(
+        profile_section.get("work_authorization")
+    )
+    education_entries = _coerce_education_entries(
+        profile_section.get("education_entries")
+    )
 
     target_roles = _coerce_string_list(profile_section.get("target_roles"))
     strongest_areas = _coerce_string_list(profile_section.get("strongest_areas"))
@@ -152,16 +307,28 @@ def _render_candidate_context_from_profile(profile_data: Mapping[str, Any]) -> s
 
     lines: list[str] = ["Candidate Context"]
 
-    education = str(profile_section.get("education") or "").strip()
-    citizenship = str(profile_section.get("citizenship") or "").strip()
     summary = str(profile_section.get("summary") or "").strip()
+    contact_line = _render_contact_line(contact_section)
+    education_summary = str(profile_section.get("education_summary") or "").strip()
 
     if summary:
         lines.append(f"- Summary: {summary}")
-    if education:
-        lines.append(f"- Education: {education}")
-    if citizenship:
-        lines.append(f"- Citizenship: {citizenship}")
+    if contact_line:
+        lines.append(f"- Contact defaults: {contact_line}")
+    lines.extend(_render_work_authorization_lines(work_authorization_section))
+    if education_summary:
+        lines.append(f"- Education summary: {education_summary}")
+    if education_entries:
+        rendered_entries = [
+            rendered_entry
+            for rendered_entry in (
+                _render_education_entry(entry) for entry in education_entries
+            )
+            if rendered_entry
+        ]
+        if rendered_entries:
+            lines.append("- Education entries:")
+            lines.extend(f"  - {rendered_entry}" for rendered_entry in rendered_entries)
     if target_roles:
         lines.append(f"- Target roles: {', '.join(target_roles)}")
     if strongest_areas:
@@ -286,6 +453,8 @@ def _format_salary_range(job: Mapping[str, Any]) -> str:
         return f"{salary_currency} ${salary_min / 100:,.0f} - ${salary_max / 100:,.0f} ({salary_source})"
     if salary_min is not None:
         return f"{salary_currency} ${salary_min / 100:,.0f}+ ({salary_source})"
+    if salary_max is None:
+        return f"Not listed ({salary_source})"
     return f"Up to {salary_currency} ${salary_max / 100:,.0f} ({salary_source})"
 
 

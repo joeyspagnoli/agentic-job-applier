@@ -15,7 +15,7 @@ from src.utils.deduplicator import Deduplicator
 @pytest.mark.asyncio
 async def test_fetch_workday_jobs_skips_when_apify_token_missing(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify Workday crawling is skipped cleanly without Apify credentials.
 
     Purpose:
@@ -47,7 +47,7 @@ async def test_fetch_workday_jobs_skips_when_apify_token_missing(
 @pytest.mark.asyncio
 async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify Workday fetch exceptions increment failure counters and history.
 
     Purpose:
@@ -63,7 +63,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
     class BrokenWorkdayFetcher:
         """Raise a deterministic exception from the fetch path."""
 
-        def __init__(self, *_: object, **__: object):
+        def __init__(self, *_: object, **__: object) -> None:
             """Store no state for the deterministic failure stub.
 
             Purpose:
@@ -76,7 +76,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
                 Returns `None`.
             """
 
-        async def __aenter__(self):
+        async def __aenter__(self) -> "BrokenWorkdayFetcher":
             """Return this stub instance for async context manager use.
 
             Purpose:
@@ -89,7 +89,12 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
 
             return self
 
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: object,
+        ) -> None:
             """Implement no-op async cleanup for the stub fetcher.
 
             Purpose:
@@ -103,7 +108,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
                 Returns `None`.
             """
 
-        async def fetch_jobs(self):
+        async def fetch_jobs(self) -> list[object]:
             """Raise a deterministic provider failure.
 
             Purpose:
@@ -147,7 +152,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
 @pytest.mark.asyncio
 async def test_fetch_jobspy_jobs_counts_fetch_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify JobSpy fetch exceptions are tracked as source failures.
 
     Purpose:
@@ -162,7 +167,7 @@ async def test_fetch_jobspy_jobs_counts_fetch_exceptions_as_failures(
     class BrokenJobSpyFetcher:
         """Raise a deterministic scrape error from `fetch_jobs`."""
 
-        def __init__(self, *_: object, **__: object):
+        def __init__(self, *_: object, **__: object) -> None:
             """Store no state for this deterministic failure stub.
 
             Purpose:
@@ -174,7 +179,7 @@ async def test_fetch_jobspy_jobs_counts_fetch_exceptions_as_failures(
                 Returns `None`.
             """
 
-        async def fetch_jobs(self):
+        async def fetch_jobs(self) -> list[object]:
             """Raise a deterministic scrape failure.
 
             Purpose:
@@ -236,7 +241,7 @@ async def test_fetch_jobspy_jobs_counts_fetch_exceptions_as_failures(
 @pytest.mark.asyncio
 async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify cycle-level daily stats aggregate source tuples correctly.
 
     Purpose:
@@ -249,7 +254,7 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
         aggregate counts.
     """
 
-    async def fake_greenhouse(*_: object, **__: object):
+    async def fake_greenhouse(*_: object, **__: object) -> tuple[int, int, int, int]:
         """Return deterministic Greenhouse counters.
 
         Purpose:
@@ -262,7 +267,7 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
 
         return 10, 4, 1, 1
 
-    async def fake_workday(*_: object, **__: object):
+    async def fake_workday(*_: object, **__: object) -> tuple[int, int, int, int]:
         """Return deterministic Workday counters.
 
         Purpose:
@@ -275,7 +280,7 @@ async def test_run_job_discovery_updates_daily_stats_with_mixed_source_outcomes(
 
         return 5, 2, 1, 0
 
-    async def fake_jobspy(*_: object, **__: object):
+    async def fake_jobspy(*_: object, **__: object) -> tuple[int, int, int, int]:
         """Return deterministic JobSpy counters.
 
         Purpose:

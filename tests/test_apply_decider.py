@@ -23,7 +23,7 @@ from src.models.job_posting import JobPosting
 
 def test_build_gate_payload_contains_structural_candidate_and_job_fields(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify the gate payload contains the expected candidate and job sections.
 
     Purpose:
@@ -71,7 +71,7 @@ def test_build_gate_payload_contains_structural_candidate_and_job_fields(
 
 def test_load_candidate_context_falls_back_on_yaml_parse_errors(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify malformed profile YAML falls back to default candidate context.
 
     Purpose:
@@ -98,7 +98,7 @@ def test_load_candidate_context_falls_back_on_yaml_parse_errors(
 
 def test_load_candidate_context_caps_prompt_context_length(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify profile prompt context is trimmed to configured max length.
 
     Purpose:
@@ -128,9 +128,88 @@ def test_load_candidate_context_caps_prompt_context_length(
     assert loaded_context.endswith("[truncated]")
 
 
+def test_load_candidate_context_renders_structured_profile_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify context loader renders the new structured profile sections.
+
+    Purpose:
+        Confirm gate prompt context now derives education and authorization
+        content from nested profile fields instead of legacy string keys.
+    Args:
+        monkeypatch: Pytest fixture used to point loader at temp profile YAML.
+    Output:
+        Returns `None`; the test passes when rendered text includes structured
+        section lines from the migrated profile schema.
+    """
+
+    profile_yaml = """
+profile:
+  summary: "Current CS student"
+  contact:
+    full_name: "Jane Doe"
+    email: "jane@example.com"
+    phone: "555-0100"
+    city: ""
+    state_or_region: ""
+    country_code: "US"
+    country_label: "United States"
+    linkedin_url: ""
+    github_url: ""
+    portfolio_url: ""
+  work_authorization:
+    citizenship_country_code: "US"
+    citizenship_country_label: "United States"
+    authorized_to_work_us: "yes"
+    requires_sponsorship_now_or_future: "no"
+  education_summary: "BS in Computer Science in progress"
+  education_entries:
+    - id: "edu-1"
+      school: "University of Florida"
+      degree_level: "BS"
+      degree_name: "Computer Science"
+      field_of_study: ""
+      start_month: ""
+      start_year: ""
+      end_month: ""
+      end_year: ""
+      is_current: true
+      gpa: ""
+      location: ""
+      highlights: []
+  target_roles:
+    - "Software Engineering Internship"
+  strongest_areas:
+    - "Python"
+  experience_highlights:
+    - "Built backend APIs"
+  hard_filters:
+    - "US roles only"
+  preferences:
+    - "Prefer internships"
+search_defaults:
+  job_board_search_terms:
+    - "software internship"
+""".strip()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        profile_path = Path(tmpdir) / "candidate_profile.yaml"
+        profile_path.write_text(profile_yaml, encoding="utf-8")
+        monkeypatch.setenv("CANDIDATE_PROFILE_PATH", str(profile_path))
+        decider_prompts.load_candidate_context.cache_clear()
+        loaded_context = decider_prompts.load_candidate_context()
+        decider_prompts.load_candidate_context.cache_clear()
+
+    assert "- Education summary: BS in Computer Science in progress" in loaded_context
+    assert "- Citizenship country: United States" in loaded_context
+    assert "- Authorized to work in US: yes" in loaded_context
+    assert "- Requires sponsorship now or future: no" in loaded_context
+    assert "- Education entries:" in loaded_context
+
+
 def test_build_gate_payload_delimits_untrusted_description_and_requirements(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify untrusted job text is wrapped in explicit delimiter markers.
 
     Purpose:
@@ -161,7 +240,7 @@ def test_build_gate_payload_delimits_untrusted_description_and_requirements(
     assert "</untrusted_job_requirements>" in payload
 
 
-def test_parse_gate_response_recovers_json_and_optional_debug_fields():
+def test_parse_gate_response_recovers_json_and_optional_debug_fields() -> None:
     """Verify JSON output is parsed into the required decision and debug info.
 
     Purpose:
@@ -217,7 +296,7 @@ def test_parse_gate_response_rejects_text_only_decision() -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch):
+async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify the batch processor persists a recovered APPLY decision.
 
     Purpose:
@@ -287,7 +366,9 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
     assert stored_job is not None
     assert stored_job["status"] == "QUALIFIED"
 
-    persisted_result = json.loads(stored_job["agent_result"])
+    agent_result_raw = stored_job["agent_result"]
+    assert isinstance(agent_result_raw, str)
+    persisted_result = json.loads(agent_result_raw)
     assert persisted_result["decision"] == "APPLY"
     assert persisted_result["provider"] == "openai"
 
@@ -295,7 +376,7 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
 @pytest.mark.asyncio
 async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """Verify unrecoverable model output is recorded as an agent failure.
 
     Purpose:
@@ -354,4 +435,6 @@ async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
     assert processed == 0
     assert stored_job is not None
     assert stored_job["agent_failed_at"] is not None
-    assert "Could not recover APPLY or SKIP" in stored_job["agent_error"]
+    agent_error_raw = stored_job["agent_error"]
+    assert isinstance(agent_error_raw, str)
+    assert "Could not recover APPLY or SKIP" in agent_error_raw

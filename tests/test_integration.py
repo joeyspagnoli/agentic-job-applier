@@ -13,7 +13,7 @@ from src.utils.paths import resolve_database_path
 
 
 @pytest.mark.asyncio
-async def test_database_lifecycle():
+async def test_database_lifecycle() -> None:
     """Verify schema creation, insert behavior, and hash lookup work together.
 
     Purpose:
@@ -57,7 +57,7 @@ async def test_database_lifecycle():
 
 
 @pytest.mark.asyncio
-async def test_deduplicator():
+async def test_deduplicator() -> None:
     """Verify the deduplicator keeps only unseen jobs.
 
     Purpose:
@@ -102,7 +102,7 @@ async def test_deduplicator():
 
 
 @pytest.mark.asyncio
-async def test_crawl_tracking():
+async def test_crawl_tracking() -> None:
     """Verify crawl-history rows record start and completion state correctly.
 
     Purpose:
@@ -134,12 +134,13 @@ async def test_crawl_tracking():
                 (crawl_id,),
             )
             row = await cursor.fetchone()
+            assert row is not None
             assert row[0] == "SUCCESS"
             assert row[1] == 10
             assert row[2] == 5
 
 
-def test_job_posting_hash():
+def test_job_posting_hash() -> None:
     """Verify normalized URL variants still produce the same deduplication hash.
 
     Purpose:
@@ -172,7 +173,7 @@ def test_job_posting_hash():
     assert job1.job_hash == job2.job_hash
 
 
-def test_job_posting_normalization():
+def test_job_posting_normalization() -> None:
     """Verify the model-level normalization hooks fill derived fields correctly.
 
     Purpose:
@@ -191,7 +192,7 @@ def test_job_posting_normalization():
         company="Test Co",
         title="Engineer",
         location="Remote - San Francisco",
-        job_type="full-time",
+        job_type="full-time",  # type: ignore[arg-type]  # normalize_job_type validator handles "full-time" → "Full-time"
         description="Test",
     )
 
@@ -199,7 +200,7 @@ def test_job_posting_normalization():
     assert job.job_type == "Full-time"
 
 
-def test_resolve_database_path_uses_environment_override(monkeypatch: pytest.MonkeyPatch):
+def test_resolve_database_path_uses_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify database path resolution respects `DATABASE_PATH`.
 
     Purpose:
@@ -218,7 +219,7 @@ def test_resolve_database_path_uses_environment_override(monkeypatch: pytest.Mon
     assert resolve_database_path() == repo_root / "data" / "custom" / "jobs.db"
 
 
-def test_jobspy_salary_normalization_accepts_common_interval_variants():
+def test_jobspy_salary_normalization_accepts_common_interval_variants() -> None:
     """Verify JobSpy salary intervals are normalized case-insensitively.
 
     Purpose:

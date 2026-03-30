@@ -60,6 +60,24 @@ export const COLOR_ON_ERROR_CONTAINER = "#93000a" as const;
 /** Warm peach — used for JobSpy segment in source breakdown donut. */
 export const COLOR_JOBSPY_SEGMENT = "#ffd4b8" as const;
 
+/** Amber — border for warning banners. */
+export const COLOR_WARNING = "#7c5800" as const;
+
+/** Light amber — background for warning banners. */
+export const COLOR_WARNING_CONTAINER = "#fff3e0" as const;
+
+/** Dark amber — text inside warning banners. */
+export const COLOR_ON_WARNING_CONTAINER = "#4e3600" as const;
+
+/** Green — success status indicators. */
+export const COLOR_SUCCESS = "#2e7d32" as const;
+
+/** Light green — background for success banners. */
+export const COLOR_SUCCESS_CONTAINER = "#e8f5e9" as const;
+
+/** Dark green — text inside success banners. */
+export const COLOR_ON_SUCCESS_CONTAINER = "#1b5e20" as const;
+
 /** Fixed sidebar width in pixels. */
 export const SIDEBAR_WIDTH_PX = 220 as const;
 

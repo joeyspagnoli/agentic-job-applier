@@ -71,7 +71,7 @@ async def _insert_qualified_job(db: DatabaseManager, job_hash: str) -> None:
     await conn.commit()
 
 
-async def _claim_with_own_conn(db_path: str, max_retries: int) -> dict | None:
+async def _claim_with_own_conn(db_path: str, max_retries: int) -> dict[str, object] | None:
     """Open a separate DB connection, claim one job, then close.
 
     Purpose:

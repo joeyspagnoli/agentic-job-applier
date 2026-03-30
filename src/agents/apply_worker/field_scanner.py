@@ -9,6 +9,8 @@ Purpose:
 
 from __future__ import annotations
 
+from typing import cast
+
 from loguru import logger
 from playwright.async_api import Frame
 from playwright.async_api import Page
@@ -173,7 +175,7 @@ _FIELD_SCAN_JS = """
 """
 
 
-async def scan_unresolved_fields(page: Page) -> list[UnresolvedField]:
+async def scan_unresolved_fields(page: object) -> list[UnresolvedField]:
     """Scan the page for form fields that are empty or have validation errors.
 
     Executes JavaScript in the main frame and all child iframes to find
@@ -190,12 +192,13 @@ async def scan_unresolved_fields(page: Page) -> list[UnresolvedField]:
     all_fields: list[UnresolvedField] = []
 
     # Scan the main frame
-    raw_fields = await page.evaluate(_FIELD_SCAN_JS)
+    page_handle = cast(Page, page)
+    raw_fields = await page_handle.evaluate(_FIELD_SCAN_JS)
     all_fields.extend(_parse_raw_fields(raw_fields))
 
     # Scan child iframes
-    for frame in page.frames:
-        if frame == page.main_frame:
+    for frame in page_handle.frames:
+        if frame == page_handle.main_frame:
             continue
         try:
             iframe_fields = await frame.evaluate(_FIELD_SCAN_JS)
@@ -214,7 +217,7 @@ async def scan_unresolved_fields(page: Page) -> list[UnresolvedField]:
 
 
 async def scan_unresolved_fields_in_frame(
-    frame: Frame,
+    frame: object,
 ) -> list[UnresolvedField]:
     """Scan a single frame for unresolved form fields.
 
@@ -225,7 +228,8 @@ async def scan_unresolved_fields_in_frame(
         A list of UnresolvedField models found in this frame.
     """
 
-    raw_fields = await frame.evaluate(_FIELD_SCAN_JS)
+    frame_handle = cast(Frame, frame)
+    raw_fields = await frame_handle.evaluate(_FIELD_SCAN_JS)
     return _parse_raw_fields(raw_fields)
 
 
@@ -261,6 +265,7 @@ def _parse_raw_fields(
 
 
 __all__ = [
+    "logger",
     "scan_unresolved_fields",
     "scan_unresolved_fields_in_frame",
 ]

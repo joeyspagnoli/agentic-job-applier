@@ -2,7 +2,9 @@
 
 import asyncio
 import os
-from typing import List, Optional
+from collections.abc import Mapping
+from types import TracebackType
+from typing import Optional
 
 from apify_client import ApifyClient
 from loguru import logger
@@ -10,6 +12,7 @@ from loguru import logger
 from src.fetchers.base_fetcher import BaseFetcher
 from src.fetchers.errors import FetchError
 from src.models.job_posting import JobPosting
+from src.utils.json_types import get_str, get_str_opt
 
 
 class ApifyWorkdayFetcher(BaseFetcher):
@@ -54,7 +57,7 @@ class ApifyWorkdayFetcher(BaseFetcher):
 
         return f"apify_workday_{self.company_name.lower().replace(' ', '_')}"
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "ApifyWorkdayFetcher":
         """Create the Apify client for the fetcher context.
 
         Purpose:
@@ -73,7 +76,12 @@ class ApifyWorkdayFetcher(BaseFetcher):
         self._client = ApifyClient(api_token)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Clear the Apify client reference when the context ends.
 
         Purpose:
@@ -90,7 +98,7 @@ class ApifyWorkdayFetcher(BaseFetcher):
 
         self._client = None
 
-    async def fetch_jobs(self) -> List[JobPosting]:
+    async def fetch_jobs(self) -> list[JobPosting]:
         """Run the Apify actor and normalize the returned jobs.
 
         Purpose:
@@ -126,12 +134,17 @@ class ApifyWorkdayFetcher(BaseFetcher):
             dataset_id = run_result.get("defaultDatasetId")
             if not dataset_id:
                 raise FetchError(f"No dataset returned for {self.company_name}")
+            if not isinstance(dataset_id, str):
+                raise FetchError(f"Unexpected dataset ID type for {self.company_name}")
 
             # Dataset iteration is also synchronous, so it follows the same
             # executor pattern as the actor launch.
+            client = self._client
+            if client is None:
+                raise FetchError("Apify client was not initialized")
             items = await loop.run_in_executor(
                 None,
-                lambda: list(self._client.dataset(dataset_id).iterate_items()),
+                lambda: list(client.dataset(dataset_id).iterate_items()),
             )
         except Exception as e:
             raise FetchError(
@@ -141,7 +154,7 @@ class ApifyWorkdayFetcher(BaseFetcher):
         logger.info(f"Fetched {len(items)} jobs from {self.company_name} via Apify")
         return [self._parse_job(item) for item in items]
 
-    def _run_actor_sync(self) -> Optional[dict]:
+    def _run_actor_sync(self) -> Optional[dict[str, object]]:
         """Run the Apify actor using the synchronous client API.
 
         Purpose:
@@ -152,7 +165,10 @@ class ApifyWorkdayFetcher(BaseFetcher):
         Output:
             Returns the actor run metadata dictionary.
         """
-        return self._client.actor(self.ACTOR_ID).call(
+        client = self._client
+        if client is None:
+            raise FetchError("Apify client was not initialized")
+        return client.actor(self.ACTOR_ID).call(
             run_input={
                 "startUrls": [{"url": self.workday_url}],
                 "maxItems": self.max_items,
@@ -160,7 +176,7 @@ class ApifyWorkdayFetcher(BaseFetcher):
             timeout_secs=300,
         )
 
-    def _parse_job(self, job_data: dict) -> JobPosting:
+    def _parse_job(self, job_data: Mapping[str, object]) -> JobPosting:
         """Convert one Apify dataset item into a normalized `JobPosting`.
 
         Purpose:
@@ -175,11 +191,11 @@ class ApifyWorkdayFetcher(BaseFetcher):
 
         # The actor's field names vary slightly across boards, so each field is
         # pulled from the common alternatives before falling back to defaults.
-        title = job_data.get("title") or job_data.get("jobTitle") or "Unknown Title"
-        location = job_data.get("location") or job_data.get("jobLocation") or ""
-        description = job_data.get("description") or job_data.get("jobDescription") or ""
-        url = job_data.get("url") or job_data.get("jobUrl") or self.workday_url
-        posted_date = job_data.get("postedDate") or job_data.get("datePosted")
+        title = get_str(job_data, "title") or get_str(job_data, "jobTitle") or "Unknown Title"
+        location = get_str(job_data, "location") or get_str(job_data, "jobLocation")
+        description = get_str(job_data, "description") or get_str(job_data, "jobDescription")
+        url = get_str(job_data, "url") or get_str(job_data, "jobUrl") or self.workday_url
+        posted_date = get_str_opt(job_data, "postedDate") or get_str_opt(job_data, "datePosted")
 
         return JobPosting(
             source=self.get_source_name(),
@@ -190,5 +206,5 @@ class ApifyWorkdayFetcher(BaseFetcher):
             location=location,
             description=description,
             posted_date=posted_date,
-            raw_data=job_data,
+            raw_data=dict(job_data),
         )

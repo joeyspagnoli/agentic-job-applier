@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -64,6 +63,16 @@
   --color-error-container: #ffdad6;
   --color-on-error: #ffffff;
   --color-on-error-container: #93000a;
+
+  /* Warning tokens (amber family, MD3 tertiary-extended) */
+  --color-warning: #7c5800;
+  --color-warning-container: #fff3e0;
+  --color-on-warning-container: #4e3600;
+
+  /* Success tokens */
+  --color-success: #2e7d32;
+  --color-success-container: #e8f5e9;
+  --color-on-success-container: #1b5e20;
 }
 
 body {
@@ -106,7 +115,8 @@ body {
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: "Geist Variable", sans-serif;
+  /* Use Inter to match the canonical AutoApply design token (was "Geist Variable") */
+  --font-sans: "Inter", system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -148,21 +158,24 @@ body {
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: #f8f9fa; /* Matches COLOR_SURFACE */
+  --foreground: #191c1d; /* Matches COLOR_ON_SURFACE */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: #191c1d;
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --popover-foreground: #191c1d;
+  /* Aligned with AutoApply brand — makes bg-primary resolve to indigo #4648d4 */
+  --primary: #4648d4;
+  --primary-foreground: #ffffff;
+  /* Aligned with AutoApply secondary */
+  --secondary: #4953bc;
+  --secondary-foreground: #ffffff;
+  --muted: #edeeef; /* Matches COLOR_SURFACE_CONTAINER */
+  --muted-foreground: #464554; /* Matches COLOR_ON_SURFACE_VARIANT */
+  --accent: #edeeef;
+  --accent-foreground: #191c1d;
+  /* Aligned with AutoApply error token */
+  --destructive: #ba1a1a;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -225,5 +238,16 @@ body {
   }
   html {
     @apply font-sans;
+  }
+
+  /* Global focus-visible rule — WCAG AA compliant, 3:1 non-text contrast */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 3px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
