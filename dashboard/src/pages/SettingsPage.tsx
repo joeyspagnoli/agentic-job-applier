@@ -533,9 +533,12 @@ export function SettingsPage(): JSX.Element {
     refetchInterval: false,
     refetchOnWindowFocus: false,
   });
+  const needsResume = selectedServiceTier === "latex" || selectedServiceTier === "full";
+
   const resumeQuery = useQuery({
     queryKey: ["settings", "resume"],
     queryFn: fetchResumeSettings,
+    enabled: needsResume,
     refetchInterval: false,
     refetchOnWindowFocus: false,
   });
@@ -877,7 +880,7 @@ export function SettingsPage(): JSX.Element {
   const hasAnyError =
     budgetQuery.isError ||
     profileQuery.isError ||
-    resumeQuery.isError ||
+    (needsResume && resumeQuery.isError) ||
     filesQuery.isError ||
     filtersQuery.isError ||
     sourcesQuery.isError ||
@@ -885,10 +888,10 @@ export function SettingsPage(): JSX.Element {
     profileStructuredMutation.isError ||
     profileYamlMutation.isError ||
     profileUploadMutation.isError ||
-    resumeStructuredMutation.isError ||
-    resumeYamlMutation.isError ||
-    resumeUploadMutation.isError ||
-    resumeTexMutation.isError ||
+    (needsResume && resumeStructuredMutation.isError) ||
+    (needsResume && resumeYamlMutation.isError) ||
+    (needsResume && resumeUploadMutation.isError) ||
+    (needsResume && resumeTexMutation.isError) ||
     filtersYamlMutation.isError ||
     sourcesYamlMutation.isError;
 
@@ -1790,7 +1793,7 @@ export function SettingsPage(): JSX.Element {
                           Secret Value
                           <input
                             className="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm"
-                            style={{ WebkitTextSecurity: "disc" }}
+                            style={{ WebkitTextSecurity: "disc" } as import("react").CSSProperties}
                             type="password"
                             autoComplete="new-password"
                             placeholder="sk-..."

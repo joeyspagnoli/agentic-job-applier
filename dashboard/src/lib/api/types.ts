@@ -19,7 +19,7 @@ export interface ApiErrorPayload {
 /** Response payload for system lifecycle action endpoints. */
 export interface SystemLifecycleActionDto {
   readonly ok: true;
-  readonly action: "stop" | "restart";
+  readonly action: "stop" | "restart" | "fetch_jobs";
   readonly status: "accepted";
   readonly request_id: string;
 }

@@ -59,6 +59,7 @@ MAX_PAGE_SIZE = 100
 DEFAULT_POLLING_SECONDS = 30
 SYSTEM_ACTION_STOP = "stop"
 SYSTEM_ACTION_RESTART = "restart"
+SYSTEM_ACTION_FETCH_JOBS = "fetch_jobs"
 SYSTEM_ACTION_STATUS_ACCEPTED = "accepted"
 
 DASHBOARD_DIST_DIR = resolve_repo_root() / "dashboard" / "dist"
@@ -75,6 +76,9 @@ SETTINGS_ENV_PATH = resolve_repo_root() / ".env"
 SYSTEM_STOP_SCRIPT_PATH = resolve_repo_root() / "scripts" / "docker" / "stop_stack.sh"
 SYSTEM_RESTART_SCRIPT_PATH = (
     resolve_repo_root() / "scripts" / "docker" / "restart_stack.sh"
+)
+SYSTEM_FETCH_JOBS_SCRIPT_PATH = (
+    resolve_repo_root() / "scripts" / "docker" / "restart_discovery.sh"
 )
 TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
 TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
@@ -549,6 +553,8 @@ def _resolve_system_script_path(action: str) -> Path:
         return SYSTEM_STOP_SCRIPT_PATH
     if action == SYSTEM_ACTION_RESTART:
         return SYSTEM_RESTART_SCRIPT_PATH
+    if action == SYSTEM_ACTION_FETCH_JOBS:
+        return SYSTEM_FETCH_JOBS_SCRIPT_PATH
     raise ValueError(f"Unsupported system action: {action}")
 
 
@@ -1671,6 +1677,37 @@ async def restart_system_stack() -> dict[str, object]:
     return {
         "ok": True,
         "action": SYSTEM_ACTION_RESTART,
+        "status": SYSTEM_ACTION_STATUS_ACCEPTED,
+        "request_id": request_id,
+    }
+
+
+@app.post("/api/system/fetch-jobs")
+async def fetch_jobs_now() -> dict[str, object]:
+    """Dispatch an immediate discovery run by restarting the discovery container.
+
+    Purpose:
+        Allow users to trigger on-demand job discovery without restarting the
+        full stack. Restarting only the discovery container causes `run_discovery.sh`
+        to execute `main.py` immediately before sleeping, so new jobs appear
+        within seconds rather than waiting for the 30-minute polling interval.
+    Output:
+        Returns accepted payload with request identifier.
+    """
+
+    try:
+        request_id = _dispatch_system_lifecycle_action(SYSTEM_ACTION_FETCH_JOBS)
+    except OSError as exc:
+        _raise_api_error(
+            status_code=500,
+            code="SYSTEM_ACTION_DISPATCH_FAILED",
+            message="Failed to dispatch discovery fetch action.",
+            details={"action": SYSTEM_ACTION_FETCH_JOBS, "error": str(exc)},
+        )
+
+    return {
+        "ok": True,
+        "action": SYSTEM_ACTION_FETCH_JOBS,
         "status": SYSTEM_ACTION_STATUS_ACCEPTED,
         "request_id": request_id,
     }

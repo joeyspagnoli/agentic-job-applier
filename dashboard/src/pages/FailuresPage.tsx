@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toFailuresModel } from "@/lib/api/adapters";
 import { fetchFailures, retryFailure } from "@/lib/api/client";
-import { COLOR_ON_SURFACE, COLOR_OUTLINE_VARIANT, COLOR_PRIMARY } from "@/lib/design-tokens";
+import { COLOR_OUTLINE_VARIANT, COLOR_PRIMARY } from "@/lib/design-tokens";
 
 const PAGE_SIZE = 20;
 

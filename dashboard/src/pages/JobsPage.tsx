@@ -6,9 +6,9 @@
 
 import type { ChangeEvent, JSX } from "react";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toJobsRows, type JobsRowModel } from "@/lib/api/adapters";
-import { fetchJobs, getTailoredResumeUrl } from "@/lib/api/client";
+import { fetchJobs, fetchJobsNow, getTailoredResumeUrl } from "@/lib/api/client";
 import { COLOR_OUTLINE_VARIANT, COLOR_PRIMARY, COLOR_SURFACE_CONTAINER_LOW } from "@/lib/design-tokens";
 import { toSafeJobPostingUrl } from "@/pages/jobs-url";
 
@@ -75,6 +75,14 @@ function statusBadgeClass(status: string): string {
  */
 export function JobsPage(): JSX.Element {
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const queryClient = useQueryClient();
+
+  const fetchJobsMutation = useMutation({
+    mutationFn: fetchJobsNow,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
@@ -160,6 +168,17 @@ export function JobsPage(): JSX.Element {
         </div>
 
         <div className="flex gap-3">
+          <button
+            disabled={fetchJobsMutation.isPending}
+            className="rounded-lg border px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: COLOR_PRIMARY, borderColor: COLOR_PRIMARY }}
+            onClick={() => {
+              fetchJobsMutation.mutate();
+            }}
+          >
+            {fetchJobsMutation.isPending ? "Running..." : "Fetch Jobs Now"}
+          </button>
+
           <select
             className="rounded-lg border bg-white px-3 py-2 text-sm"
             style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}

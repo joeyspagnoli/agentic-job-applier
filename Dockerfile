@@ -4,7 +4,7 @@
 FROM node:22-slim AS dashboard-build
 WORKDIR /app/dashboard
 COPY dashboard/package.json dashboard/package-lock.json ./
-RUN npm ci
+RUN npm install
 COPY dashboard/ ./
 RUN npm run build
 

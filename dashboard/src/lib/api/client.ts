@@ -295,6 +295,17 @@ export async function restartSystemStack(): Promise<SystemLifecycleActionDto> {
 }
 
 /**
+ * Trigger an immediate job discovery run by restarting the discovery container.
+ *
+ * @returns Accepted lifecycle action payload.
+ */
+export async function fetchJobsNow(): Promise<SystemLifecycleActionDto> {
+  return getJson<SystemLifecycleActionDto>("/api/system/fetch-jobs", {
+    method: "POST",
+  });
+}
+
+/**
  * Request cost summary stats.
  *
  * @returns Cost stats DTO.

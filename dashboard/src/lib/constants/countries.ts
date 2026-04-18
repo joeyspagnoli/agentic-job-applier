@@ -1021,7 +1021,7 @@ export const ALL_COUNTRY_OPTIONS: readonly CountryOption[] = [
  * @returns Country options sorted with priority entries first, then alphabetically.
  */
 export function buildPrioritizedCountryOptions(): readonly CountryOption[] {
-  const priorityCodeSet = new Set(PRIORITY_COUNTRY_CODES);
+  const priorityCodeSet = new Set<string>(PRIORITY_COUNTRY_CODES);
   const priorityOptions = PRIORITY_COUNTRY_CODES.flatMap((priorityCode) =>
     ALL_COUNTRY_OPTIONS.filter((option) => option.code === priorityCode),
   );

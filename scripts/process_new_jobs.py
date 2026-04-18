@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 
@@ -424,6 +425,17 @@ async def main() -> None:
     """
 
     load_dotenv()
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        logger.warning(
+            "OPENAI_API_KEY is not set — gate worker is disabled. "
+            "Jobs will be fetched and stored as NEW but not classified. "
+            "Set OPENAI_API_KEY to enable the gate worker."
+        )
+        if "--loop" in sys.argv:
+            while True:
+                await asyncio.sleep(3600)
+        return
 
     parser = argparse.ArgumentParser(description="Process NEW jobs using ADK decider")
     mode_group = parser.add_mutually_exclusive_group()
