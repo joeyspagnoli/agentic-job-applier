@@ -1,19 +1,63 @@
 /**
  * @packageDocumentation
  *
- * Jobs dashboard page with server-backed filtering, pagination, and expandable rows.
+ * Jobs dashboard page with filter tabs, keyboard navigation, expandable
+ * rows, and manual import integration.
  */
 
 import type { ChangeEvent, JSX } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toJobsRows, type JobsRowModel } from "@/lib/api/adapters";
 import { fetchJobs, fetchJobsNow, getTailoredResumeUrl } from "@/lib/api/client";
-import { COLOR_OUTLINE_VARIANT, COLOR_PRIMARY, COLOR_SURFACE_CONTAINER_LOW } from "@/lib/design-tokens";
+import {
+  COLOR_ON_SURFACE,
+  COLOR_ON_SURFACE_VARIANT,
+  COLOR_OUTLINE,
+  COLOR_OUTLINE_VARIANT,
+  COLOR_PRIMARY,
+  COLOR_PRIMARY_FIXED,
+  COLOR_SURFACE_CONTAINER_LOW,
+} from "@/lib/design-tokens";
 import { toSafeJobPostingUrl } from "@/pages/jobs-url";
+import { ImportJobModal } from "@/components/ImportJobModal";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 300;
+
+/** Filter tab definition for the status filter bar. */
+interface FilterTab {
+  /** Filter value sent to backend (empty = all). */
+  readonly value: string;
+  /** Display label for the tab. */
+  readonly label: string;
+}
+
+/** Ordered list of filter tabs shown above the table. */
+const FILTER_TABS: readonly FilterTab[] = [
+  { value: "", label: "All" },
+  { value: "new", label: "New" },
+  { value: "QUALIFIED", label: "Qualified" },
+  { value: "APPLIED", label: "Applied" },
+  { value: "FILTERED", label: "Filtered" },
+  { value: "REJECTED", label: "Rejected" },
+];
+
+/** Source options for the source filter dropdown. */
+const SOURCE_OPTIONS: readonly string[] = [
+  "GREENHOUSE",
+  "WORKDAY",
+  "JOBSPY",
+  "adzuna",
+  "remotive",
+  "themuse",
+  "himalayas",
+  "lever",
+  "ashby",
+  "startup_jobs",
+  "working_nomads",
+  "manual_import",
+];
 
 /**
  * Convert raw discovery timestamp into short display text.
@@ -36,11 +80,15 @@ function formatDiscovered(rawValue: string): string {
  * @returns Tailwind class string.
  */
 function sourceBadgeClass(source: string): string {
-  if (source === "GREENHOUSE") {
+  const lower = source.toLowerCase();
+  if (lower === "greenhouse") {
     return "bg-primary-fixed text-primary";
   }
-  if (source === "WORKDAY") {
+  if (lower === "workday") {
     return "bg-emerald-100 text-emerald-700";
+  }
+  if (lower === "lever" || lower === "ashby") {
+    return "bg-violet-100 text-violet-700";
   }
   return "bg-surface-container text-on-surface-variant";
 }
@@ -56,7 +104,7 @@ function statusBadgeClass(status: string): string {
   if (normalized === "APPLIED") {
     return "bg-success-container text-on-success-container";
   }
-  if (normalized.includes("PENDING")) {
+  if (normalized.includes("PENDING") || normalized === "NEW") {
     return "bg-warning-container text-on-warning-container";
   }
   if (normalized.includes("FAILED")) {
@@ -75,7 +123,16 @@ function statusBadgeClass(status: string): string {
  */
 export function JobsPage(): JSX.Element {
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
+  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
+
   const queryClient = useQueryClient();
+  const tableRef = useRef<HTMLTableSectionElement | null>(null);
 
   const fetchJobsMutation = useMutation({
     mutationFn: fetchJobsNow,
@@ -83,11 +140,6 @@ export function JobsPage(): JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [sourceFilter, setSourceFilter] = useState<string>("");
-  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
-  const [currentPage, setCurrentPage] = useState<number>(1);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -123,116 +175,202 @@ export function JobsPage(): JSX.Element {
   const totalItems = jobsQuery.data?.total_items ?? 0;
   const totalPages = jobsQuery.data?.total_pages ?? 1;
 
-  const qualifiedCount = rows.filter((row) => row.status === "QUALIFIED").length;
-  const filteredCount = rows.filter((row) => row.status === "FILTERED").length;
-  const inProgressCount = rows.filter(
-    (row) => !["APPLIED", "REJECTED", "FILTERED"].includes(row.status),
-  ).length;
+  /**
+   * Handle keyboard navigation within the job list.
+   *
+   * @param event - Keyboard event from the table container.
+   */
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent): void => {
+      if (rows.length === 0) {
+        return;
+      }
 
+      if (event.key === "ArrowDown" || event.key === "j") {
+        event.preventDefault();
+        setFocusedRowIndex((prev) => Math.min(prev + 1, rows.length - 1));
+      } else if (event.key === "ArrowUp" || event.key === "k") {
+        event.preventDefault();
+        setFocusedRowIndex((prev) => Math.max(prev - 1, 0));
+      } else if (event.key === "Enter" && focusedRowIndex >= 0) {
+        event.preventDefault();
+        const row = rows[focusedRowIndex];
+        setExpandedRowId((prev) => (prev === row.id ? null : row.id));
+      } else if (event.key === "Escape") {
+        setExpandedRowId(null);
+        setFocusedRowIndex(-1);
+      }
+    },
+    [rows, focusedRowIndex],
+  );
+
+  /**
+   * Handle search input changes.
+   *
+   * @param event - Input change event.
+   */
   function handleSearchChange(event: ChangeEvent<HTMLInputElement>): void {
     setSearchQuery(event.target.value);
     setCurrentPage(1);
+    setFocusedRowIndex(-1);
   }
 
-  function handleStatusChange(event: ChangeEvent<HTMLSelectElement>): void {
-    setStatusFilter(event.target.value);
-    setCurrentPage(1);
-  }
-
+  /**
+   * Handle source filter dropdown change.
+   *
+   * @param event - Select change event.
+   */
   function handleSourceChange(event: ChangeEvent<HTMLSelectElement>): void {
     setSourceFilter(event.target.value);
     setCurrentPage(1);
+    setFocusedRowIndex(-1);
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <StatCard label="TOTAL JOBS" value={totalItems.toLocaleString()} subtitle="All discovered jobs" />
-        <StatCard label="QUALIFIED" value={qualifiedCount.toLocaleString()} subtitle="On this page" />
-        <StatCard label="FILTERED" value={filteredCount.toLocaleString()} subtitle="On this page" />
-        <StatCard label="IN PROGRESS" value={inProgressCount.toLocaleString()} subtitle="On this page" />
-      </div>
-
-      <div className="bg-white p-4 rounded-xl border border-white flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="relative md:w-[420px]">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">
-            search
-          </span>
-          <input
-            className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-3 text-sm"
-            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
-            placeholder="Search company or role..."
-            value={searchQuery}
-            onChange={handleSearchChange}
-          />
+    <div className="p-8 max-w-[1400px] mx-auto space-y-6">
+      {/* Header with actions */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-fluid-xs font-medium" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+            {totalItems.toLocaleString()} jobs discovered
+          </p>
         </div>
-
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            className="px-4 py-2 rounded-xl border text-sm font-semibold transition-all"
+            style={{ borderColor: COLOR_OUTLINE_VARIANT, color: COLOR_ON_SURFACE_VARIANT }}
+            onClick={() => { setIsImportOpen(true); }}
+          >
+            <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">add</span>
+            Import Job
+          </button>
           <button
             disabled={fetchJobsMutation.isPending}
-            className="rounded-lg border px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            style={{ backgroundColor: COLOR_PRIMARY, borderColor: COLOR_PRIMARY }}
-            onClick={() => {
-              fetchJobsMutation.mutate();
-            }}
+            className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-all scale-98-on-click disabled:opacity-60"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            onClick={() => { fetchJobsMutation.mutate(); }}
           >
             {fetchJobsMutation.isPending ? "Running..." : "Fetch Jobs Now"}
           </button>
+        </div>
+      </div>
 
-          <select
-            className="rounded-lg border bg-white px-3 py-2 text-sm"
-            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
-            value={statusFilter}
-            onChange={handleStatusChange}
-          >
-            <option value="">All Statuses</option>
-            <option value="QUALIFIED">QUALIFIED</option>
-            <option value="FILTERED">FILTERED</option>
-            <option value="APPLIED">APPLIED</option>
-            <option value="REJECTED">REJECTED</option>
-          </select>
+      {/* Filter tabs */}
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-1">
+          {FILTER_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              style={{
+                backgroundColor: statusFilter === tab.value ? COLOR_PRIMARY : "transparent",
+                color: statusFilter === tab.value ? "#ffffff" : COLOR_ON_SURFACE_VARIANT,
+              }}
+              onClick={() => {
+                setStatusFilter(tab.value);
+                setCurrentPage(1);
+                setFocusedRowIndex(-1);
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
+        <div className="flex-1" />
+
+        {/* Search + source filter */}
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <span
+              className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px]"
+              style={{ color: COLOR_OUTLINE }}
+            >
+              search
+            </span>
+            <input
+              className="w-[280px] rounded-xl border py-2 pl-9 pr-3 text-sm transition-colors"
+              style={{
+                borderColor: `${COLOR_OUTLINE_VARIANT}66`,
+                backgroundColor: COLOR_SURFACE_CONTAINER_LOW,
+              }}
+              placeholder="Search company or role..."
+              value={searchQuery}
+              onChange={handleSearchChange}
+            />
+          </div>
           <select
-            className="rounded-lg border bg-white px-3 py-2 text-sm"
-            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
+            className="rounded-xl border px-3 py-2 text-sm"
+            style={{
+              borderColor: `${COLOR_OUTLINE_VARIANT}66`,
+              backgroundColor: COLOR_SURFACE_CONTAINER_LOW,
+            }}
             value={sourceFilter}
             onChange={handleSourceChange}
           >
             <option value="">All Sources</option>
-            <option value="GREENHOUSE">GREENHOUSE</option>
-            <option value="WORKDAY">WORKDAY</option>
-            <option value="JOBSPY">JOBSPY</option>
+            {SOURCE_OPTIONS.map((src) => (
+              <option key={src} value={src}>{src}</option>
+            ))}
           </select>
         </div>
       </div>
 
+      {/* Error state */}
       {jobsQuery.isError && (
         <div className="rounded-xl border border-error-container bg-error-container px-4 py-3 text-sm text-on-error-container">
           Failed to load jobs table data. Use Sync now to retry.
         </div>
       )}
 
-      <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-white">
+      {/* Keyboard hint */}
+      <div className="flex items-center gap-4 text-[11px]" style={{ color: COLOR_OUTLINE }}>
+        <span>
+          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">↑↓</kbd> navigate
+        </span>
+        <span>
+          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">Enter</kbd> expand
+        </span>
+        <span>
+          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">Esc</kbd> close
+        </span>
+      </div>
+
+      {/* Jobs table */}
+      <div
+        className="rounded-xl overflow-hidden ambient-shadow border"
+        style={{ borderColor: `${COLOR_OUTLINE_VARIANT}20` }}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        role="grid"
+        aria-label="Jobs list"
+      >
         <table className="w-full text-left border-collapse">
-          <thead style={{ backgroundColor: `${COLOR_SURFACE_CONTAINER_LOW}80` }}>
+          <thead
+            style={{ backgroundColor: COLOR_SURFACE_CONTAINER_LOW }}
+          >
             <tr>
-              {["COMPANY", "POSITION", "LOCATION", "PAY", "TYPE", "SOURCE", "STATUS", "DISCOVERED", ""].map((heading) => (
+              {["COMPANY", "POSITION", "LOCATION", "SOURCE", "STATUS", "DISCOVERED", ""].map((heading) => (
                 <th
                   key={heading}
-                  className="px-6 py-4 text-[10px] font-bold tracking-widest uppercase"
-                  style={{ textAlign: heading === "" ? "right" : "left" }}
+                  className="px-5 py-3.5 text-[10px] font-bold tracking-widest uppercase"
+                  style={{
+                    color: COLOR_ON_SURFACE_VARIANT,
+                    textAlign: heading === "" ? "right" : "left",
+                  }}
                 >
                   {heading}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {rows.map((row) => (
+          <tbody ref={tableRef}>
+            {rows.map((row, index) => (
               <JobRow
                 key={row.id}
                 row={row}
                 expanded={expandedRowId === row.id}
+                focused={focusedRowIndex === index}
                 onToggle={() => {
                   setExpandedRowId((previous) => (previous === row.id ? null : row.id));
                 }}
@@ -240,14 +378,14 @@ export function JobsPage(): JSX.Element {
             ))}
             {jobsQuery.isLoading && (
               <tr>
-                <td className="px-6 py-10 text-sm text-outline" colSpan={9}>
+                <td className="px-5 py-10 text-sm" style={{ color: COLOR_OUTLINE }} colSpan={7}>
                   Loading jobs...
                 </td>
               </tr>
             )}
             {!jobsQuery.isLoading && rows.length === 0 && (
               <tr>
-                <td className="px-6 py-10 text-sm text-outline" colSpan={9}>
+                <td className="px-5 py-10 text-sm" style={{ color: COLOR_OUTLINE }} colSpan={7}>
                   No jobs match the current filters.
                 </td>
               </tr>
@@ -262,35 +400,19 @@ export function JobsPage(): JSX.Element {
           onPageChange={(page) => {
             setCurrentPage(page);
             setExpandedRowId(null);
+            setFocusedRowIndex(-1);
           }}
         />
       </div>
-    </div>
-  );
-}
 
-/** Props for compact top-level stat cards. */
-interface StatCardProps {
-  /** Card label text. */
-  readonly label: string;
-  /** Card value text. */
-  readonly value: string;
-  /** Card subtitle text. */
-  readonly subtitle: string;
-}
-
-/**
- * Render one jobs KPI card.
- *
- * @param props - {@link StatCardProps}
- * @returns One KPI card element.
- */
-function StatCard({ label, value, subtitle }: StatCardProps): JSX.Element {
-  return (
-    <div className="rounded-xl bg-white border border-white p-6 shadow-sm">
-      <p className="text-[11px] font-bold tracking-widest uppercase text-outline">{label}</p>
-      <p className="mt-2 text-3xl font-black text-on-surface">{value}</p>
-      <p className="mt-1 text-xs text-outline">{subtitle}</p>
+      {/* Import modal */}
+      <ImportJobModal
+        open={isImportOpen}
+        onClose={() => { setIsImportOpen(false); }}
+        onImported={() => {
+          void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        }}
+      />
     </div>
   );
 }
@@ -301,6 +423,8 @@ interface JobRowProps {
   readonly row: JobsRowModel;
   /** Whether row detail panel is open. */
   readonly expanded: boolean;
+  /** Whether row has keyboard focus. */
+  readonly focused: boolean;
   /** Toggle callback. */
   readonly onToggle: () => void;
 }
@@ -311,63 +435,97 @@ interface JobRowProps {
  * @param props - {@link JobRowProps}
  * @returns One row and optional expanded detail row.
  */
-function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
+function JobRow({ row, expanded, focused, onToggle }: JobRowProps): JSX.Element {
   const safeJobPostingUrl = toSafeJobPostingUrl(row.jobPostingUrl);
 
   return (
     <>
-      <tr className="border-t border-outline-variant/30 hover:bg-surface-container-low/50 transition-colors">
-        <td className="px-6 py-4 font-semibold text-on-surface">{row.company}</td>
-        <td className="px-6 py-4 text-on-surface-variant">{row.position}</td>
-        <td className="px-6 py-4 text-on-surface-variant">{row.location}</td>
-        <td className="px-6 py-4 text-on-surface-variant">{row.pay}</td>
-        <td className="px-6 py-4 text-on-surface-variant">{row.workType}</td>
-        <td className="px-6 py-4">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${sourceBadgeClass(row.source)}`}>
+      <tr
+        className="border-t transition-colors cursor-pointer"
+        style={{
+          borderColor: `${COLOR_OUTLINE_VARIANT}20`,
+          backgroundColor: focused ? COLOR_PRIMARY_FIXED : expanded ? COLOR_SURFACE_CONTAINER_LOW : "transparent",
+        }}
+        onClick={onToggle}
+      >
+        <td className="px-5 py-3.5 font-semibold text-sm" style={{ color: COLOR_ON_SURFACE }}>
+          {row.company}
+        </td>
+        <td className="px-5 py-3.5 text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+          {row.position}
+        </td>
+        <td className="px-5 py-3.5 text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+          {row.location}
+        </td>
+        <td className="px-5 py-3.5">
+          <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold tracking-wider ${sourceBadgeClass(row.source)}`}>
             {row.source}
           </span>
         </td>
-        <td className="px-6 py-4">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}>
+        <td className="px-5 py-3.5">
+          <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}>
             {row.status}
           </span>
         </td>
-        <td className="px-6 py-4 text-xs text-outline">{formatDiscovered(row.discovered)}</td>
-        <td className="px-6 py-4 text-right">
-          <button className="p-1" style={{ color: COLOR_PRIMARY }} onClick={onToggle} aria-label="Toggle row details">
-            <span className="material-symbols-outlined">{expanded ? "expand_less" : "expand_more"}</span>
-          </button>
+        <td className="px-5 py-3.5 text-xs" style={{ color: COLOR_OUTLINE }}>
+          {formatDiscovered(row.discovered)}
+        </td>
+        <td className="px-5 py-3.5 text-right">
+          <span
+            className="material-symbols-outlined text-[18px] transition-transform"
+            style={{
+              color: COLOR_PRIMARY,
+              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+            }}
+          >
+            expand_more
+          </span>
         </td>
       </tr>
 
       {expanded && (
-        <tr className="bg-surface-container-low/50">
-          <td className="px-6 py-6" colSpan={9}>
+        <tr style={{ backgroundColor: `${COLOR_SURFACE_CONTAINER_LOW}80` }}>
+          <td className="px-5 py-5" colSpan={7}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Gate Verdict</p>
-                <p className="text-sm font-semibold text-on-surface">{row.gateVerdict}</p>
-                <p className="text-xs text-on-surface-variant leading-5">{row.gateReasoning}</p>
+                <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: COLOR_OUTLINE }}>
+                  Gate Verdict
+                </p>
+                <p className="text-sm font-semibold" style={{ color: COLOR_ON_SURFACE }}>
+                  {row.gateVerdict}
+                </p>
+                <p className="text-xs leading-5" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                  {row.gateReasoning}
+                </p>
                 {safeJobPostingUrl !== null ? (
                   <a
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                    className="inline-flex items-center gap-1 text-xs font-semibold hover:underline"
                     href={safeJobPostingUrl}
                     target="_blank"
                     rel="noreferrer"
+                    style={{ color: COLOR_PRIMARY }}
                   >
                     View Job Posting
                     <span className="material-symbols-outlined text-sm">open_in_new</span>
                   </a>
                 ) : (
-                  <p className="text-xs font-semibold text-outline">Job posting URL unavailable</p>
+                  <p className="text-xs font-semibold" style={{ color: COLOR_OUTLINE }}>
+                    Job posting URL unavailable
+                  </p>
                 )}
               </div>
 
               <div className="space-y-2 lg:col-span-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Pipeline</p>
+                <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: COLOR_OUTLINE }}>
+                  Pipeline
+                </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {row.pipeline.map((step) => (
-                    <div key={step.label} className="rounded-lg border border-outline-variant bg-white px-3 py-2 text-xs">
+                    <div
+                      key={step.label}
+                      className="rounded-lg border px-3 py-2 text-xs"
+                      style={{ borderColor: `${COLOR_OUTLINE_VARIANT}40` }}
+                    >
                       <div className="flex items-center gap-2">
                         <span
                           className={`w-2 h-2 rounded-full ${
@@ -378,19 +536,22 @@ function JobRow({ row, expanded, onToggle }: JobRowProps): JSX.Element {
                                 : "bg-surface-container-high"
                           }`}
                         />
-                        <span className="font-semibold text-on-surface-variant">{step.label}</span>
+                        <span className="font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                          {step.label}
+                        </span>
                       </div>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-on-surface-variant">
+                <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
                   Tailored Resume:{" "}
                   {row.tailoredResume ? (
                     <a
-                      className="font-semibold text-primary hover:underline"
+                      className="font-semibold hover:underline"
                       href={getTailoredResumeUrl(row.jobHash)}
                       target="_blank"
                       rel="noreferrer"
+                      style={{ color: COLOR_PRIMARY }}
                     >
                       Download PDF
                     </a>
@@ -429,25 +590,32 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
   const safeTotalPages = Math.max(1, totalPages);
 
   return (
-    <div className="px-6 py-4 border-t border-outline-variant/30 flex items-center justify-between">
-      <p className="text-xs font-medium text-outline">
-        Showing page {currentPage} of {safeTotalPages} ({totalItems.toLocaleString()} jobs)
+    <div
+      className="px-5 py-3.5 border-t flex items-center justify-between"
+      style={{ borderColor: `${COLOR_OUTLINE_VARIANT}20` }}
+    >
+      <p className="text-xs font-medium" style={{ color: COLOR_OUTLINE }}>
+        Page {currentPage} of {safeTotalPages} ({totalItems.toLocaleString()} jobs)
       </p>
       <div className="flex items-center gap-2">
         <button
-          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
-          onClick={() => {
-            onPageChange(Math.max(1, currentPage - 1));
+          className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40"
+          style={{
+            borderColor: COLOR_OUTLINE_VARIANT,
+            color: COLOR_ON_SURFACE_VARIANT,
           }}
+          onClick={() => { onPageChange(Math.max(1, currentPage - 1)); }}
           disabled={currentPage <= 1}
         >
           Prev
         </button>
         <button
-          className="rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant disabled:opacity-40"
-          onClick={() => {
-            onPageChange(Math.min(safeTotalPages, currentPage + 1));
+          className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40"
+          style={{
+            borderColor: COLOR_OUTLINE_VARIANT,
+            color: COLOR_ON_SURFACE_VARIANT,
           }}
+          onClick={() => { onPageChange(Math.min(safeTotalPages, currentPage + 1)); }}
           disabled={currentPage >= safeTotalPages}
         >
           Next

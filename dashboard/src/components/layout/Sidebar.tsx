@@ -65,7 +65,7 @@ const NAV_ITEMS = [
  * Fixed left-side navigation sidebar for the AutoApply dashboard.
  *
  * @remarks
- * Renders the AutoApply logo, six navigation links, and a read-only
+ * Renders the AutoApply wordmark, six navigation links, and a read-only
  * monthly budget widget at the bottom. Active route highlighting is
  * handled automatically via React Router's {@link NavLink}.
  *
@@ -85,18 +85,18 @@ export function Sidebar(): JSX.Element {
 
   return (
     <aside
-      className="fixed left-0 top-0 h-screen bg-white border-r flex flex-col py-6"
+      className="fixed left-0 top-0 h-screen flex flex-col py-6 border-r"
       style={{
         width: SIDEBAR_WIDTH_PX,
-        borderColor: `${COLOR_OUTLINE_VARIANT}4D`,
+        backgroundColor: COLOR_SURFACE_CONTAINER_LOW,
+        borderColor: `${COLOR_OUTLINE_VARIANT}40`,
         zIndex: Z_SIDEBAR,
       }}
     >
-      {/* Logo mark */}
-      <div className="px-6 mb-8 flex items-center space-x-3">
+      {/* Logo / wordmark */}
+      <div className="px-6 mb-10 flex items-center gap-3">
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: COLOR_PRIMARY }}
+          className="w-9 h-9 rounded-xl flex items-center justify-center signature-gradient"
         >
           <span
             className="material-symbols-outlined text-white text-lg"
@@ -105,29 +105,27 @@ export function Sidebar(): JSX.Element {
             bolt
           </span>
         </div>
-        <span className="text-xl font-bold tracking-tight" style={{ color: COLOR_PRIMARY }}>
+        <span
+          className="text-xl font-extrabold tracking-tight"
+          style={{ color: COLOR_PRIMARY }}
+        >
           AutoApply
         </span>
       </div>
 
       {/* Navigation links */}
-      <nav className="flex-1 px-3 space-y-1">
+      <nav className="flex-1 px-3 space-y-0.5">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
-            className={({ isActive }) =>
-              isActive
-                ? "flex items-center space-x-3 px-4 py-2 rounded-lg border-l-4 transition-all"
-                : "flex items-center space-x-3 px-4 py-2 rounded-lg transition-all"
-            }
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-150"
             style={({ isActive }) =>
               isActive
                 ? {
                     backgroundColor: COLOR_PRIMARY_FIXED,
                     color: COLOR_PRIMARY,
-                    borderLeftColor: COLOR_PRIMARY,
                   }
                 : {
                     color: COLOR_ON_SURFACE_VARIANT,
@@ -136,7 +134,7 @@ export function Sidebar(): JSX.Element {
             onMouseEnter={(e) => {
               const target = e.currentTarget;
               if (!target.getAttribute("aria-current")) {
-                target.style.backgroundColor = COLOR_SURFACE_CONTAINER_LOW;
+                target.style.backgroundColor = `${COLOR_SURFACE_CONTAINER_HIGH}80`;
               }
             }}
             onMouseLeave={(e) => {
@@ -147,18 +145,31 @@ export function Sidebar(): JSX.Element {
             }}
           >
             <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
-            <span className="font-medium text-sm">{item.label}</span>
+            <span className="font-semibold text-[13px]">{item.label}</span>
           </NavLink>
         ))}
       </nav>
 
+      {/* Keyboard shortcut hint */}
+      <div className="px-5 mb-3">
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-[11px]"
+          style={{ backgroundColor: `${COLOR_SURFACE_CONTAINER_HIGH}60`, color: COLOR_OUTLINE }}
+        >
+          <kbd className="px-1.5 py-0.5 rounded bg-white/80 font-mono text-[10px] shadow-sm">
+            ⌘K
+          </kbd>
+          <span>Command bar</span>
+        </div>
+      </div>
+
       {/* Read-only monthly budget widget */}
       <div className="px-4 mt-auto">
         <div
-          className="rounded-xl p-4 shadow-sm border"
+          className="rounded-xl p-4 border"
           style={{
-            backgroundColor: COLOR_SURFACE_CONTAINER_LOW,
-            borderColor: `${COLOR_OUTLINE_VARIANT}33`,
+            backgroundColor: `${COLOR_SURFACE_CONTAINER_LOW}`,
+            borderColor: `${COLOR_OUTLINE_VARIANT}30`,
           }}
         >
           <span
@@ -167,7 +178,7 @@ export function Sidebar(): JSX.Element {
           >
             Monthly Budget
           </span>
-          <div className="flex justify-between items-baseline mt-1 mb-2">
+          <div className="flex justify-between items-baseline mt-1.5 mb-2.5">
             <span className="text-sm font-bold" style={{ color: COLOR_ON_SURFACE }}>
               {spentText}
             </span>
@@ -180,7 +191,7 @@ export function Sidebar(): JSX.Element {
             style={{ backgroundColor: COLOR_SURFACE_CONTAINER_HIGH }}
           >
             <div
-              className="h-full rounded-full"
+              className="h-full rounded-full transition-all duration-500"
               style={{
                 width: `${usedPercent}%`,
                 backgroundColor: isBudgetExceeded ? COLOR_ERROR : COLOR_PRIMARY,
@@ -189,7 +200,7 @@ export function Sidebar(): JSX.Element {
           </div>
           {isBudgetExceeded ? (
             <p
-              className="mt-2 rounded-md px-2 py-1 text-[10px] text-right font-bold tracking-wide uppercase"
+              className="mt-2.5 rounded-lg px-2 py-1 text-[10px] text-right font-bold tracking-wide uppercase"
               style={{
                 color: COLOR_ON_ERROR_CONTAINER,
                 backgroundColor: COLOR_ERROR_CONTAINER,
@@ -199,7 +210,7 @@ export function Sidebar(): JSX.Element {
             </p>
           ) : (
             <p
-              className="text-[10px] mt-2 text-right font-medium"
+              className="text-[10px] mt-2.5 text-right font-medium"
               style={{ color: COLOR_OUTLINE }}
             >
               {usedPercent}% consumed

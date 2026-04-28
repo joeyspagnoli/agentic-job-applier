@@ -41,6 +41,8 @@ COPY deploy/ ./deploy/
 # Pre-built React dashboard
 COPY --from=dashboard-build /app/dashboard/dist ./dashboard/dist
 
+ENV CODEX_HOME=/app/data/codex
+
 VOLUME ["/app/data", "/app/logs", "/app/config"]
 EXPOSE 8000
 
@@ -73,6 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/pi-coding-agent
+RUN npm install -g @openai/codex 2>/dev/null || true
 
 # ============================================================
 # Stage 4: full — adds browser-based job applying

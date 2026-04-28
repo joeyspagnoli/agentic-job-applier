@@ -582,6 +582,21 @@ export async function uploadResume(file: File): Promise<SettingsResumeUploadDto>
 }
 
 /**
+ * Upload a PDF resume and convert it to a canonical YAML stub.
+ *
+ * @param file - PDF file selected by user.
+ * @returns Resume upload DTO containing updated resume metadata.
+ */
+export async function uploadResumePdf(file: File): Promise<SettingsResumeUploadDto> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return getJson<SettingsResumeUploadDto>("/api/settings/resume/pdf", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/**
  * Upload a replacement candidate profile YAML file.
  *
  * @param file - File object selected by user.
@@ -694,4 +709,129 @@ export async function updateSourcesYaml(yamlText: string): Promise<YamlSettingsR
       body: JSON.stringify({ yaml_text: yamlText }),
     }),
   );
+}
+
+// ── Onboarding ─────────────────────────────────────────────────────
+
+/** Response shape for onboarding status check. */
+export interface OnboardingStatusDto {
+  readonly ok: true;
+  readonly is_complete: boolean;
+  readonly completed_steps: readonly string[];
+  readonly missing_steps: readonly string[];
+}
+
+/**
+ * Check whether the user has completed onboarding.
+ *
+ * @returns Onboarding status with completed/missing step info.
+ */
+export async function fetchOnboardingStatus(): Promise<OnboardingStatusDto> {
+  return getJson<OnboardingStatusDto>("/api/settings/onboarding-status");
+}
+
+// ── AI Provider Settings ───────────────────────────────────────────
+
+/** AI provider mode — Codex subscription or bring-your-own-key. */
+export type AiProviderMode = "codex" | "byok";
+
+/** Supported BYOK provider types. */
+export type AiProviderType = "openai" | "anthropic" | "gemini" | "openrouter";
+
+/** Response shape for AI provider configuration endpoint. */
+export interface AiProviderSettingsDto {
+  readonly ok: true;
+  readonly mode: AiProviderMode;
+  readonly provider_type: AiProviderType | null;
+  readonly is_configured: boolean;
+  readonly keys_configured: readonly string[];
+}
+
+/**
+ * Fetch the current AI provider configuration.
+ *
+ * @returns AI provider settings state.
+ */
+export async function fetchAiProviderSettings(): Promise<AiProviderSettingsDto> {
+  return getJson<AiProviderSettingsDto>("/api/settings/ai-provider");
+}
+
+/**
+ * Update AI provider configuration.
+ *
+ * @param payload - Provider mode and optional key/type.
+ * @returns Updated AI provider settings.
+ */
+export async function updateAiProviderSettings(payload: {
+  readonly mode: AiProviderMode;
+  readonly provider_type?: AiProviderType;
+  readonly api_key?: string;
+}): Promise<AiProviderSettingsDto> {
+  return getJson<AiProviderSettingsDto>("/api/settings/ai-provider", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Codex device auth session snapshot. */
+export interface CodexAuthSnapshotDto {
+  readonly status: "idle" | "starting" | "running" | "completed" | "failed";
+  readonly verification_url: string | null;
+  readonly device_code: string | null;
+  readonly error_message: string | null;
+}
+
+/**
+ * Start Codex device auth flow.
+ *
+ * @returns Auth session snapshot with verification URL and device code.
+ */
+export async function startCodexAuth(): Promise<CodexAuthSnapshotDto> {
+  return getJson<CodexAuthSnapshotDto>("/api/settings/codex-auth/start", {
+    method: "POST",
+  });
+}
+
+/**
+ * Poll Codex device auth status.
+ *
+ * @returns Current auth session snapshot.
+ */
+export async function fetchCodexAuthStatus(): Promise<CodexAuthSnapshotDto> {
+  return getJson<CodexAuthSnapshotDto>("/api/settings/codex-auth/status");
+}
+
+/**
+ * Disconnect from Codex (logout).
+ *
+ * @returns Confirmation payload.
+ */
+export async function disconnectCodexAuth(): Promise<{ ok: true }> {
+  return getJson<{ ok: true }>("/api/settings/codex-auth/disconnect", {
+    method: "POST",
+  });
+}
+
+// ── Job Import ─────────────────────────────────────────────────────
+
+/**
+ * Import a job posting manually by URL or pasted text.
+ *
+ * @param payload - Import mode and associated data.
+ * @returns Created job identifier.
+ */
+export async function importJob(payload: {
+  readonly mode: "url" | "text";
+  readonly url?: string;
+  readonly company?: string;
+  readonly title?: string;
+  readonly location?: string;
+  readonly description?: string;
+}): Promise<{ ok: true; job_id: number }> {
+  return getJson<{ ok: true; job_id: number }>("/api/jobs/import", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
 }

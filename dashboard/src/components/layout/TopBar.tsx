@@ -20,6 +20,7 @@ import {
   COLOR_PRIMARY_FIXED,
   COLOR_PRIMARY,
   COLOR_OUTLINE_VARIANT,
+  COLOR_SURFACE,
   Z_TOPBAR,
 } from "@/lib/design-tokens";
 import { shouldInvalidateOnSync } from "@/components/layout/topbar-sync";
@@ -173,27 +174,47 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
 
   return (
     <header
-      className="sticky top-0 w-full bg-[#f8f9fa] shadow-none flex justify-between items-center px-8 py-4 border-b"
-      style={{ zIndex: Z_TOPBAR, borderColor: `${COLOR_OUTLINE_VARIANT}33` }}
+      className="sticky top-0 w-full shadow-none flex justify-between items-center px-8 py-4 border-b"
+      style={{
+        zIndex: Z_TOPBAR,
+        borderColor: `${COLOR_OUTLINE_VARIANT}30`,
+        backgroundColor: COLOR_SURFACE,
+      }}
     >
-      <h1 className="font-bold text-2xl tracking-tight" style={{ color: COLOR_ON_SURFACE }}>
+      <h1
+        className="text-fluid-xl font-bold tracking-tight"
+        style={{ color: COLOR_ON_SURFACE }}
+      >
         {title}
       </h1>
 
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-2 px-3 py-2 bg-primary-fixed rounded-full border border-primary-fixed">
+      <div className="flex items-center gap-5">
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ backgroundColor: COLOR_PRIMARY_FIXED }}
+        >
           <span
             className={`w-2 h-2 rounded-full ${syncDotColor} ${isSyncing ? "animate-pulse" : ""}`}
           />
           <div className="flex flex-col leading-tight">
-            <span className="text-[10px] font-bold text-primary tracking-wider">{syncLabel}</span>
-            <span className="text-[10px] text-primary/70">{syncSubLabel}</span>
+            <span
+              className="text-[10px] font-bold tracking-wider"
+              style={{ color: COLOR_PRIMARY }}
+            >
+              {syncLabel}
+            </span>
+            <span
+              className="text-[10px]"
+              style={{ color: `${COLOR_PRIMARY}99` }}
+            >
+              {syncSubLabel}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-4" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+        <div className="flex items-center gap-3" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
           <button
-            className="hover:transition-colors"
+            className="p-1.5 rounded-lg hover:bg-accent transition-colors"
             style={{ color: COLOR_ON_SURFACE_VARIANT }}
             onClick={handleSyncNow}
             onMouseEnter={(event) => {
@@ -204,11 +225,11 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
             }}
             aria-label="Sync now"
           >
-            <span className="material-symbols-outlined">sync</span>
+            <span className="material-symbols-outlined text-[20px]">sync</span>
           </button>
 
           <button
-            className="relative"
+            className="relative p-1.5 rounded-lg hover:bg-accent transition-colors"
             style={{ color: COLOR_ON_SURFACE_VARIANT }}
             onMouseEnter={(event) => {
               event.currentTarget.style.color = COLOR_PRIMARY;
@@ -218,16 +239,16 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
             }}
             aria-label="Notifications"
           >
-            <span className="material-symbols-outlined">notifications</span>
+            <span className="material-symbols-outlined text-[20px]">notifications</span>
             <span
-              className="absolute top-0 right-0 w-2 h-2 rounded-full border-2 border-white"
+              className="absolute top-1 right-1 w-2 h-2 rounded-full"
               style={{ backgroundColor: COLOR_PRIMARY }}
             />
           </button>
 
           <div className="relative" ref={powerMenuContainerRef}>
             <button
-              className="hover:transition-colors"
+              className="p-1.5 rounded-lg hover:bg-accent transition-colors"
               style={{ color: COLOR_ON_SURFACE_VARIANT }}
               onClick={() => {
                 setPowerActionError(null);
@@ -243,25 +264,26 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
               aria-haspopup="menu"
               aria-expanded={isPowerModalOpen}
             >
-              <span className="material-symbols-outlined">power_settings_new</span>
+              <span className="material-symbols-outlined text-[20px]">power_settings_new</span>
             </button>
 
             {isPowerModalOpen ? (
               <div
-                className="absolute right-0 top-full mt-2 min-w-[220px] overflow-hidden rounded-xl border bg-white"
+                className="absolute right-0 top-full mt-2 min-w-[220px] overflow-hidden rounded-xl border ambient-shadow"
                 style={{
-                  borderColor: `${COLOR_OUTLINE_VARIANT}66`,
+                  borderColor: `${COLOR_OUTLINE_VARIANT}40`,
+                  backgroundColor: COLOR_SURFACE,
                   zIndex: Z_TOPBAR + 1,
                 }}
                 role="menu"
                 aria-label="System power actions"
               >
                 <button
-                  className="w-full px-4 py-2.5 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full px-4 py-2.5 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
                   style={{
                     color: COLOR_ERROR,
                     backgroundColor:
-                      activePowerAction === POWER_ACTION_STOP ? `${COLOR_ERROR}14` : "#ffffff",
+                      activePowerAction === POWER_ACTION_STOP ? `${COLOR_ERROR}14` : "transparent",
                   }}
                   disabled={isPowerActionPending}
                   onClick={() => {
@@ -273,14 +295,14 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
                 </button>
 
                 <button
-                  className="w-full border-t px-4 py-2.5 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full border-t px-4 py-2.5 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
                   style={{
-                    borderColor: `${COLOR_OUTLINE_VARIANT}66`,
+                    borderColor: `${COLOR_OUTLINE_VARIANT}40`,
                     color: COLOR_ON_SURFACE,
                     backgroundColor:
                       activePowerAction === POWER_ACTION_RESTART
                         ? `${COLOR_PRIMARY_FIXED}88`
-                        : "#ffffff",
+                        : "transparent",
                   }}
                   disabled={isPowerActionPending}
                   onClick={() => {
@@ -295,7 +317,7 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
                   <p
                     className="border-t px-4 py-2 text-xs"
                     style={{
-                      borderColor: `${COLOR_OUTLINE_VARIANT}66`,
+                      borderColor: `${COLOR_OUTLINE_VARIANT}40`,
                       color: COLOR_ERROR,
                     }}
                   >

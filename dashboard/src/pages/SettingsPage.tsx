@@ -66,8 +66,9 @@ import {
   COLOR_WARNING,
   COLOR_WARNING_CONTAINER,
 } from "@/lib/design-tokens";
+import { AIProviderSettings } from "@/pages/settings/AIProviderSettings";
 
-type TopLevelTab = "general" | "candidate" | "filters";
+type TopLevelTab = "general" | "ai-provider" | "candidate" | "filters";
 type CandidateTab = "guided" | "yaml" | "files";
 type ResumeTab = "guided" | "yaml" | "tex" | "files";
 type FiltersTab = "guided" | "filters" | "sources";
@@ -130,9 +131,10 @@ interface SelectOption {
 
 const EDITOR_HEIGHT_PX = 420;
 const TOP_LEVEL_TABS: readonly { id: TopLevelTab; label: string }[] = [
-  { id: "general", label: "General Settings" },
-  { id: "candidate", label: "Candidate Profile & Resume" },
-  { id: "filters", label: "Company & Job Filters" },
+  { id: "general", label: "General" },
+  { id: "ai-provider", label: "AI Provider" },
+  { id: "candidate", label: "Profile & Resume" },
+  { id: "filters", label: "Filters & Sources" },
 ];
 const API_KEYS: readonly ApiKeyConfig[] = [
   {
@@ -1957,6 +1959,12 @@ export function SettingsPage(): JSX.Element {
             )}
           </section>
         </>
+      )}
+
+      {activeTopLevelTab === "ai-provider" && (
+        <section className="rounded-2xl border border-outline-variant/30 bg-white p-6">
+          <AIProviderSettings />
+        </section>
       )}
 
       {activeTopLevelTab === "candidate" && (

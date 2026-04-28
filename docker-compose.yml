@@ -129,3 +129,4 @@ volumes:
   app-data:
   app-logs:
   chrome-profile:
+  codex-auth:

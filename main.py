@@ -506,7 +506,11 @@ async def fetch_jobspy_jobs(
         elif default_search_terms:
             search_terms = default_search_terms
         else:
-            search_terms = ["software engineering internship"]
+            logger.warning(
+                "No search terms configured for {} and no profile defaults — skipping",
+                board_name,
+            )
+            continue
         locations = _normalize_string_list(
             config.get("locations"),
             field_name="locations",
@@ -849,6 +853,7 @@ async def fetch_linkedin_jobs(
     db: DatabaseManager,
     deduplicator: Deduplicator,
     *,
+    default_search_terms: list[str] | None = None,
     title_include_patterns: list[str] | None = None,
     job_filter: JobFilter | None = None,
 ) -> tuple[int, int, int, int]:
@@ -858,6 +863,8 @@ async def fetch_linkedin_jobs(
         linkedin_config: LinkedIn section from ``companies.yaml``.
         db: Connected database manager.
         deduplicator: Dedup helper.
+        default_search_terms: Fallback terms from candidate profile when searches
+            list is empty.
         title_include_patterns: Regex patterns a title must match.
         job_filter: Pre-gate filter instance.
 
@@ -870,7 +877,14 @@ async def fetch_linkedin_jobs(
     sources_success = 0
     sources_failed = 0
 
-    searches = linkedin_config.get("searches", [])
+    configured_searches: list[dict] = linkedin_config.get("searches", [])
+    if configured_searches:
+        searches = configured_searches
+    elif default_search_terms:
+        searches = [{"search_term": t, "location": "United States"} for t in default_search_terms]
+    else:
+        logger.warning("No LinkedIn searches configured and no profile defaults — skipping LinkedIn")
+        return total_discovered, total_new, sources_success, sources_failed
     time_range = linkedin_config.get("time_range_seconds", 86400)
     max_pages = linkedin_config.get("max_pages", 4)
     fetch_descriptions = linkedin_config.get("fetch_descriptions", False)
@@ -1210,6 +1224,7 @@ async def run_job_discovery() -> None:
             logger.info("Fetching from LinkedIn...")
             d, n, s, f = await fetch_linkedin_jobs(
                 linkedin_config, db, deduplicator,
+                default_search_terms=default_search_terms,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
             )

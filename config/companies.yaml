@@ -2,6 +2,21 @@
 # Priority: 1 = highest, 10 = lowest
 
 greenhouse_companies:
+  Dow Chemical:
+    greenhouse_id: "dowchemical"
+    priority: 3
+  ExxonMobil:
+    greenhouse_id: "exxonmobil"
+    priority: 3
+  BASF:
+    greenhouse_id: "basf"
+    priority: 3
+  Sabic:
+    greenhouse_id: "sabic"
+    priority: 3
+  LyondellBasell:
+    greenhouse_id: "lyondellbasell"
+    priority: 3
   # Top Priority - High-profile tech companies
   Stripe:
     greenhouse_id: "stripe"
@@ -69,6 +84,14 @@ greenhouse_companies:
     greenhouse_id: "supabase"
     priority: 3
 
+  Palantir:
+    greenhouse_id: "palantir"
+    priority: 3
+
+  Rippling:
+    greenhouse_id: "rippling"
+    priority: 3
+
   Scale AI:
     greenhouse_id: "scaleai"
     priority: 2
@@ -112,22 +135,16 @@ workday_companies:
 job_boards:
   Indeed:
     enabled: true
-    search_terms:
-      - "software engineering internship"
-      - "machine learning internship"
-      - "backend engineering internship"
+    # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
-      - "San Francisco, CA"
-      - "New York, NY"
+      - "United States"
     results_wanted: 25
     priority: 2
 
   Glassdoor:
     enabled: true
-    search_terms:
-      - "software engineering internship"
-      - "ai internship"
+    # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
     results_wanted: 25
@@ -135,8 +152,7 @@ job_boards:
 
   LinkedIn:
     enabled: false  # Requires proxies - enable when ready
-    search_terms:
-      - "software engineering internship"
+    # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
     results_wanted: 25
@@ -174,11 +190,8 @@ github_repos:
 # WARNING: LinkedIn rate-limits aggressively.  Use proxies for heavy usage.
 linkedin:
   enabled: false
-  searches:
-    - search_term: "software engineering internship"
-      location: "United States"
-      experience_level: "internship"
-      work_type: "remote"
+  # searches intentionally empty — generated from candidate_profile.yaml search_defaults at runtime
+  searches: []
   # Time range in seconds: 3600=1hr, 7200=2hr, 86400=24hr, 604800=7d
   time_range_seconds: 86400
   max_pages: 4

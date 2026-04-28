@@ -488,6 +488,19 @@ async def _tailor_once(
         )
         return 0
 
+    if result is None:
+        logger.error("Tailor pipeline returned None for {}", job_hash)
+        await _handle_tailor_failure(
+            db=db,
+            run_id=run_id,
+            job_hash=job_hash,
+            error="pipeline_returned_none",
+            max_retries=max_retries,
+            backoff_seconds=backoff_seconds,
+            backoff_multiplier=backoff_multiplier,
+        )
+        return 0
+
     if result.success:
         await db.record_tailor_success(
             run_id=run_id,

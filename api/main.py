@@ -35,6 +35,7 @@ from fastapi import Request
 from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -3495,6 +3496,96 @@ async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, object]:
     }
 
 
+@app.post("/api/settings/resume/pdf")
+async def upload_resume_pdf(file: UploadFile = File(...)) -> dict[str, object]:
+    """Upload a PDF resume and convert it to a minimal canonical YAML stub.
+
+    Purpose:
+        Allow users to upload a standard PDF resume during onboarding without
+        being blocked by YAML authoring. Extracts text and saves a placeholder
+        resume_content.yaml so onboarding can complete. The user refines the
+        structured content in Settings afterward.
+    Args:
+        file: Uploaded PDF file (binary).
+    Output:
+        Returns canonical mutation success payload with updated metadata and
+        extracted page count.
+    Raises:
+        HTTPException: When the file is not a valid PDF or text extraction fails.
+    """
+    import io
+
+    import pypdf
+
+    raw_bytes = await file.read()
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+    except Exception as exc:
+        _raise_api_error(
+            status_code=400,
+            code="INVALID_PDF",
+            message=f"Could not read PDF file: {exc}",
+        )
+        raise AssertionError("Unreachable")
+
+    extracted_pages: list[str] = []
+    for page in reader.pages:
+        page_text = page.extract_text() or ""
+        extracted_pages.append(page_text)
+
+    extracted_text = "\n".join(extracted_pages).strip()
+
+    raw_pdf_path = SETTINGS_RESUME_PATH.parent / "resume_raw.pdf"
+    raw_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_pdf_path.write_bytes(raw_bytes)
+
+    candidate_name = ""
+    candidate_phone = ""
+    candidate_email = ""
+    if SETTINGS_PROFILE_PATH.exists():
+        try:
+            profile_text = SETTINGS_PROFILE_PATH.read_text(encoding="utf-8")
+            profile_data = yaml.safe_load(profile_text) or {}
+            contact = (profile_data.get("profile") or {}).get("contact") or {}
+            candidate_name = str(contact.get("full_name") or "").strip()
+            candidate_phone = str(contact.get("phone") or "").strip()
+            candidate_email = str(contact.get("email") or "").strip()
+        except (OSError, yaml.YAMLError, KeyError, TypeError, AttributeError):
+            pass
+
+    from src.agents.resume_tailor_pi.schemas import (
+        EducationSection,
+        ExperienceSection,
+        PersonalSection,
+        ProjectsSection,
+        ResumeContent,
+        SkillsAchievementsSection,
+    )
+
+    stub_resume = ResumeContent(
+        personal=PersonalSection(
+            name=candidate_name or "Your Name",
+            phone=candidate_phone or "",
+            email=candidate_email or "",
+            links=[],
+        ),
+        education=EducationSection(),
+        experience=ExperienceSection(),
+        projects=ProjectsSection(),
+        skills_achievements=SkillsAchievementsSection(),
+    )
+
+    _backup_settings_file(SETTINGS_RESUME_PATH, file_label="Resume")
+    save_resume_yaml(path=SETTINGS_RESUME_PATH, resume_content=stub_resume)
+
+    return {
+        "ok": True,
+        "resume": _resolve_settings_file_metadata(SETTINGS_RESUME_PATH),
+        "pdf_pages": len(reader.pages),
+        "extracted_chars": len(extracted_text),
+    }
+
+
 @app.get("/api/settings/resume")
 async def get_resume_settings() -> dict[str, object]:
     """Return resume settings with raw YAML text and parsed canonical payload.
@@ -3883,6 +3974,332 @@ async def put_sources(payload: YamlPayload) -> JSONResponse:
             "metadata": _resolve_settings_file_metadata(SETTINGS_COMPANIES_PATH),
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# AI Provider Configuration + Codex Device Auth
+# ---------------------------------------------------------------------------
+
+
+class ProviderConfigRequest(BaseModel):
+    """Payload for configuring the active AI provider."""
+
+    mode: str = Field(description="'codex' or 'byok'")
+    provider_type: str = Field(default="openai", description="openai, anthropic, gemini, openrouter")
+    api_key: str | None = Field(default=None, description="API key for BYOK mode")
+    base_url: str | None = Field(default=None, description="Custom endpoint URL")
+    default_model: str | None = Field(default=None, description="Default model override")
+
+
+@app.get("/api/settings/ai-provider")
+async def get_ai_provider() -> dict[str, object]:
+    """Return the current AI provider configuration.
+
+    Returns:
+        JSON with the current provider mode, type, and auth status.
+    """
+    from src.providers.factory import get_codex_provider, build_provider_from_env
+    from src.providers.types import ProviderMode, ProviderType
+
+    codex = get_codex_provider()
+    codex_authenticated = codex.is_authenticated
+
+    # Read stored config from env or defaults.
+    current_mode = "codex" if codex_authenticated else "byok"
+
+    # Detect which BYOK key is configured.
+    byok_provider = "none"
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_google = bool(os.environ.get("GOOGLE_API_KEY"))
+    if has_openai:
+        byok_provider = "openai"
+    elif has_anthropic:
+        byok_provider = "anthropic"
+    elif has_google:
+        byok_provider = "gemini"
+
+    return {
+        "ok": True,
+        "config": {
+            "mode": current_mode,
+            "providerType": byok_provider if current_mode == "byok" else "codex",
+            "codexAuthenticated": codex_authenticated,
+            "hasOpenaiKey": has_openai,
+            "hasAnthropicKey": has_anthropic,
+            "hasGoogleKey": has_google,
+        },
+    }
+
+
+@app.put("/api/settings/ai-provider")
+async def put_ai_provider(payload: ProviderConfigRequest) -> dict[str, object]:
+    """Update the AI provider configuration.
+
+    For BYOK mode, persists the API key to the .env file.
+    For Codex mode, verifies that device auth is complete.
+
+    Args:
+        payload: New provider configuration.
+
+    Returns:
+        JSON confirming the configuration update.
+    """
+    from src.providers.types import ProviderMode
+
+    if payload.mode == ProviderMode.CODEX.value:
+        from src.providers.factory import get_codex_provider
+
+        codex = get_codex_provider()
+        if not codex.is_authenticated:
+            _raise_api_error(
+                status_code=400,
+                code="CODEX_NOT_AUTHENTICATED",
+                message="Complete Codex device auth before selecting Codex mode.",
+            )
+        return {"ok": True, "mode": "codex", "provider": "codex"}
+
+    # BYOK mode — persist the key to .env.
+    key_env_map = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
+        "openrouter": "OPENAI_API_KEY",
+    }
+    env_key_name = key_env_map.get(payload.provider_type)
+    if not env_key_name:
+        _raise_api_error(
+            status_code=400,
+            code="INVALID_PROVIDER",
+            message=f"Unsupported provider type: {payload.provider_type}",
+        )
+
+    if not payload.api_key:
+        _raise_api_error(
+            status_code=400,
+            code="MISSING_API_KEY",
+            message="API key is required for BYOK mode.",
+        )
+
+    _write_env_key(env_key_name, payload.api_key.strip())
+
+    # For OpenRouter, also persist the base URL.
+    if payload.provider_type == "openrouter" and payload.base_url:
+        _write_env_key("OPENROUTER_BASE_URL", payload.base_url.strip())
+
+    return {
+        "ok": True,
+        "mode": "byok",
+        "provider": payload.provider_type,
+    }
+
+
+@app.post("/api/settings/codex-auth/start")
+async def start_codex_auth() -> dict[str, object]:
+    """Initiate the Codex OAuth device authorization flow.
+
+    Returns:
+        JSON with the verification URL and one-time user code.
+    """
+    from src.providers.factory import get_codex_provider
+
+    codex = get_codex_provider()
+
+    try:
+        snapshot = await codex.start_device_auth()
+        return {"ok": True, "auth": snapshot.to_dict()}
+    except Exception as exc:
+        _raise_api_error(
+            status_code=500,
+            code="CODEX_AUTH_FAILED",
+            message=str(exc),
+        )
+
+
+@app.get("/api/settings/codex-auth/status")
+async def get_codex_auth_status() -> dict[str, object]:
+    """Return the current Codex device auth session status.
+
+    Returns:
+        JSON with the auth snapshot (status, URL, code, expiry).
+    """
+    from src.providers.factory import get_codex_provider
+
+    codex = get_codex_provider()
+    snapshot = codex.get_auth_snapshot()
+    return {"ok": True, "auth": snapshot.to_dict()}
+
+
+@app.post("/api/settings/codex-auth/disconnect")
+async def disconnect_codex_auth() -> dict[str, object]:
+    """Log out of Codex and clear the active session.
+
+    Returns:
+        JSON confirming the logout with an idle auth snapshot.
+    """
+    from src.providers.factory import get_codex_provider
+
+    codex = get_codex_provider()
+
+    try:
+        snapshot = await codex.disconnect()
+        return {"ok": True, "auth": snapshot.to_dict()}
+    except Exception as exc:
+        _raise_api_error(
+            status_code=500,
+            code="CODEX_DISCONNECT_FAILED",
+            message=str(exc),
+        )
+
+
+# ── Onboarding status ──────────────────────────────────────────────
+
+
+@app.get("/api/settings/onboarding-status")
+async def get_onboarding_status() -> dict[str, object]:
+    """Check whether the user has completed initial onboarding.
+
+    Returns:
+        JSON with completion state and step details.
+    """
+    profile_path = SETTINGS_PROFILE_PATH
+    profile_exists = profile_path.exists()
+    profile_has_content = False
+
+    if profile_exists:
+        try:
+            content = profile_path.read_text(encoding="utf-8").strip()
+            profile_has_content = len(content) > 50
+        except OSError:
+            pass
+
+    completed_steps: list[str] = []
+    missing_steps: list[str] = []
+
+    if profile_has_content:
+        completed_steps.append("profile")
+    else:
+        missing_steps.append("profile")
+
+    resume_path = SETTINGS_RESUME_PATH
+    if resume_path.exists():
+        completed_steps.append("resume")
+    else:
+        missing_steps.append("resume")
+
+    is_complete = "profile" in completed_steps and "resume" in completed_steps
+
+    return {
+        "ok": True,
+        "is_complete": is_complete,
+        "completed_steps": completed_steps,
+        "missing_steps": missing_steps,
+    }
+
+
+# ── SSE pipeline progress ─────────────────────────────────────────
+
+@app.get("/api/pipeline/progress")
+async def pipeline_progress_sse() -> StreamingResponse:
+    """Server-sent events endpoint for real-time pipeline progress.
+
+    Returns:
+        Streaming SSE response with pipeline stage updates.
+    """
+
+    async def event_stream() -> AsyncIterator[str]:
+        """Yield SSE-formatted pipeline progress events.
+
+        Yields:
+            SSE-formatted data strings.
+        """
+        yield f"data: {json.dumps({'stage': 'idle', 'source': '', 'progress': 0, 'jobsFound': 0, 'errors': []})}\n\n"
+
+        heartbeat_interval_seconds = 30
+        while True:
+            await asyncio.sleep(heartbeat_interval_seconds)
+            yield ": heartbeat\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── Manual job import ──────────────────────────────────────────────
+
+
+class JobImportRequest(BaseModel):
+    """Request body for manual job import."""
+
+    model_config = ConfigDict(strict=True)
+
+    mode: Literal["url", "text"]
+    url: str | None = None
+    company: str | None = None
+    title: str | None = None
+    location: str | None = None
+    description: str | None = None
+
+
+@app.post("/api/jobs/import")
+async def import_job_manually(payload: JobImportRequest) -> dict[str, object]:
+    """Import a job posting manually from URL or pasted text.
+
+    Args:
+        payload: Import request with mode and associated data.
+
+    Returns:
+        JSON with created job identifier.
+    """
+    if payload.mode == "url" and not payload.url:
+        _raise_api_error(
+            status_code=422,
+            code="MISSING_URL",
+            message="URL is required when mode is 'url'.",
+        )
+
+    if payload.mode == "text" and not payload.title:
+        _raise_api_error(
+            status_code=422,
+            code="MISSING_TITLE",
+            message="Title is required when mode is 'text'.",
+        )
+
+    job_hash = secrets.token_hex(16)
+    db_path = str(resolve_database_path())
+
+    async with DatabaseManager(db_path) as db:
+        conn = db._require_conn()
+        cursor = await conn.execute(
+            """
+            INSERT INTO job_postings (
+                job_hash, company, position, location, pay,
+                work_type, source, status, discovered, job_posting_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                job_hash,
+                payload.company or "Unknown",
+                payload.title or "Imported Job",
+                payload.location or "",
+                "",
+                "",
+                "manual_import",
+                "new",
+                datetime.now(tz=UTC).isoformat(),
+                payload.url or "",
+            ),
+        )
+        await conn.commit()
+        job_id = cursor.lastrowid
+
+    return {"ok": True, "job_id": job_id}
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

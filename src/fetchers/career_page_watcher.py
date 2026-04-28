@@ -10,7 +10,7 @@ Requires ``beautifulsoup4`` for HTML parsing.
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urljoin
 
 import httpx
@@ -25,6 +25,8 @@ try:
     _BS4_AVAILABLE = True
 except ImportError:
     _BS4_AVAILABLE = False
+    if TYPE_CHECKING:
+        from bs4 import BeautifulSoup  # type: ignore[assignment]
 
 
 class CareerPageWatcher(BaseFetcher):
@@ -105,9 +107,9 @@ class CareerPageWatcher(BaseFetcher):
 
     async def __aexit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
     ) -> None:
         """Close the HTTP client when the context ends."""
         if self._client:
@@ -137,11 +139,13 @@ class CareerPageWatcher(BaseFetcher):
             httpx.HTTPStatusError: On unexpected HTTP errors.
             httpx.RequestError: On network-level failures.
         """
-        if not self._client:
-            self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        client = self._client
+        if client is None:
+            client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+            self._client = client
 
         try:
-            response = await self._client.get(self.page_url)
+            response = await client.get(self.page_url)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.error(
@@ -231,6 +235,9 @@ class CareerPageWatcher(BaseFetcher):
         Returns:
             A set of absolute URLs matching the selector.
         """
+        if not _BS4_AVAILABLE:
+            logger.warning("BeautifulSoup not available; returning empty set")
+            return set()
         soup = BeautifulSoup(html, "html.parser")
         links: set[str] = set()
         for tag in soup.select(self.link_selector):

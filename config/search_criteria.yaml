@@ -11,17 +11,10 @@ include_title_patterns:
   - "early.?career" # early career, early-career
   - "student"       # student researcher, student developer
 
-# Job titles to search for
-target_titles:
-  - "Software Engineering Intern"
-  - "Software Engineer Intern"
-  - "Backend Engineering Intern"
-  - "Machine Learning Intern"
-  - "ML Engineer Intern"
-  - "AI Engineer Intern"
-  - "MLOps Intern"
-  - "Data Engineering Intern"
-  - "Computer Science Internship"
+# Job titles to search for on job boards.
+# Leave empty — search terms are driven by candidate_profile.yaml search_defaults.job_board_search_terms.
+# Adding terms here appends them to every user's searches regardless of their domain.
+target_titles: []
 
 # Titles to exclude (regex patterns - case insensitive)
 exclude_title_patterns:

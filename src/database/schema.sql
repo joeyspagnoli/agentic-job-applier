@@ -48,11 +48,16 @@ CREATE TABLE IF NOT EXISTS job_postings (
     agent_claim_token TEXT,          -- Worker claim token for atomic queueing
     agent_claimed_at TIMESTAMP,      -- Timestamp when worker claimed this row
 
+    -- Liveness verification
+    liveness_status TEXT DEFAULT 'unchecked',    -- 'active','expired','uncertain','unchecked'
+    liveness_checked_at TIMESTAMP,
+
     -- Timestamps
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     -- Indexes for fast queries
-    CHECK (status IN ('NEW', 'FILTERED', 'QUALIFIED', 'APPLIED', 'REJECTED'))
+    CHECK (status IN ('NEW', 'FILTERED', 'QUALIFIED', 'APPLIED', 'REJECTED')),
+    CHECK (liveness_status IN ('active', 'expired', 'uncertain', 'unchecked'))
 );
 
 -- Indexes
@@ -248,3 +253,32 @@ CREATE TABLE IF NOT EXISTS budget_settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (monthly_budget_usd >= 0)
 );
+
+-- AI provider configuration (single-row: Codex OAuth or BYOK).
+CREATE TABLE IF NOT EXISTS ai_provider_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    mode TEXT NOT NULL DEFAULT 'byok',          -- 'codex' or 'byok'
+    provider_type TEXT NOT NULL DEFAULT 'openai', -- 'codex','openai','anthropic','gemini','openrouter'
+    api_key_encrypted TEXT,                     -- Encrypted API key for BYOK mode
+    base_url TEXT,                              -- Custom endpoint URL (OpenRouter, Ollama, etc.)
+    default_model TEXT,                         -- Model override
+    codex_home_path TEXT,                       -- Codex auth token directory
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (mode IN ('codex', 'byok')),
+    CHECK (provider_type IN ('codex', 'openai', 'anthropic', 'gemini', 'openrouter'))
+);
+
+-- Portal/company configuration for ATS direct scanning.
+CREATE TABLE IF NOT EXISTS portal_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_name TEXT NOT NULL,
+    careers_url TEXT NOT NULL,
+    api_provider TEXT,                          -- 'greenhouse','ashby','lever','bamboohr','teamtailor'
+    title_filter_positive TEXT,                 -- JSON array of required keywords
+    title_filter_negative TEXT,                 -- JSON array of excluded keywords
+    is_enabled BOOLEAN NOT NULL DEFAULT 1,
+    last_scanned_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(company_name, careers_url)
+);
+CREATE INDEX IF NOT EXISTS idx_portal_configs_enabled ON portal_configs(is_enabled);

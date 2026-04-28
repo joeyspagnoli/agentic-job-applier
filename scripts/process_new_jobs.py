@@ -31,6 +31,9 @@ from src.agents.root_apply_decider import (
     map_decision_to_status,
     run_decider_for_job,
 )
+from src.agents.root_apply_decider.unified_runtime import (
+    run_gate_with_provider as _run_gate_unified,
+)
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_GATE
 from src.utils.cost_tracking import check_budget_before_claim
@@ -378,6 +381,146 @@ async def _process_once(
     return processed
 
 
+async def _process_once_unified(
+    *,
+    db: DatabaseManager,
+    limit: int,
+    max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
+    backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
+    backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
+) -> int:
+    """Process one batch using the unified AI provider abstraction.
+
+    Uses whichever provider the user configured (Codex, OpenAI, Anthropic,
+    Gemini) instead of the hardcoded ADK + LiteLLM path.
+
+    Args:
+        db: Connected database manager for queue reads and updates.
+        limit: Maximum number of pending jobs to process.
+        max_retries: Maximum attempts before terminal failure.
+        backoff_seconds: Base backoff delay for retry scheduling.
+        backoff_multiplier: Multiplicative backoff factor per retry.
+
+    Returns:
+        The number of jobs successfully processed.
+    """
+    from src.providers.factory import build_provider_from_env
+
+    provider = build_provider_from_env()
+
+    if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_GATE):
+        return 0
+
+    jobs = await db.get_jobs_pending_agent_processing(limit=limit)
+    if not jobs:
+        logger.info("No NEW jobs pending agent processing")
+        return 0
+
+    processed = 0
+    for job in jobs:
+        job_hash_raw = job.get("job_hash")
+        if not job_hash_raw or not isinstance(job_hash_raw, str):
+            logger.warning("Skipping job without job_hash")
+            continue
+        job_hash: str = job_hash_raw
+
+        try:
+            result = await _run_gate_unified(provider=provider, job=job)
+        except Exception as exc:
+            error_text = str(exc)
+            retry_count_raw = job.get("agent_retry_count")
+            retry_count = int(retry_count_raw) + 1 if isinstance(retry_count_raw, int) else 1
+            await record_stage_cost_event(
+                db=db,
+                stage=PIPELINE_STAGE_GATE,
+                job_hash=job_hash,
+                run_id=f"gate-{job_hash}-{retry_count}",
+                metadata={
+                    "status": "FAILED",
+                    "provider": provider.provider_type.value,
+                    "retry_count": retry_count,
+                },
+            )
+
+            if retry_count < max_retries:
+                next_retry_at = _calculate_next_retry_at(
+                    retry_count=retry_count,
+                    backoff_seconds=backoff_seconds,
+                    backoff_multiplier=backoff_multiplier,
+                )
+                logger.warning(
+                    "Unified gate failed for {} (attempt {}/{}). Retry at {}. Error: {}",
+                    job_hash, retry_count, max_retries, next_retry_at, error_text,
+                )
+                await db.record_agent_retry(
+                    job_hash=job_hash,
+                    error=error_text,
+                    retry_count=retry_count,
+                    next_retry_at=next_retry_at,
+                )
+                continue
+
+            logger.error(
+                "Unified gate terminal failure for {} after {} attempts: {}",
+                job_hash, retry_count, error_text,
+            )
+            await db.mark_job_agent_terminal_failed(
+                job_hash, error_text, retry_count=retry_count,
+            )
+            await _notify_terminal_failure(
+                job_hash=job_hash, error=error_text, retry_count=retry_count,
+            )
+            continue
+
+        await db.record_agent_decision(
+            job_hash=job_hash,
+            agent_result=result.model_dump_json(),
+            status=_map_status(result.decision),
+        )
+        await record_stage_cost_event(
+            db=db,
+            stage=PIPELINE_STAGE_GATE,
+            job_hash=job_hash,
+            run_id=f"gate-{job_hash}",
+            metadata={
+                "status": "SUCCESS",
+                "model": result.model,
+                "provider": result.provider,
+                "decision": result.decision.value,
+            },
+        )
+        processed += 1
+
+        confidence = result.debug.confidence
+        confidence_text = f"{confidence:.2f}" if confidence is not None else "n/a"
+        logger.info(
+            "Processed {}: decision={} confidence={} model={} provider={}",
+            job_hash, result.decision.value, confidence_text,
+            result.model, result.provider,
+        )
+
+    return processed
+
+
+def _should_use_unified_provider() -> bool:
+    """Check if the unified provider path should be used.
+
+    Returns True when USE_UNIFIED_PROVIDER env var is set to a truthy value,
+    or when no ADK-specific keys (OPENAI_API_KEY used with ADK) are present
+    but a Codex session or alternative provider key exists.
+    """
+    explicit = os.getenv("USE_UNIFIED_PROVIDER", "").strip().lower()
+    if explicit in ("1", "true", "yes"):
+        return True
+    # If Codex home has auth, prefer unified path.
+    codex_home = os.getenv("CODEX_HOME", "")
+    if codex_home:
+        auth_path = os.path.join(codex_home, "auth.json")
+        if os.path.isfile(auth_path):
+            return True
+    return False
+
+
 async def process_once(
     *,
     db: DatabaseManager,
@@ -402,6 +545,15 @@ async def process_once(
     Output:
         Returns the number of jobs successfully processed in the batch.
     """
+    if _should_use_unified_provider():
+        logger.info("Using unified AI provider for gate processing")
+        return await _process_once_unified(
+            db=db,
+            limit=limit,
+            max_retries=max_retries,
+            backoff_seconds=backoff_seconds,
+            backoff_multiplier=backoff_multiplier,
+        )
 
     return await _process_once(
         db=db,

@@ -12,11 +12,14 @@
 import type { JSX } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { CommandBar, useCommandBar } from "@/components/CommandBar";
+import { OnboardingGate } from "@/components/OnboardingGate";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { FailuresPage } from "@/pages/FailuresPage";
 import { HumanReviewPage } from "@/pages/HumanReviewPage";
 import { CostTrackingPage } from "@/pages/CostTrackingPage";
 import { JobsPage } from "@/pages/JobsPage";
+import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
 /**
@@ -25,10 +28,20 @@ import { SettingsPage } from "@/pages/SettingsPage";
  * @returns The application wrapped in a BrowserRouter with all routes defined.
  */
 export default function App(): JSX.Element {
+  const { open, setOpen } = useCommandBar();
+
   return (
     <BrowserRouter>
+      <CommandBar open={open} onClose={() => setOpen(false)} />
       <Routes>
-        <Route element={<AppLayout />}>
+        <Route path="onboarding" element={<OnboardingPage />} />
+        <Route
+          element={
+            <OnboardingGate>
+              <AppLayout />
+            </OnboardingGate>
+          }
+        >
           <Route index element={<DashboardPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="human-review" element={<HumanReviewPage />} />

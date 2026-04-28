@@ -12,7 +12,7 @@ import type { JSX } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
-import { SIDEBAR_WIDTH_PX } from "@/lib/design-tokens";
+import { COLOR_SURFACE, SIDEBAR_WIDTH_PX } from "@/lib/design-tokens";
 
 /**
  * Maps each route path to the human-readable page title shown in the TopBar.
@@ -54,7 +54,7 @@ export function AppLayout(): JSX.Element {
   const pageTitle = resolvePageTitle(location.pathname);
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa]">
+    <div className="min-h-screen" style={{ backgroundColor: COLOR_SURFACE }}>
       <Sidebar />
 
       <div className="min-h-screen flex flex-col" style={{ marginLeft: SIDEBAR_WIDTH_PX }}>
