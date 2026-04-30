@@ -41,6 +41,17 @@ import {
 /** Total number of wizard steps. */
 const STEP_COUNT = 6;
 
+/**
+ * How long the onboarding wizard keeps the watchlist warning on screen
+ * before redirecting to the dashboard.
+ *
+ * @remarks
+ * Long enough that a user can read 1–2 sentences of warning copy without
+ * feeling rushed; short enough that a user who saw all-clear before the
+ * warning was rendered is not stuck staring at a "Redirecting…" message.
+ */
+const WATCHLIST_WARNING_REDIRECT_DELAY_MS = 3500;
+
 /** Step labels shown in the progress indicator. */
 const STEP_LABELS = [
   "About You",
@@ -66,7 +77,7 @@ interface ProfileDraft {
 }
 
 /** Draft state for step 2: target roles and preferences. */
-interface RolesDraft {
+export interface RolesDraft {
   targetRoles: string;
   strongestAreas: string;
   experienceHighlights: string;
@@ -74,7 +85,7 @@ interface RolesDraft {
 }
 
 /** Draft state for step 4: hard filters. */
-interface FiltersDraft {
+export interface FiltersDraft {
   minSalary: string;
   maxSalary: string;
   requireRemote: boolean;
@@ -165,6 +176,33 @@ function defaultProviderDraft(): ProviderDraft {
 }
 
 /**
+ * Escape a string so it is safe to embed inside a YAML double-quoted scalar.
+ *
+ * @remarks
+ * YAML double-quoted scalars treat `\` as an escape introducer and `"` as the
+ * scalar terminator. Both characters must be backslash-escaped before
+ * interpolation, otherwise a value like `Acme "Quoted" Co` would emit
+ * `"Acme "Quoted" Co"` and break the YAML parser. See
+ * https://yaml.org/spec/1.2.2/#73-flow-scalar-styles for the full grammar.
+ *
+ * @param value - The raw user-supplied string to escape.
+ * @returns The escaped string, ready to be wrapped in `"..."`.
+ */
+function escapeYamlDoubleQuoted(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * Wrap a value in a double-quoted YAML scalar with all unsafe characters escaped.
+ *
+ * @param value - The raw value to embed.
+ * @returns A complete YAML scalar token (including the surrounding quotes).
+ */
+function toYamlDoubleQuoted(value: string): string {
+  return `"${escapeYamlDoubleQuoted(value)}"`;
+}
+
+/**
  * Serialize the onboarding filters draft and domain keywords to a filters.yaml string.
  *
  * @remarks
@@ -172,23 +210,25 @@ function defaultProviderDraft(): ProviderDraft {
  * (domain-specific auto-qualification and generic negative signals). The
  * `positive_keywords` under `soft_filters` come from the user's `strongestAreas`
  * so that jobs mentioning any of those skills are auto-qualified without needing
- * the gate agent.
+ * the gate agent. All user-supplied strings pass through {@link escapeYamlDoubleQuoted}
+ * so that quote and backslash characters in company names or title patterns
+ * cannot produce malformed YAML.
  *
  * @param draft - The filters draft state from the onboarding wizard.
  * @param roles - The roles draft; `strongestAreas` becomes `soft_filters.positive_keywords`.
  * @returns YAML string ready to write to filters.yaml.
  */
-function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
+export function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
   const minSalary = parseInt(draft.minSalary, 10) || 0;
   const maxSalary = parseInt(draft.maxSalary, 10) || 0;
   const excludeTitles = draft.excludeTitlePatterns
     .split("\n")
-    .map((s) => s.trim())
+    .map((line) => line.trim())
     .filter(Boolean)
-    .map((s) => `(?i)${s}`);
+    .map((pattern) => `(?i)${pattern}`);
   const excludeCompanies = draft.excludeCompanies
     .split("\n")
-    .map((s) => s.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
   const domainKeywords = splitLines(roles.strongestAreas);
@@ -199,16 +239,16 @@ function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
     `  max_salary_usd: ${maxSalary}`,
     `  require_remote: ${draft.requireRemote}`,
     "  exclude_companies:",
-    ...excludeCompanies.map((c) => `    - "${c}"`),
+    ...excludeCompanies.map((company) => `    - ${toYamlDoubleQuoted(company)}`),
     "  exclude_title_patterns:",
-    ...excludeTitles.map((t) => `    - "${t}"`),
+    ...excludeTitles.map((pattern) => `    - ${toYamlDoubleQuoted(pattern)}`),
     "  exclude_job_types: []",
     "  require_title_patterns: []",
     "  exclude_locations: []",
     "  max_days_old: 30",
     "soft_filters:",
     "  positive_keywords:",
-    ...domainKeywords.map((k) => `    - "${k}"`),
+    ...domainKeywords.map((keyword) => `    - ${toYamlDoubleQuoted(keyword)}`),
     "  negative_keywords:",
     '    - "clearance required"',
     '    - "security clearance"',
@@ -221,77 +261,134 @@ function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
 }
 
 /**
- * Validate a guessed Greenhouse board slug against the public Greenhouse API.
+ * Outcome of probing a guessed Greenhouse board slug.
  *
  * @remarks
- * Hits the public `/departments` endpoint which is unauthenticated and CORS-safe.
+ * The previous boolean-only contract conflated two very different failure
+ * modes — a real 404 (the slug is wrong) and a network-layer failure (we
+ * could not reach Greenhouse at all). Surfacing them separately lets the
+ * UI tell the user why their companies are unverified, and lets future
+ * code retry the network case without prompting them to fix anything.
+ */
+export type GreenhouseSlugStatus =
+  | "verified"
+  | "not_found"
+  | "network_error";
+
+/**
+ * Probe a guessed Greenhouse board slug against the public boards API.
  *
- * TODO(jspags): Investigate whether Greenhouse exposes a company-name search or
- * redirect-to-canonical mechanism so we can discover the correct slug rather than
- * guessing by lowercasing the display name. The embedded career page at
- * `https://www.greenhouse.io/{slug}` redirects to the canonical URL when the slug
- * is close but not exact — following that redirect server-side could recover the
- * right slug without user intervention.
+ * @remarks
+ * Hits the public `/departments` endpoint which is unauthenticated and
+ * CORS-safe. A 2xx response means the board exists; any other HTTP status
+ * is treated as `not_found` (Greenhouse uses 404 in practice). Any thrown
+ * error from `fetch` — DNS failure, CORS denial, offline browser — yields
+ * `network_error` so the caller can distinguish "user typo" from
+ * "we could not reach Greenhouse".
  *
  * @param slug - The guessed Greenhouse board identifier (lowercase, no spaces).
- * @returns `true` if the board exists, `false` on a 404 or network error.
+ * @returns The classified outcome of the probe.
  */
-async function validateGreenhouseSlug(slug: string): Promise<boolean> {
+export async function validateGreenhouseSlug(
+  slug: string,
+): Promise<GreenhouseSlugStatus> {
   try {
     const response = await fetch(
       `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/departments`,
     );
-    return response.ok;
+    if (response.ok) {
+      return "verified";
+    }
+    return "not_found";
   } catch {
-    return false;
+    return "network_error";
   }
 }
 
 /**
- * Validate slugs, then merge watchlist company names into the greenhouse_companies
- * list in sources YAML.
+ * Outcome of {@link saveWatchlistCompanies}.
+ *
+ * @remarks
+ * Both lists contain the user-facing company display names (not slugs).
+ * The two are kept distinct so the UI can show different copy:
+ * `unverified` is the user's problem to fix (likely a typo);
+ * `networkFailures` is our problem and may resolve on retry.
+ */
+export interface WatchlistSaveResult {
+  /** Companies whose guessed slug returned a non-2xx response from Greenhouse. */
+  readonly unverified: readonly string[];
+
+  /**
+   * Companies whose validation request never reached Greenhouse — the
+   * entry was still written to disk, but the user should re-check the slug
+   * once connectivity is restored.
+   */
+  readonly networkFailures: readonly string[];
+}
+
+/** Empty result returned when there are no companies to save. */
+const EMPTY_WATCHLIST_RESULT: WatchlistSaveResult = {
+  unverified: [],
+  networkFailures: [],
+};
+
+/**
+ * Validate every guessed slug, then merge the watchlist into the
+ * `greenhouse_companies` block of sources YAML.
+ *
+ * @remarks
+ * Even when validation fails for every entry, the YAML is still written —
+ * the user can fix the slug from Settings → Sources, but losing their
+ * typed-in list silently would be the worse failure mode. All written
+ * fields pass through {@link escapeYamlDoubleQuoted} so that company names
+ * containing quotes do not corrupt the sources file.
  *
  * @param companiesText - Newline-separated company names from the watchlist step.
- * @param updateSources - API function to write sources YAML.
- * @param fetchSources - API function to read current sources YAML.
- * @returns Array of company display names whose guessed Greenhouse slug could not
- *   be verified against the Greenhouse API.
+ * @param updateSources - API function to persist the merged sources YAML.
+ * @param fetchSources - API function to read the current sources YAML.
+ * @returns A {@link WatchlistSaveResult} partitioning companies into
+ *   `unverified` (404 from Greenhouse) and `networkFailures` (no response).
  */
-async function saveWatchlistCompanies(
+export async function saveWatchlistCompanies(
   companiesText: string,
   updateSources: (yaml: string) => Promise<unknown>,
   fetchSources: () => Promise<{ yaml_text: string }>,
-): Promise<string[]> {
+): Promise<WatchlistSaveResult> {
   const companyNames = companiesText
     .split("\n")
-    .map((s) => s.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
   if (companyNames.length === 0) {
-    return [];
+    return EMPTY_WATCHLIST_RESULT;
   }
 
   const validationResults = await Promise.allSettled(
     companyNames.map(async (name) => {
-      const id = name.toLowerCase().replace(/\s+/g, "");
-      const isVerified = await validateGreenhouseSlug(id);
-      return { name, id, isVerified };
+      const slug = name.toLowerCase().replace(/\s+/g, "");
+      const status = await validateGreenhouseSlug(slug);
+      return { name, slug, status };
     }),
   );
 
-  const unverifiedCompanies: string[] = [];
-  const newEntries = validationResults
-    .map((result) => {
-      if (result.status !== "fulfilled") {
-        return null;
-      }
-      const { name, id, isVerified } = result.value;
-      if (!isVerified) {
-        unverifiedCompanies.push(name);
-      }
-      return `  ${name}:\n    greenhouse_id: "${id}"\n    priority: 3`;
-    })
-    .filter((entry): entry is string => entry !== null);
+  const unverified: string[] = [];
+  const networkFailures: string[] = [];
+  const newEntries: string[] = [];
+
+  for (const result of validationResults) {
+    if (result.status !== "fulfilled") {
+      continue;
+    }
+    const { name, slug, status } = result.value;
+    if (status === "not_found") {
+      unverified.push(name);
+    } else if (status === "network_error") {
+      networkFailures.push(name);
+    }
+    newEntries.push(
+      `  ${escapeYamlMappingKey(name)}:\n    greenhouse_id: ${toYamlDoubleQuoted(slug)}\n    priority: 3`,
+    );
+  }
 
   const appendBlock = newEntries.join("\n") + "\n";
 
@@ -307,7 +404,62 @@ async function saveWatchlistCompanies(
   }
 
   await updateSources(updatedYaml);
-  return unverifiedCompanies;
+  return { unverified, networkFailures };
+}
+
+/**
+ * Build the user-facing warning message for a {@link WatchlistSaveResult},
+ * or `null` when nothing went wrong and no warning should display.
+ *
+ * @remarks
+ * The two failure modes get distinct copy: an unverified slug is the
+ * user's problem (typo, slug mismatch), while a network failure is ours
+ * (Greenhouse unreachable). Combining them into one message would force
+ * the user to guess which companies fall into which bucket.
+ *
+ * @param result - The outcome returned by {@link saveWatchlistCompanies}.
+ * @returns The warning string, or `null` if no warning is needed.
+ */
+export function buildWatchlistWarning(
+  result: WatchlistSaveResult,
+): string | null {
+  const sentences: string[] = [];
+  if (result.unverified.length > 0) {
+    sentences.push(
+      `Could not verify Greenhouse IDs for: ${result.unverified.join(", ")}. You can correct them in Settings → Sources.`,
+    );
+  }
+  if (result.networkFailures.length > 0) {
+    sentences.push(
+      `Could not reach Greenhouse to verify: ${result.networkFailures.join(", ")}. Slugs were saved as-is; re-verify from Settings → Sources once your connection is restored.`,
+    );
+  }
+  if (sentences.length === 0) {
+    return null;
+  }
+  sentences.push("Redirecting…");
+  return sentences.join(" ");
+}
+
+/**
+ * Render a company name as a YAML mapping key safe for the
+ * `greenhouse_companies` block.
+ *
+ * @remarks
+ * Plain (unquoted) YAML keys may contain letters, digits, spaces, hyphens,
+ * dots, ampersands, and parentheses without ambiguity. Anything outside
+ * that set — colons, hashes, brackets, quotes — gets the full
+ * double-quoted treatment so the file remains parseable.
+ *
+ * @param name - The display name typed by the user.
+ * @returns The name formatted as a YAML mapping key.
+ */
+function escapeYamlMappingKey(name: string): string {
+  const isPlainKeySafe = /^[A-Za-z0-9][A-Za-z0-9 .&()_-]*$/.test(name);
+  if (isPlainKeySafe) {
+    return name;
+  }
+  return toYamlDoubleQuoted(name);
 }
 
 /**
@@ -433,21 +585,21 @@ export function OnboardingPage(): JSX.Element {
       const filtersYaml = buildFiltersYaml(filters, roles);
       await updateFiltersYaml(filtersYaml);
 
-      // Bug 4 fix: validate Greenhouse slugs; capture unverified for warning
-      const unverifiedCompanies =
+      // Bug 4 fix: validate Greenhouse slugs; capture unverified + network
+      // failures so each gets its own message in the UI below.
+      const watchlistResult: WatchlistSaveResult =
         watchlist.companies.trim() !== ""
           ? await saveWatchlistCompanies(watchlist.companies, updateSourcesYaml, fetchSourcesSettings)
-          : [];
+          : EMPTY_WATCHLIST_RESULT;
 
       // Bug 2 fix: refetchQueries awaits the round-trip so OnboardingGate
       // reads is_complete: true before navigate("/") fires.
       await queryClient.refetchQueries({ queryKey: ["onboarding-status"] });
 
-      if (unverifiedCompanies.length > 0) {
-        setWarning(
-          `Could not verify Greenhouse IDs for: ${unverifiedCompanies.join(", ")}. You can correct them in Settings → Sources. Redirecting…`,
-        );
-        window.setTimeout(() => { navigate("/"); }, 3500);
+      const warningMessage = buildWatchlistWarning(watchlistResult);
+      if (warningMessage !== null) {
+        setWarning(warningMessage);
+        window.setTimeout(() => { navigate("/"); }, WATCHLIST_WARNING_REDIRECT_DELAY_MS);
       } else {
         navigate("/");
       }
