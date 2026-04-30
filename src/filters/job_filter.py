@@ -354,20 +354,32 @@ class JobFilter:
         self,
         job: JobPosting,
     ) -> tuple[FilterAction, str] | None:
-        """Auto-qualify jobs whose description contains ALL positive keywords."""
+        """Auto-qualify jobs whose description contains any positive keyword.
+
+        Using ``any`` rather than ``all`` means a job is fast-tracked once a
+        single domain-relevant skill from the user's profile appears in the
+        description, reducing gate-agent load without sacrificing relevance.
+
+        Args:
+            job: The job posting to evaluate.
+
+        Returns:
+            An ``(ACCEPT_QUALIFIED, reason)`` tuple on the first matching
+            keyword, or ``None`` if no keyword appears.
+        """
         positive_keywords = self._soft.get("positive_keywords", [])
         if not positive_keywords:
             return None
 
         description_lower = job.description.lower()
-        all_present = all(
-            isinstance(kw, str) and kw.lower() in description_lower
-            for kw in positive_keywords
+        matched = next(
+            (kw for kw in positive_keywords if isinstance(kw, str) and kw.lower() in description_lower),
+            None,
         )
-        if all_present:
+        if matched is not None:
             return (
                 FilterAction.ACCEPT_QUALIFIED,
-                "description contains all positive keywords",
+                f"description contains positive keyword '{matched}'",
             )
         return None
 

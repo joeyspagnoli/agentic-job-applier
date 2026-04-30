@@ -35,6 +35,7 @@ import {
   COLOR_SURFACE_CONTAINER_LOW,
   COLOR_ERROR,
   COLOR_SUCCESS,
+  COLOR_WARNING,
 } from "@/lib/design-tokens";
 
 /** Total number of wizard steps. */
@@ -164,12 +165,20 @@ function defaultProviderDraft(): ProviderDraft {
 }
 
 /**
- * Serialize the onboarding filters draft to a filters.yaml string.
+ * Serialize the onboarding filters draft and domain keywords to a filters.yaml string.
+ *
+ * @remarks
+ * Writes both `hard_filters` (title/company/salary exclusions) and `soft_filters`
+ * (domain-specific auto-qualification and generic negative signals). The
+ * `positive_keywords` under `soft_filters` come from the user's `strongestAreas`
+ * so that jobs mentioning any of those skills are auto-qualified without needing
+ * the gate agent.
  *
  * @param draft - The filters draft state from the onboarding wizard.
+ * @param roles - The roles draft; `strongestAreas` becomes `soft_filters.positive_keywords`.
  * @returns YAML string ready to write to filters.yaml.
  */
-function buildFiltersYaml(draft: FiltersDraft): string {
+function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
   const minSalary = parseInt(draft.minSalary, 10) || 0;
   const maxSalary = parseInt(draft.maxSalary, 10) || 0;
   const excludeTitles = draft.excludeTitlePatterns
@@ -181,6 +190,8 @@ function buildFiltersYaml(draft: FiltersDraft): string {
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
+
+  const domainKeywords = splitLines(roles.strongestAreas);
 
   const lines: string[] = [
     "hard_filters:",
@@ -195,40 +206,96 @@ function buildFiltersYaml(draft: FiltersDraft): string {
     "  require_title_patterns: []",
     "  exclude_locations: []",
     "  max_days_old: 30",
+    "soft_filters:",
+    "  positive_keywords:",
+    ...domainKeywords.map((k) => `    - "${k}"`),
+    "  negative_keywords:",
+    '    - "clearance required"',
+    '    - "security clearance"',
+    '    - "5+ years"',
+    '    - "7+ years"',
+    '    - "help desk"',
+    '    - "it support"',
   ];
   return lines.join("\n");
 }
 
 /**
- * Merge watchlist company names into the greenhouse_companies list in sources YAML.
+ * Validate a guessed Greenhouse board slug against the public Greenhouse API.
+ *
+ * @remarks
+ * Hits the public `/departments` endpoint which is unauthenticated and CORS-safe.
+ *
+ * TODO(jspags): Investigate whether Greenhouse exposes a company-name search or
+ * redirect-to-canonical mechanism so we can discover the correct slug rather than
+ * guessing by lowercasing the display name. The embedded career page at
+ * `https://www.greenhouse.io/{slug}` redirects to the canonical URL when the slug
+ * is close but not exact — following that redirect server-side could recover the
+ * right slug without user intervention.
+ *
+ * @param slug - The guessed Greenhouse board identifier (lowercase, no spaces).
+ * @returns `true` if the board exists, `false` on a 404 or network error.
+ */
+async function validateGreenhouseSlug(slug: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/departments`,
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate slugs, then merge watchlist company names into the greenhouse_companies
+ * list in sources YAML.
  *
  * @param companiesText - Newline-separated company names from the watchlist step.
  * @param updateSources - API function to write sources YAML.
  * @param fetchSources - API function to read current sources YAML.
- * @returns Nothing.
+ * @returns Array of company display names whose guessed Greenhouse slug could not
+ *   be verified against the Greenhouse API.
  */
 async function saveWatchlistCompanies(
   companiesText: string,
   updateSources: (yaml: string) => Promise<unknown>,
   fetchSources: () => Promise<{ yaml_text: string }>,
-): Promise<void> {
+): Promise<string[]> {
   const companyNames = companiesText
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
 
   if (companyNames.length === 0) {
-    return;
+    return [];
   }
 
-  const current = await fetchSources();
-  const newEntries = companyNames.map((name) => {
-    const key = name.trim();
-    const id = key.toLowerCase().replace(/\s+/g, "");
-    return `  ${key}:\n    greenhouse_id: "${id}"\n    priority: 3`;
-  });
+  const validationResults = await Promise.allSettled(
+    companyNames.map(async (name) => {
+      const id = name.toLowerCase().replace(/\s+/g, "");
+      const isVerified = await validateGreenhouseSlug(id);
+      return { name, id, isVerified };
+    }),
+  );
+
+  const unverifiedCompanies: string[] = [];
+  const newEntries = validationResults
+    .map((result) => {
+      if (result.status !== "fulfilled") {
+        return null;
+      }
+      const { name, id, isVerified } = result.value;
+      if (!isVerified) {
+        unverifiedCompanies.push(name);
+      }
+      return `  ${name}:\n    greenhouse_id: "${id}"\n    priority: 3`;
+    })
+    .filter((entry): entry is string => entry !== null);
+
   const appendBlock = newEntries.join("\n") + "\n";
 
+  const current = await fetchSources();
   let updatedYaml = current.yaml_text ?? "";
   if (updatedYaml.includes("greenhouse_companies:")) {
     updatedYaml = updatedYaml.replace(
@@ -240,6 +307,7 @@ async function saveWatchlistCompanies(
   }
 
   await updateSources(updatedYaml);
+  return unverifiedCompanies;
 }
 
 /**
@@ -260,6 +328,7 @@ export function OnboardingPage(): JSX.Element {
   const [watchlist, setWatchlist] = useState<WatchlistDraft>({ companies: "" });
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const resumeMutation = useMutation({
     mutationFn: (file: File) =>
@@ -314,6 +383,7 @@ export function OnboardingPage(): JSX.Element {
   async function handleFinish(): Promise<void> {
     setSaving(true);
     setError(null);
+    setWarning(null);
 
     try {
       await updateProfileStructured({
@@ -359,15 +429,28 @@ export function OnboardingPage(): JSX.Element {
         });
       }
 
-      const filtersYaml = buildFiltersYaml(filters);
+      // Bug 5 fix: pass roles so strongestAreas populate soft_filters.positive_keywords
+      const filtersYaml = buildFiltersYaml(filters, roles);
       await updateFiltersYaml(filtersYaml);
 
-      if (watchlist.companies.trim() !== "") {
-        await saveWatchlistCompanies(watchlist.companies, updateSourcesYaml, fetchSourcesSettings);
-      }
+      // Bug 4 fix: validate Greenhouse slugs; capture unverified for warning
+      const unverifiedCompanies =
+        watchlist.companies.trim() !== ""
+          ? await saveWatchlistCompanies(watchlist.companies, updateSourcesYaml, fetchSourcesSettings)
+          : [];
 
-      await queryClient.invalidateQueries({ queryKey: ["onboarding-status"] });
-      navigate("/");
+      // Bug 2 fix: refetchQueries awaits the round-trip so OnboardingGate
+      // reads is_complete: true before navigate("/") fires.
+      await queryClient.refetchQueries({ queryKey: ["onboarding-status"] });
+
+      if (unverifiedCompanies.length > 0) {
+        setWarning(
+          `Could not verify Greenhouse IDs for: ${unverifiedCompanies.join(", ")}. You can correct them in Settings → Sources. Redirecting…`,
+        );
+        window.setTimeout(() => { navigate("/"); }, 3500);
+      } else {
+        navigate("/");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save. Please try again.");
     } finally {
@@ -541,6 +624,11 @@ export function OnboardingPage(): JSX.Element {
           {error && (
             <p className="mt-4 text-sm font-medium" style={{ color: COLOR_ERROR }}>
               {error}
+            </p>
+          )}
+          {warning && (
+            <p className="mt-4 text-sm font-medium" style={{ color: COLOR_WARNING }}>
+              {warning}
             </p>
           )}
 

@@ -131,6 +131,8 @@ export function JobsPage(): JSX.Element {
   const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
   const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
 
+  const [justTriggered, setJustTriggered] = useState<boolean>(false);
+
   const queryClient = useQueryClient();
   const tableRef = useRef<HTMLTableSectionElement | null>(null);
 
@@ -138,6 +140,8 @@ export function JobsPage(): JSX.Element {
     mutationFn: fetchJobsNow,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      setJustTriggered(true);
+      window.setTimeout(() => { setJustTriggered(false); }, 2500);
     },
   });
 
@@ -250,7 +254,16 @@ export function JobsPage(): JSX.Element {
             style={{ backgroundColor: COLOR_PRIMARY }}
             onClick={() => { fetchJobsMutation.mutate(); }}
           >
-            {fetchJobsMutation.isPending ? "Running..." : "Fetch Jobs Now"}
+            {fetchJobsMutation.isPending ? (
+              <>
+                Fetching
+                <span className="inline-flex gap-px ml-0.5" aria-hidden="true">
+                  <span className="animate-bounce [animation-delay:-0.3s]">.</span>
+                  <span className="animate-bounce [animation-delay:-0.15s]">.</span>
+                  <span className="animate-bounce">.</span>
+                </span>
+              </>
+            ) : justTriggered ? "Triggered!" : "Fetch Jobs Now"}
           </button>
         </div>
       </div>
