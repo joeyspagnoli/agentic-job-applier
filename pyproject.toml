@@ -35,6 +35,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "hypothesis==6.135.4",
+    "mutmut==2.5.1",
     "mypy>=1.18.2,<2",
     "pip-audit>=2.9.0,<3",
     "pytest>=9.0.2,<10",
@@ -51,6 +53,11 @@ override-dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mutmut]
+paths_to_mutate = "src/fetchers/linkedin_fetcher.py"
+tests_dir = "tests/"
+runner = "python -m pytest tests/test_linkedin_fetcher.py -x -q"
 
 [tool.mypy]
 python_version = "3.11"
