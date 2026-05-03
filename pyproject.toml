@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.121.1,<1",
     "google-adk>=1.23.0,<2",
     "google-genai>=1.14.0,<2",
+    "curl-cffi==0.15.0",
     "httpx>=0.28.1,<1",
     "litellm>=1.82.1,<2",
     "loguru>=0.7.3,<1",

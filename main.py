@@ -6,6 +6,7 @@ stores new postings, and records crawl-level metrics for later inspection.
 
 import asyncio
 import os
+import random
 import re
 import time
 from datetime import datetime
@@ -897,10 +898,19 @@ async def fetch_linkedin_jobs(
 
     proxy_url = danger.get("proxy_url", "") or None
 
-    for search_config in searches:
+    for search_index, search_config in enumerate(searches):
         search_term = search_config.get("search_term", "")
         if not search_term:
             continue
+
+        if search_index > 0:
+            inter_search_delay = random.uniform(30, 90)
+            logger.debug(
+                "LinkedIn inter-search delay: {:.0f}s before '{}'",
+                inter_search_delay,
+                search_term,
+            )
+            await asyncio.sleep(inter_search_delay)
 
         location = search_config.get("location", "United States")
         experience_level = search_config.get("experience_level")

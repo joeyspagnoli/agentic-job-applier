@@ -3,7 +3,8 @@
 Uses LinkedIn's unauthenticated guest API to search for jobs with
 configurable time filtering (``f_TPR``), experience level (``f_E``),
 and work type (``f_WT``) parameters.  Includes built-in rate-limit
-mitigation via random delays between page requests.
+mitigation via random delays between page requests and exponential
+backoff on HTTP 429 responses.
 
 .. warning::
     LinkedIn actively rate-limits scrapers.  Use proxy support and
@@ -12,29 +13,61 @@ mitigation via random delays between page requests.
 
 from __future__ import annotations
 
+import asyncio
 import random
 import re
-from typing import Optional
 
-import httpx
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests import errors as curl_errors
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
 from src.models.job_posting import JobPosting
 
-# LinkedIn guest jobs API endpoint (no auth required).
-GUEST_JOBS_URL = "https://www.linkedin.com/jobs-guest/jobs/api/sJobsMore"
+# Correct LinkedIn guest jobs API endpoint (used by JobSpy, Apify, and community scrapers).
+GUEST_JOBS_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 
 # LinkedIn job detail page (guest-accessible).
 JOB_DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
 
-# Delay range between page requests to avoid detection (seconds).
-MIN_DELAY_SECONDS = 3.0
-MAX_DELAY_SECONDS = 7.0
+# Delay range between page requests (seconds) — long enough to avoid burst detection.
+MIN_DELAY_SECONDS = 8.0
+MAX_DELAY_SECONDS = 20.0
 
-# Maximum pages to fetch before stopping (each page has ~25 results).
-DEFAULT_MAX_PAGES = 4
+# Maximum pages to fetch before stopping.
+DEFAULT_MAX_PAGES = 2
 AGGRESSIVE_MAX_PAGES = 10
+
+# LinkedIn returns ~10 results per page (kept for documentation only — not used in math).
+RESULTS_PER_PAGE = 10
+
+# Exponential backoff schedule in seconds for HTTP 429 responses.
+_BACKOFF_SECONDS: list[int] = [60, 120, 300]
+
+# Full browser-like headers matching Chrome 120 to bypass LinkedIn's automation detection.
+HEADERS: dict[str, str] = {
+    "authority": "www.linkedin.com",
+    "accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "max-age=0",
+    "priority": "u=0, i",
+    "sec-ch-ua": '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "none",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+    "user-agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
 
 # LinkedIn experience level filter values.
 EXPERIENCE_LEVELS: dict[str, int] = {
@@ -52,8 +85,6 @@ WORK_TYPES: dict[str, int] = {
     "remote": 2,
     "hybrid": 3,
 }
-
-RESULTS_PER_PAGE = 25
 
 
 class LinkedInFetcher(BaseFetcher):
@@ -94,7 +125,7 @@ class LinkedInFetcher(BaseFetcher):
                 ``"associate"``, ``"mid-senior"``, ``"director"``,
                 ``"executive"``.
             work_type: One of ``"on-site"``, ``"remote"``, ``"hybrid"``.
-            max_pages: Maximum pages to scrape (each ~25 results).
+            max_pages: Maximum pages to scrape (each ~10 results).
             proxy_url: Optional proxy URL (e.g. ``"http://proxy:8080"``).
             fetch_descriptions: Fetch full job descriptions (slower, more
                 requests).
@@ -107,7 +138,7 @@ class LinkedInFetcher(BaseFetcher):
         self.max_pages = max_pages
         self.proxy_url = proxy_url
         self.fetch_descriptions = fetch_descriptions
-        self._client: Optional[httpx.AsyncClient] = None
+        self._session: AsyncSession | None = None
         super().__init__(
             config={
                 "search_term": search_term,
@@ -125,27 +156,20 @@ class LinkedInFetcher(BaseFetcher):
         return f"linkedin_{slug}"
 
     async def __aenter__(self) -> LinkedInFetcher:
-        """Create the shared HTTP client with browser-like headers.
+        """Create the shared HTTP session with Chrome TLS fingerprint.
+
+        Uses curl_cffi to impersonate Chrome's JA3 TLS signature, which
+        bypasses LinkedIn's TLS fingerprint detection layer.
 
         Returns:
-            The fetcher instance with an active HTTP client.
+            The fetcher instance with an active HTTP session.
         """
-        transport = None
-        if self.proxy_url:
-            transport = httpx.AsyncHTTPTransport(proxy=self.proxy_url)
-
-        self._client = httpx.AsyncClient(
-            timeout=30.0,
-            transport=transport,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
+        proxies = {"all": self.proxy_url} if self.proxy_url else None
+        self._session = AsyncSession(
+            impersonate="chrome120",
+            proxies=proxies,
+            headers=HEADERS,
+            timeout=30,
         )
         return self
 
@@ -155,52 +179,61 @@ class LinkedInFetcher(BaseFetcher):
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        """Close the HTTP client when the context ends."""
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        """Close the HTTP session when the context ends."""
+        if self._session:
+            await self._session.close()
+            self._session = None
 
     async def fetch_jobs(self) -> list[JobPosting]:
         """Scrape job listings from LinkedIn's guest API.
 
-        Paginates through results with random delays between pages.
-        Stops early when rate-limited (HTTP 429) or when a page returns
-        no results.
+        Paginates through results using the actual count of jobs returned
+        per page (not an assumed constant) so the offset is always correct.
+        Applies exponential backoff on HTTP 429 before giving up.
 
         Returns:
             A list of normalized :class:`JobPosting` objects.
         """
-        if not self._client:
-            # Fallback when used without `async with`.
+        if not self._session:
             await self.__aenter__()
 
         all_jobs: list[JobPosting] = []
+        start = 0
 
         for page in range(self.max_pages):
-            start = page * RESULTS_PER_PAGE
             params = self._build_params(start)
+            response = None
 
-            try:
-                client = self._client
-                if client is None:
-                    raise RuntimeError("LinkedIn HTTP client was not initialized")
-                response = await client.get(GUEST_JOBS_URL, params=params)
-            except httpx.RequestError as exc:
-                logger.error("LinkedIn network error on page {}: {}", page, exc)
+            for attempt, backoff in enumerate(_BACKOFF_SECONDS):
+                try:
+                    session = self._session
+                    if session is None:
+                        raise RuntimeError("LinkedIn session was not initialized")
+                    response = await session.get(GUEST_JOBS_URL, params=params)
+                except curl_errors.RequestsError as exc:
+                    logger.error("LinkedIn network error on page {}: {}", page, exc)
+                    return all_jobs
+
+                if response.status_code == 429:
+                    if attempt < len(_BACKOFF_SECONDS) - 1:
+                        logger.warning(
+                            "LinkedIn 429 on page {} — waiting {}s before retry",
+                            page,
+                            backoff,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    logger.warning(
+                        "LinkedIn 429 — giving up after {} retries",
+                        attempt + 1,
+                    )
+                    return all_jobs
                 break
 
-            if response.status_code == 429:
-                logger.warning(
-                    "LinkedIn rate limited on page {} — returning {} jobs collected so far",
-                    page,
-                    len(all_jobs),
-                )
-                break
-
-            if response.status_code != 200:
+            if response is None or response.status_code != 200:
                 logger.warning(
                     "LinkedIn returned {} on page {}",
-                    response.status_code,
+                    response.status_code if response else "None",
                     page,
                 )
                 break
@@ -218,18 +251,18 @@ class LinkedInFetcher(BaseFetcher):
                 len(all_jobs),
             )
 
-            # Random delay between pages to avoid detection.
-            if page < self.max_pages - 1:
-                import asyncio
+            # Use actual count returned, not assumed RESULTS_PER_PAGE, so the
+            # next request starts at the correct offset.
+            start += len(page_jobs)
 
+            if page < self.max_pages - 1:
                 delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
                 await asyncio.sleep(delay)
 
         logger.info(
-            "LinkedIn search '{}': {} jobs across {} pages",
+            "LinkedIn search '{}': {} total jobs",
             self.search_term,
             len(all_jobs),
-            min(self.max_pages, len(all_jobs) // RESULTS_PER_PAGE + 1),
         )
         return all_jobs
 
@@ -304,7 +337,6 @@ class LinkedInFetcher(BaseFetcher):
             A :class:`JobPosting` if the card contains enough data, or
             ``None`` if essential fields are missing.
         """
-        # Extract job URL and ID.
         url_match = re.search(
             r'href="(https://www\.linkedin\.com/jobs/view/[^"?]+)',
             card_html,
@@ -314,7 +346,6 @@ class LinkedInFetcher(BaseFetcher):
         job_id_match = re.search(r"/jobs/view/(\d+)", job_url)
         job_id = job_id_match.group(1) if job_id_match else ""
 
-        # Extract title.
         title_match = re.search(
             r'class="[^"]*base-search-card__title[^"]*"[^>]*>([^<]+)',
             card_html,
@@ -324,7 +355,6 @@ class LinkedInFetcher(BaseFetcher):
         if not title:
             return None
 
-        # Extract company name.
         company_match = re.search(
             r'class="[^"]*base-search-card__subtitle[^"]*"[^>]*>'
             r'\s*<a[^>]*>([^<]+)',
@@ -338,14 +368,12 @@ class LinkedInFetcher(BaseFetcher):
             )
         company = company_match.group(1).strip() if company_match else "Unknown"
 
-        # Extract location.
         location_match = re.search(
             r'class="[^"]*job-search-card__location[^"]*"[^>]*>([^<]+)',
             card_html,
         )
         location = location_match.group(1).strip() if location_match else ""
 
-        # Extract posted date.
         date_match = re.search(
             r'<time[^>]*datetime="([^"]+)"',
             card_html,

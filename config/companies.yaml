@@ -2,6 +2,192 @@
 # Priority: 1 = highest, 10 = lowest
 
 greenhouse_companies:
+  Apple:
+    greenhouse_id: "apple"
+    priority: 3
+  Google:
+    greenhouse_id: "google"
+    priority: 3
+  NVIDIA:
+    greenhouse_id: "nvidia"
+    priority: 3
+  Intel:
+    greenhouse_id: "intel"
+    priority: 3
+  Texas Instruments:
+    greenhouse_id: "texasinstruments"
+    priority: 3
+  Qualcomm:
+    greenhouse_id: "qualcomm"
+    priority: 3
+  AMD:
+    greenhouse_id: "amd"
+    priority: 3
+  Broadcom:
+    greenhouse_id: "broadcom"
+    priority: 3
+  Marvell Technology:
+    greenhouse_id: "marvelltechnology"
+    priority: 3
+  Micron Technology:
+    greenhouse_id: "microntechnology"
+    priority: 3
+  Samsung Semiconductor:
+    greenhouse_id: "samsungsemiconductor"
+    priority: 3
+  NXP Semiconductors:
+    greenhouse_id: "nxpsemiconductors"
+    priority: 3
+  Analog Devices:
+    greenhouse_id: "analogdevices"
+    priority: 3
+  Microchip Technology:
+    greenhouse_id: "microchiptechnology"
+    priority: 3
+  STMicroelectronics:
+    greenhouse_id: "stmicroelectronics"
+    priority: 3
+  Lattice Semiconductor:
+    greenhouse_id: "latticesemiconductor"
+    priority: 3
+  Skyworks Solutions:
+    greenhouse_id: "skyworkssolutions"
+    priority: 3
+  Qorvo:
+    greenhouse_id: "qorvo"
+    priority: 3
+  Cirrus Logic:
+    greenhouse_id: "cirruslogic"
+    priority: 3
+  Silicon Laboratories:
+    greenhouse_id: "siliconlaboratories"
+    priority: 3
+  Renesas Electronics:
+    greenhouse_id: "renesaselectronics"
+    priority: 3
+  ON Semiconductor:
+    greenhouse_id: "onsemiconductor"
+    priority: 3
+  Vishay:
+    greenhouse_id: "vishay"
+    priority: 3
+  Murata:
+    greenhouse_id: "murata"
+    priority: 3
+  Texas Instruments:
+    greenhouse_id: "texasinstruments"
+    priority: 3
+  Qualcomm:
+    greenhouse_id: "qualcomm"
+    priority: 3
+  Intel:
+    greenhouse_id: "intel"
+    priority: 3
+  NVIDIA:
+    greenhouse_id: "nvidia"
+    priority: 3
+  AMD:
+    greenhouse_id: "amd"
+    priority: 3
+  Broadcom:
+    greenhouse_id: "broadcom"
+    priority: 3
+  Analog Devices:
+    greenhouse_id: "analogdevices"
+    priority: 3
+  Microchip Technology:
+    greenhouse_id: "microchiptechnology"
+    priority: 3
+  NXP Semiconductors:
+    greenhouse_id: "nxpsemiconductors"
+    priority: 3
+  Infineon Technologies:
+    greenhouse_id: "infineontechnologies"
+    priority: 3
+  ON Semiconductor:
+    greenhouse_id: "onsemiconductor"
+    priority: 3
+  Skyworks Solutions:
+    greenhouse_id: "skyworkssolutions"
+    priority: 3
+  Marvell Technology:
+    greenhouse_id: "marvelltechnology"
+    priority: 3
+  Lattice Semiconductor:
+    greenhouse_id: "latticesemiconductor"
+    priority: 3
+  Renesas Electronics:
+    greenhouse_id: "renesaselectronics"
+    priority: 3
+  STMicroelectronics:
+    greenhouse_id: "stmicroelectronics"
+    priority: 3
+  Cirrus Logic:
+    greenhouse_id: "cirruslogic"
+    priority: 3
+  Silicon Laboratories:
+    greenhouse_id: "siliconlaboratories"
+    priority: 3
+  Texas Instruments:
+    greenhouse_id: "texasinstruments"
+    priority: 3
+  Qualcomm:
+    greenhouse_id: "qualcomm"
+    priority: 3
+  Intel:
+    greenhouse_id: "intel"
+    priority: 3
+  NVIDIA:
+    greenhouse_id: "nvidia"
+    priority: 3
+  AMD:
+    greenhouse_id: "amd"
+    priority: 3
+  Broadcom:
+    greenhouse_id: "broadcom"
+    priority: 3
+  Analog Devices:
+    greenhouse_id: "analogdevices"
+    priority: 3
+  Microchip Technology:
+    greenhouse_id: "microchiptechnology"
+    priority: 3
+  NXP Semiconductors:
+    greenhouse_id: "nxpsemiconductors"
+    priority: 3
+  Infineon Technologies:
+    greenhouse_id: "infineontechnologies"
+    priority: 3
+  ON Semiconductor:
+    greenhouse_id: "onsemiconductor"
+    priority: 3
+  Skyworks Solutions:
+    greenhouse_id: "skyworkssolutions"
+    priority: 3
+  Marvell Technology:
+    greenhouse_id: "marvelltechnology"
+    priority: 3
+  Lattice Semiconductor:
+    greenhouse_id: "latticesemiconductor"
+    priority: 3
+  Xilinx:
+    greenhouse_id: "xilinx"
+    priority: 3
+  Renesas Electronics:
+    greenhouse_id: "renesaselectronics"
+    priority: 3
+  STMicroelectronics:
+    greenhouse_id: "stmicroelectronics"
+    priority: 3
+  Maxim Integrated:
+    greenhouse_id: "maximintegrated"
+    priority: 3
+  Cirrus Logic:
+    greenhouse_id: "cirruslogic"
+    priority: 3
+  Silicon Laboratories:
+    greenhouse_id: "siliconlaboratories"
+    priority: 3
   Dow Chemical:
     greenhouse_id: "dowchemical"
     priority: 3
@@ -189,12 +375,15 @@ github_repos:
 # ── Direct LinkedIn scraping (guest API, no auth) ───────────────────
 # WARNING: LinkedIn rate-limits aggressively.  Use proxies for heavy usage.
 linkedin:
-  enabled: false
+  enabled: true
   # searches intentionally empty — generated from candidate_profile.yaml search_defaults at runtime
   searches: []
   # Time range in seconds: 3600=1hr, 7200=2hr, 86400=24hr, 604800=7d
   time_range_seconds: 86400
-  max_pages: 4
+  # 2 pages × ~10 results = ~20 requests per cycle; well under the ~100–150 req/hr threshold
+  # that triggers LinkedIn IP bans from a residential IP at a 60-minute polling interval.
+  # Increase max_pages only if also increasing linkedin_interval_minutes proportionally.
+  max_pages: 2
   fetch_descriptions: false
   # Danger zone — aggressive settings increase block risk
   danger:
@@ -222,6 +411,6 @@ polling:
   ashby_interval_minutes: 30
   workday_interval_minutes: 60
   jobspy_interval_minutes: 60
-  linkedin_interval_minutes: 15
+  linkedin_interval_minutes: 60
   github_repos_interval_minutes: 360
   career_pages_interval_minutes: 60

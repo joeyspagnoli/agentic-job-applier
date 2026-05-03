@@ -1,0 +1,142 @@
+# =============================================================================
+# Job Discovery Sources
+#
+# This file controls WHERE jobs are fetched from. Add the companies and job
+# boards you want to track. Priority: 1 = highest, 10 = lowest.
+#
+# You can also edit this through the dashboard:
+#   Settings → Company & Job Filters → Company Sources (Advanced YAML)
+# =============================================================================
+
+
+# ── Greenhouse ATS companies ─────────────────────────────────────────────────
+# Many tech companies use Greenhouse. The greenhouse_id is the subdomain in
+# their jobs page URL: https://<greenhouse_id>.greenhouse.io
+#
+# To find a company's greenhouse_id:
+#   1. Go to the company's careers page
+#   2. Click on a job listing
+#   3. If the URL contains "greenhouse.io", the subdomain is their ID
+#      Example: https://boards.greenhouse.io/stripe → greenhouse_id: "stripe"
+
+greenhouse_companies:
+  # Example — uncomment and customize:
+  # Stripe:
+  #   greenhouse_id: "stripe"
+  #   priority: 1
+  #
+  # Cloudflare:
+  #   greenhouse_id: "cloudflare"
+  #   priority: 2
+
+
+# ── Workday ATS companies ───────────────────────────────────────────────────
+# Requires APIFY_API_TOKEN in .env. Many large enterprises use Workday.
+#
+# To find a company's Workday URL:
+#   1. Go to the company's careers page
+#   2. If it redirects to *.myworkdayjobs.com, that's their Workday URL
+
+workday_companies:
+  # Example — uncomment and customize:
+  # Goldman Sachs:
+  #   workday_url: "https://gs.wd5.myworkdayjobs.com/en-US/GSCareers"
+  #   priority: 1
+
+
+# ── Job Boards (Indeed, Glassdoor, LinkedIn) ─────────────────────────────────
+# Powered by JobSpy — no API key required for Indeed and Glassdoor.
+
+job_boards:
+  Indeed:
+    enabled: true
+    search_terms:
+      - "software engineer"
+    locations:
+      - "Remote"
+    results_wanted: 25
+    priority: 2
+
+  Glassdoor:
+    enabled: true
+    search_terms:
+      - "software engineer"
+    locations:
+      - "Remote"
+    results_wanted: 25
+    priority: 3
+
+  LinkedIn:
+    enabled: false   # Rate-limited without proxies — enable at your own risk
+    search_terms:
+      - "software engineer"
+    locations:
+      - "Remote"
+    results_wanted: 25
+    priority: 3
+
+
+# ── Lever ATS companies (free public API, no auth) ──────────────────────────
+lever_companies: {}
+  # Example:
+  # Netflix:
+  #   lever_id: "netflix"
+  #   priority: 1
+
+
+# ── Ashby ATS companies (free public API, no auth) ──────────────────────────
+ashby_companies: {}
+  # Example:
+  # Notion:
+  #   board_id: "notion"
+  #   priority: 2
+
+
+# ── GitHub internship/job repos ──────────────────────────────────────────────
+github_repos: []
+  # Example — SimplifyJobs maintains popular internship lists:
+  # - owner: SimplifyJobs
+  #   repo: Summer2026-Internships
+  #   branch: dev
+  #   json_path: .github/scripts/listings.json
+  #   enabled: true
+  #   categories:
+  #     - "Software"
+
+
+# ── Direct LinkedIn scraping ────────────────────────────────────────────────
+# WARNING: LinkedIn rate-limits aggressively. Use with caution.
+linkedin:
+  enabled: true
+  # searches intentionally empty — generated from candidate_profile.yaml search_defaults at runtime
+  searches: []
+  time_range_seconds: 86400
+  # 2 pages × ~10 results = ~20 requests per cycle; well under the ~100–150 req/hr threshold
+  # that triggers LinkedIn IP bans from a residential IP at a 60-minute polling interval.
+  max_pages: 2
+  fetch_descriptions: false
+  danger:
+    aggressive_mode: false
+    aggressive_time_range: 3600
+    aggressive_max_pages: 10
+    proxy_url: ""
+
+
+# ── Career page watchers (generic HTML scraping) ────────────────────────────
+watched_pages: []
+  # Example:
+  # - company: Anthropic
+  #   url: https://www.anthropic.com/careers
+  #   link_selector: "a[href*='/jobs/']"
+
+
+# ── Polling intervals (minutes between scans per source type) ────────────────
+polling:
+  greenhouse_interval_minutes: 30
+  lever_interval_minutes: 30
+  ashby_interval_minutes: 30
+  workday_interval_minutes: 60
+  jobspy_interval_minutes: 60
+  linkedin_interval_minutes: 60
+  github_repos_interval_minutes: 360
+  career_pages_interval_minutes: 60
