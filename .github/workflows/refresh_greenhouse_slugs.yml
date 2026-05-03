@@ -1,0 +1,48 @@
+name: Refresh Greenhouse slug table
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"  # 06:00 UTC on the 1st of each month
+  workflow_dispatch:       # allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install httpx==0.27.2
+
+      - name: Run backfill script
+        run: python scripts/build_greenhouse_slug_table.py
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git diff --exit-code dashboard/src/data/greenhouse_known_slugs.json \
+            || echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update PR
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6.1.0
+        with:
+          branch: refresh/greenhouse-slug-table
+          title: "chore: refresh Greenhouse slug lookup table"
+          body: |
+            Monthly automated refresh of `dashboard/src/data/greenhouse_known_slugs.json`.
+
+            **Review the diff** before merging — if a large number of companies flipped
+            to `null` unexpectedly, this may indicate a Greenhouse API outage rather
+            than real changes. Merge only when the diff looks plausible.
+          commit-message: "chore: refresh Greenhouse slug lookup table"
+          labels: automated

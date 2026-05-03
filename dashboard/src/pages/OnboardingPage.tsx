@@ -37,6 +37,11 @@ import {
   COLOR_SUCCESS,
   COLOR_WARNING,
 } from "@/lib/design-tokens";
+import knownSlugsData from "../data/greenhouse_known_slugs.json";
+
+/** Lookup table of known Greenhouse slugs, populated from the bundled JSON fixture. */
+const KNOWN_SLUGS: Record<string, string | null> =
+  knownSlugsData.companies as Record<string, string | null>;
 
 /** Total number of wizard steps. */
 const STEP_COUNT = 6;
@@ -273,7 +278,9 @@ export function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string
 export type GreenhouseSlugStatus =
   | "verified"
   | "not_found"
-  | "network_error";
+  | "network_error"
+  /** Confirmed absent from Greenhouse — the company uses a different ATS. */
+  | "not_on_greenhouse";
 
 /**
  * Probe a guessed Greenhouse board slug against the public boards API.
@@ -306,13 +313,68 @@ export async function validateGreenhouseSlug(
 }
 
 /**
+ * Resolve a company name to a Greenhouse slug using a two-layer strategy.
+ *
+ * @remarks
+ * Layer 1: case-insensitive exact lookup in the bundled JSON fixture. A
+ * `null` entry means the company is confirmed absent from Greenhouse (it
+ * uses Workday, Taleo, SAP SuccessFactors, etc.) and no API call is made.
+ * A string entry is the verified slug — returned immediately.
+ *
+ * Layer 2: sequential multi-pattern fallback for companies not in the
+ * fixture. Tries up to four slug transforms and stops on the first 200.
+ * Returns `not_found` when all patterns fail with 404, or `network_error`
+ * when every pattern hit a network-layer failure before any 404 was seen.
+ *
+ * @param name - The user-facing company name from the watchlist textarea.
+ * @param knownSlugs - Lookup table mapping company names to known slugs.
+ *   `null` means confirmed not on Greenhouse; a string is the verified slug;
+ *   a missing key means unknown (fall through to Layer 2).
+ * @returns The resolved slug (empty string for `not_on_greenhouse`) and the
+ *   resolution status.
+ */
+export async function resolveGreenhouseSlug(
+  name: string,
+  knownSlugs: Record<string, string | null>,
+): Promise<{ slug: string; status: GreenhouseSlugStatus }> {
+  const key = Object.keys(knownSlugs).find(
+    (k) => k.toLowerCase() === name.toLowerCase(),
+  );
+  if (key !== undefined) {
+    const val = knownSlugs[key];
+    if (val === null) return { slug: "", status: "not_on_greenhouse" };
+    return { slug: val, status: "verified" };
+  }
+
+  const base = name.toLowerCase();
+  const patterns = [
+    base.replace(/\s+/g, ""),
+    base.replace(/\s+/g, "-"),
+    base.split(" ")[0] ?? base,
+    base.replace(/\s+(inc|corp|llc|ltd|co)\.?\s*$/i, "").replace(/\s+/g, ""),
+  ];
+
+  let hadNetworkError = false;
+  for (const slug of patterns) {
+    const status = await validateGreenhouseSlug(slug);
+    if (status === "verified") return { slug, status };
+    if (status === "network_error") hadNetworkError = true;
+  }
+  return {
+    slug: patterns[0] ?? base,
+    status: hadNetworkError ? "network_error" : "not_found",
+  };
+}
+
+/**
  * Outcome of {@link saveWatchlistCompanies}.
  *
  * @remarks
- * Both lists contain the user-facing company display names (not slugs).
- * The two are kept distinct so the UI can show different copy:
- * `unverified` is the user's problem to fix (likely a typo);
- * `networkFailures` is our problem and may resolve on retry.
+ * All three lists contain the user-facing company display names (not slugs).
+ * Each represents a distinct failure mode with different UI copy:
+ * `unverified` is the user's problem to fix (typo, slug mismatch);
+ * `networkFailures` is our problem and may resolve on retry;
+ * `notOnGreenhouse` means the company is confirmed to use a different ATS.
  */
 export interface WatchlistSaveResult {
   /** Companies whose guessed slug returned a non-2xx response from Greenhouse. */
@@ -324,12 +386,19 @@ export interface WatchlistSaveResult {
    * once connectivity is restored.
    */
   readonly networkFailures: readonly string[];
+
+  /**
+   * Companies confirmed absent from Greenhouse (they use a different ATS).
+   * No YAML entry is written for these companies.
+   */
+  readonly notOnGreenhouse: readonly string[];
 }
 
 /** Empty result returned when there are no companies to save. */
 const EMPTY_WATCHLIST_RESULT: WatchlistSaveResult = {
   unverified: [],
   networkFailures: [],
+  notOnGreenhouse: [],
 };
 
 /**
@@ -365,14 +434,14 @@ export async function saveWatchlistCompanies(
 
   const validationResults = await Promise.allSettled(
     companyNames.map(async (name) => {
-      const slug = name.toLowerCase().replace(/\s+/g, "");
-      const status = await validateGreenhouseSlug(slug);
+      const { slug, status } = await resolveGreenhouseSlug(name, KNOWN_SLUGS);
       return { name, slug, status };
     }),
   );
 
   const unverified: string[] = [];
   const networkFailures: string[] = [];
+  const notOnGreenhouse: string[] = [];
   const newEntries: string[] = [];
 
   for (const result of validationResults) {
@@ -380,53 +449,61 @@ export async function saveWatchlistCompanies(
       continue;
     }
     const { name, slug, status } = result.value;
-    if (status === "not_found") {
-      unverified.push(name);
-    } else if (status === "network_error") {
-      networkFailures.push(name);
+    if (status === "not_on_greenhouse") {
+      notOnGreenhouse.push(name);
+      continue;
     }
+    if (status === "not_found") unverified.push(name);
+    else if (status === "network_error") networkFailures.push(name);
     newEntries.push(
       `  ${escapeYamlMappingKey(name)}:\n    greenhouse_id: ${toYamlDoubleQuoted(slug)}\n    priority: 3`,
     );
   }
 
-  const appendBlock = newEntries.join("\n") + "\n";
-
-  const current = await fetchSources();
-  let updatedYaml = current.yaml_text ?? "";
-  if (updatedYaml.includes("greenhouse_companies:")) {
-    updatedYaml = updatedYaml.replace(
-      /(greenhouse_companies:\s*\n)/,
-      `$1${appendBlock}`,
-    );
-  } else {
-    updatedYaml = updatedYaml + "\ngreenhouse_companies:\n" + appendBlock;
+  if (newEntries.length > 0) {
+    const appendBlock = newEntries.join("\n") + "\n";
+    const current = await fetchSources();
+    let updatedYaml = current.yaml_text ?? "";
+    if (updatedYaml.includes("greenhouse_companies:")) {
+      updatedYaml = updatedYaml.replace(
+        /(greenhouse_companies:\s*\n)/,
+        `$1${appendBlock}`,
+      );
+    } else {
+      updatedYaml = updatedYaml + "\ngreenhouse_companies:\n" + appendBlock;
+    }
+    await updateSources(updatedYaml);
   }
 
-  await updateSources(updatedYaml);
-  return { unverified, networkFailures };
+  return { unverified, networkFailures, notOnGreenhouse };
 }
 
 /**
- * Build the user-facing warning message for a {@link WatchlistSaveResult},
- * or `null` when nothing went wrong and no warning should display.
+ * Build the user-facing warning messages for a {@link WatchlistSaveResult}.
  *
  * @remarks
- * The two failure modes get distinct copy: an unverified slug is the
- * user's problem (typo, slug mismatch), while a network failure is ours
- * (Greenhouse unreachable). Combining them into one message would force
- * the user to guess which companies fall into which bucket.
+ * Three failure modes produce distinct copy so the user knows what action
+ * (if any) is required:
+ * - `unverified`: slug was guessed wrong — fixable in Settings → Sources.
+ * - `networkFailures`: Greenhouse was unreachable — retry later.
+ * - `notOnGreenhouse`: company confirmed absent from Greenhouse — no YAML
+ *   entry was written; user should add it to the career-page watcher instead.
+ *
+ * Returns two separate strings so the caller can render them as independent
+ * dismissible banners.
  *
  * @param result - The outcome returned by {@link saveWatchlistCompanies}.
- * @returns The warning string, or `null` if no warning is needed.
+ * @returns `warning` for unverified/network failures, `notOnGreenhouseWarning`
+ *   for confirmed-absent companies; either may be `null`.
  */
-export function buildWatchlistWarning(
-  result: WatchlistSaveResult,
-): string | null {
+export function buildWatchlistWarning(result: WatchlistSaveResult): {
+  warning: string | null;
+  notOnGreenhouseWarning: string | null;
+} {
   const sentences: string[] = [];
   if (result.unverified.length > 0) {
     sentences.push(
-      `Could not verify Greenhouse IDs for: ${result.unverified.join(", ")}. You can correct them in Settings → Sources.`,
+      `Could not verify Greenhouse IDs for: ${result.unverified.join(", ")}. Slugs were saved; correct them in Settings → Sources.`,
     );
   }
   if (result.networkFailures.length > 0) {
@@ -434,11 +511,12 @@ export function buildWatchlistWarning(
       `Could not reach Greenhouse to verify: ${result.networkFailures.join(", ")}. Slugs were saved as-is; re-verify from Settings → Sources once your connection is restored.`,
     );
   }
-  if (sentences.length === 0) {
-    return null;
-  }
-  sentences.push("Redirecting…");
-  return sentences.join(" ");
+  const warning = sentences.length > 0 ? sentences.join(" ") : null;
+  const notOnGreenhouseWarning =
+    result.notOnGreenhouse.length > 0
+      ? `${result.notOnGreenhouse.join(", ")} don't appear to use Greenhouse — they likely use a different ATS. No entries were added for them.`
+      : null;
+  return { warning, notOnGreenhouseWarning };
 }
 
 /**
@@ -481,6 +559,7 @@ export function OnboardingPage(): JSX.Element {
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [notOnGreenhouseWarning, setNotOnGreenhouseWarning] = useState<string | null>(null);
 
   const resumeMutation = useMutation({
     mutationFn: (file: File) =>
@@ -536,6 +615,7 @@ export function OnboardingPage(): JSX.Element {
     setSaving(true);
     setError(null);
     setWarning(null);
+    setNotOnGreenhouseWarning(null);
 
     try {
       await updateProfileStructured({
@@ -596,9 +676,11 @@ export function OnboardingPage(): JSX.Element {
       // reads is_complete: true before navigate("/") fires.
       await queryClient.refetchQueries({ queryKey: ["onboarding-status"] });
 
-      const warningMessage = buildWatchlistWarning(watchlistResult);
-      if (warningMessage !== null) {
-        setWarning(warningMessage);
+      const { warning: warningMessage, notOnGreenhouseWarning: notOnGreenhouseMessage } =
+        buildWatchlistWarning(watchlistResult);
+      if (warningMessage !== null) setWarning(warningMessage);
+      if (notOnGreenhouseMessage !== null) setNotOnGreenhouseWarning(notOnGreenhouseMessage);
+      if (warningMessage !== null || notOnGreenhouseMessage !== null) {
         window.setTimeout(() => { navigate("/"); }, WATCHLIST_WARNING_REDIRECT_DELAY_MS);
       } else {
         navigate("/");
@@ -779,9 +861,34 @@ export function OnboardingPage(): JSX.Element {
             </p>
           )}
           {warning && (
-            <p className="mt-4 text-sm font-medium" style={{ color: COLOR_WARNING }}>
-              {warning}
-            </p>
+            <div
+              className="mt-4 flex items-start gap-2 rounded-lg p-3 text-sm font-medium"
+              style={{ backgroundColor: `${COLOR_WARNING}18`, color: COLOR_WARNING }}
+            >
+              <span className="flex-1">{warning}</span>
+              <button
+                onClick={() => setWarning(null)}
+                aria-label="Dismiss"
+                className="shrink-0 opacity-60 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {notOnGreenhouseWarning && (
+            <div
+              className="mt-2 flex items-start gap-2 rounded-lg p-3 text-sm font-medium"
+              style={{ backgroundColor: `${COLOR_WARNING}18`, color: COLOR_WARNING }}
+            >
+              <span className="flex-1">{notOnGreenhouseWarning}</span>
+              <button
+                onClick={() => setNotOnGreenhouseWarning(null)}
+                aria-label="Dismiss"
+                className="shrink-0 opacity-60 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
           )}
 
           {/* Navigation buttons */}

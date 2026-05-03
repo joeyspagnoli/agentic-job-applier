@@ -17,6 +17,7 @@ config/candidate_profile.local.yaml
 
 # Data and logs
 data/
+!dashboard/src/data/
 logs/
 
 # IDE

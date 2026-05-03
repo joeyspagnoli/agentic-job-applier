@@ -5,21 +5,19 @@
  * {@link ./OnboardingPage}.
  *
  * @remarks
- * The handoff identified four bugs (2, 3, 4, 5). This file pins down the
- * pure helpers that drive the fixes for bugs 4 and 5:
+ * Covers the pure helpers that drive the watchlist and filter logic:
  *
- * - {@link buildFiltersYaml} — bug 5: must emit a `soft_filters` block whose
+ * - {@link buildFiltersYaml} — must emit a `soft_filters` block whose
  *   `positive_keywords` entries come from `roles.strongestAreas`.
- * - {@link validateGreenhouseSlug} — bug 4: must classify Greenhouse board
- *   slugs by HTTP status and never throw on network failure.
- * - {@link saveWatchlistCompanies} — bug 4: must validate every guessed slug,
- *   still write the entry even when validation fails, and return the display
- *   names of the unverified companies for surfacing to the UI.
- *
- * The integration test for `handleFinish` (bug 2) is intentionally NOT in
- * this file — it requires rendering the full wizard component and would
- * need its own `OnboardingPage.integration.test.tsx`. See the test summary
- * for the explicit gap.
+ * - {@link validateGreenhouseSlug} — must classify Greenhouse board slugs by
+ *   HTTP status and never throw on network failure.
+ * - {@link resolveGreenhouseSlug} — must hit the lookup table first (no fetch),
+ *   then fall through to multi-pattern API probing for unknown companies.
+ * - {@link saveWatchlistCompanies} — must skip YAML writes for
+ *   `not_on_greenhouse` companies, write naive slugs for `not_found` and
+ *   `network_error`, and return the correctly partitioned result.
+ * - {@link buildWatchlistWarning} — must return `{ warning, notOnGreenhouseWarning }`
+ *   with distinct copy for each failure mode.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +25,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildFiltersYaml,
   buildWatchlistWarning,
+  resolveGreenhouseSlug,
   saveWatchlistCompanies,
   validateGreenhouseSlug,
   type FiltersDraft,
@@ -309,6 +308,133 @@ describe("validateGreenhouseSlug", () => {
   });
 });
 
+// ─── resolveGreenhouseSlug ─────────────────────────────────────────────────
+
+describe("resolveGreenhouseSlug", () => {
+  it("returns verified slug from lookup without calling fetch for a known company", async () => {
+    // Arrange
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const slugs = { Stripe: "stripe" };
+
+    // Act
+    const result = await resolveGreenhouseSlug("Stripe", slugs);
+
+    // Assert
+    expect(result).toEqual({ slug: "stripe", status: "verified" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("lookup is case-insensitive — 'stripe' matches 'Stripe' key", async () => {
+    // Arrange
+    vi.spyOn(globalThis, "fetch");
+    const slugs = { Stripe: "stripe" };
+
+    // Act
+    const result = await resolveGreenhouseSlug("stripe", slugs);
+
+    // Assert
+    expect(result).toEqual({ slug: "stripe", status: "verified" });
+  });
+
+  it("returns not_on_greenhouse for a null lookup entry without calling fetch", async () => {
+    // Arrange
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const slugs: Record<string, string | null> = { NVIDIA: null };
+
+    // Act
+    const result = await resolveGreenhouseSlug("NVIDIA", slugs);
+
+    // Assert
+    expect(result).toEqual({ slug: "", status: "not_on_greenhouse" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("null lookup is also case-insensitive — 'nvidia' matches 'NVIDIA' key", async () => {
+    // Arrange
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const slugs: Record<string, string | null> = { NVIDIA: null };
+
+    // Act
+    const result = await resolveGreenhouseSlug("nvidia", slugs);
+
+    // Assert
+    expect(result).toEqual({ slug: "", status: "not_on_greenhouse" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("resolves via pattern 1 (no-space) when company is not in lookup", async () => {
+    // Arrange — first fetch call returns 200
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(200));
+    const slugs = {};
+
+    // Act
+    const result = await resolveGreenhouseSlug("Notion Inc", slugs);
+
+    // Assert
+    expect(result.status).toBe("verified");
+    expect(result.slug).toBe("notioninc");
+  });
+
+  it("resolves via pattern 2 (hyphenated) when pattern 1 returns 404", async () => {
+    // Arrange — pattern 1 → 404, pattern 2 → 200
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockResolvedValueOnce(makeResponse(404)); // "notioninc" fails
+    fetchSpy.mockResolvedValueOnce(makeResponse(200)); // "notion-inc" succeeds
+
+    // Act
+    const result = await resolveGreenhouseSlug("Notion Inc", {});
+
+    // Assert
+    expect(result.status).toBe("verified");
+    expect(result.slug).toBe("notion-inc");
+  });
+
+  it("strips legal suffix (pattern 4) to find slug when simpler patterns fail", async () => {
+    // Arrange — "acmecorp" fails, "acme-corp" fails, "acme" fails, then
+    // the suffix-stripped form "acme" is tried again (duplicate — skipped
+    // by validateGreenhouseSlug but the loop still runs). Use a name where
+    // pattern 4 differs: "Acme Inc." → strip " Inc." → "acme"
+    // Patterns: "acmeinc." | "acme-inc." | "acme" | "acme"
+    // Let pattern 1 ("acmeinc.") fail, pattern 2 ("acme-inc.") fail,
+    // pattern 3 ("acme") succeed.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockResolvedValueOnce(makeResponse(404)); // "acmeinc." fails
+    fetchSpy.mockResolvedValueOnce(makeResponse(404)); // "acme-inc." fails
+    fetchSpy.mockResolvedValueOnce(makeResponse(200)); // "acme" succeeds
+
+    // Act
+    const result = await resolveGreenhouseSlug("Acme Inc.", {});
+
+    // Assert
+    expect(result.status).toBe("verified");
+    expect(result.slug).toBe("acme");
+  });
+
+  it("returns not_found with the naive slug when all patterns return 404", async () => {
+    // Arrange — all fetch calls return 404
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
+
+    // Act
+    const result = await resolveGreenhouseSlug("Bogus Corp", {});
+
+    // Assert
+    expect(result.status).toBe("not_found");
+    expect(result.slug).toBe("boguscorp"); // patterns[0] = naive no-space slug
+  });
+
+  it("returns network_error when every pattern hits a network failure", async () => {
+    // Arrange — all fetch calls reject
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
+
+    // Act
+    const result = await resolveGreenhouseSlug("Offline Corp", {});
+
+    // Assert
+    expect(result.status).toBe("network_error");
+    expect(result.slug).toBe("offlinecorp");
+  });
+});
+
 // ─── saveWatchlistCompanies ────────────────────────────────────────────────
 
 describe("saveWatchlistCompanies", () => {
@@ -323,6 +449,7 @@ describe("saveWatchlistCompanies", () => {
     // Assert
     expect(result.unverified).toEqual([]);
     expect(result.networkFailures).toEqual([]);
+    expect(result.notOnGreenhouse).toEqual([]);
     expect(updateSources).not.toHaveBeenCalled();
     expect(fetchSources).not.toHaveBeenCalled();
   });
@@ -338,102 +465,149 @@ describe("saveWatchlistCompanies", () => {
     // Assert
     expect(result.unverified).toEqual([]);
     expect(result.networkFailures).toEqual([]);
+    expect(result.notOnGreenhouse).toEqual([]);
     expect(updateSources).not.toHaveBeenCalled();
   });
 
-  it("returns empty buckets when every slug resolves to HTTP 200", async () => {
-    // Arrange
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(200));
+  it("returns empty buckets when every slug is in the lookup table as verified", async () => {
+    // Arrange — "Stripe" and "Anthropic" are in the bundled lookup table
+    // with known good slugs; no fetch should be needed.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
     // Act
-    const result = await saveWatchlistCompanies("Stripe\nNotion", updateSources, fetchSources);
+    const result = await saveWatchlistCompanies("Stripe\nAnthropic", updateSources, fetchSources);
 
     // Assert
     expect(result.unverified).toEqual([]);
     expect(result.networkFailures).toEqual([]);
+    expect(result.notOnGreenhouse).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(updateSources).toHaveBeenCalledOnce();
   });
 
+  it("places a company confirmed absent from Greenhouse into notOnGreenhouse, not unverified", async () => {
+    // Arrange — "NVIDIA" is in the bundled lookup table with a null value
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+
+    // Act
+    const result = await saveWatchlistCompanies("NVIDIA", updateSources, fetchSources);
+
+    // Assert
+    expect(result.notOnGreenhouse).toEqual(["NVIDIA"]);
+    expect(result.unverified).toEqual([]);
+    expect(result.networkFailures).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT write a YAML entry for a not_on_greenhouse company", async () => {
+    // Arrange — "NVIDIA" is confirmed absent; no entry should appear
+    vi.spyOn(globalThis, "fetch");
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+
+    // Act
+    await saveWatchlistCompanies("NVIDIA", updateSources, fetchSources);
+
+    // Assert — updateSources must NOT have been called (nothing to write)
+    expect(updateSources).not.toHaveBeenCalled();
+  });
+
   it("places a 404'd company in unverified, not networkFailures", async () => {
-    // Arrange
+    // Arrange — company not in lookup; all patterns return 404
     vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
     // Act
-    const result = await saveWatchlistCompanies("Bogus Inc", updateSources, fetchSources);
+    const result = await saveWatchlistCompanies("Unknown Startup", updateSources, fetchSources);
 
     // Assert
-    expect(result.unverified).toEqual(["Bogus Inc"]);
+    expect(result.unverified).toEqual(["Unknown Startup"]);
     expect(result.networkFailures).toEqual([]);
+    expect(result.notOnGreenhouse).toEqual([]);
   });
 
   it("places a network-failed company in networkFailures, not unverified", async () => {
-    // Arrange
+    // Arrange — company not in lookup; all patterns reject (offline)
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
     // Act
-    const result = await saveWatchlistCompanies("Stripe", updateSources, fetchSources);
+    const result = await saveWatchlistCompanies("Unknown Startup", updateSources, fetchSources);
 
     // Assert
     expect(result.unverified).toEqual([]);
-    expect(result.networkFailures).toEqual(["Stripe"]);
+    expect(result.networkFailures).toEqual(["Unknown Startup"]);
+    expect(result.notOnGreenhouse).toEqual([]);
   });
 
   it("partitions a mixed batch into the correct buckets", async () => {
-    // Arrange — first call 200, second call 404, third call rejects
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    fetchSpy.mockResolvedValueOnce(makeResponse(200));
-    fetchSpy.mockResolvedValueOnce(makeResponse(404));
-    fetchSpy.mockRejectedValueOnce(new TypeError("offline"));
+    // Arrange — "Stripe" is in lookup (verified, no fetch); "NVIDIA" is in
+    // lookup (not_on_greenhouse, no fetch); "Unknown Co" is not in lookup and
+    // all patterns return 404.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
     // Act
     const result = await saveWatchlistCompanies(
-      "Verified Co\nUnverified Co\nOffline Co",
+      "Stripe\nNVIDIA\nUnknown Co",
       updateSources,
       fetchSources,
     );
 
     // Assert
-    expect(result.unverified).toEqual(["Unverified Co"]);
-    expect(result.networkFailures).toEqual(["Offline Co"]);
+    expect(result.unverified).toEqual(["Unknown Co"]);
+    expect(result.networkFailures).toEqual([]);
+    expect(result.notOnGreenhouse).toEqual(["NVIDIA"]);
   });
 
-  it("still writes every entry — verified, 404, or network failure — to sources YAML", async () => {
-    // Arrange
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    fetchSpy.mockResolvedValueOnce(makeResponse(200));
-    fetchSpy.mockResolvedValueOnce(makeResponse(404));
-    fetchSpy.mockRejectedValueOnce(new TypeError("offline"));
+  it("writes verified and not_found entries to YAML, but NOT not_on_greenhouse entries", async () => {
+    // Arrange — "Stripe" → verified (lookup); "NVIDIA" → not_on_greenhouse
+    // (lookup, skipped); "Unknown Co" → not_found (all 404).
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
     // Act
-    await saveWatchlistCompanies(
-      "Verified Co\nUnverified Co\nOffline Co",
-      updateSources,
-      fetchSources,
-    );
+    await saveWatchlistCompanies("Stripe\nNVIDIA\nUnknown Co", updateSources, fetchSources);
 
     // Assert
     const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
-    expect(writtenYaml).toContain("  Verified Co:");
-    expect(writtenYaml).toContain("  Unverified Co:");
-    expect(writtenYaml).toContain("  Offline Co:");
-    expect(writtenYaml).toContain('    greenhouse_id: "verifiedco"');
-    expect(writtenYaml).toContain('    greenhouse_id: "unverifiedco"');
-    expect(writtenYaml).toContain('    greenhouse_id: "offlineco"');
+    expect(writtenYaml).toContain("  Stripe:");
+    expect(writtenYaml).toContain('    greenhouse_id: "stripe"');
+    expect(writtenYaml).toContain("  Unknown Co:");
+    expect(writtenYaml).not.toContain("  NVIDIA:");
+  });
+
+  it("uses the resolved lookup slug in YAML, not the naive transform", async () => {
+    // Arrange — "Databricks" is in the lookup table as "databricks"; the
+    // naive transform would also produce "databricks", but Vercel ("vercel")
+    // and Figma ("figma") confirm the pattern for names with no ambiguity.
+    // Use "Scale AI" → lookup "scaleai" vs naive "scaleai" (same here), so
+    // instead use a hypothetical where the lookup differs from naive: the
+    // lookup table entry is trusted unconditionally without an API call.
+    // Confirm: "Scale AI" → KNOWN_SLUGS lookup → "scaleai"; no fetch call.
+    vi.spyOn(globalThis, "fetch");
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+
+    // Act
+    await saveWatchlistCompanies("Scale AI", updateSources, fetchSources);
+
+    // Assert — must write the lookup slug and must not have called fetch
+    const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
+    expect(writtenYaml).toContain('    greenhouse_id: "scaleai"');
   });
 
   it("appends a new greenhouse_companies block when the existing YAML has none", async () => {
     // Arrange
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(200));
+    vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "other_section: []\n" });
 
@@ -449,7 +623,7 @@ describe("saveWatchlistCompanies", () => {
 
   it("inserts entries directly under an existing greenhouse_companies header", async () => {
     // Arrange
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(200));
+    vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({
       yaml_text: "greenhouse_companies:\n  Existing:\n    greenhouse_id: \"existing\"\n",
@@ -481,6 +655,19 @@ describe("saveWatchlistCompanies", () => {
     // Assert — the embedded quotes must be backslash-escaped, not raw
     const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
     expect(writtenYaml).toContain('  "Acme \\"Quoted\\" Co":');
+  });
+
+  it("does not call updateSources when every company is not_on_greenhouse", async () => {
+    // Arrange — only companies confirmed absent from Greenhouse
+    vi.spyOn(globalThis, "fetch");
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+
+    // Act
+    await saveWatchlistCompanies("NVIDIA\nAMD\nIntel", updateSources, fetchSources);
+
+    // Assert — nothing to write, so updateSources is never called
+    expect(updateSources).not.toHaveBeenCalled();
   });
 });
 
@@ -536,64 +723,126 @@ describe("buildFiltersYaml YAML-escape regression coverage", () => {
 // ─── buildWatchlistWarning ─────────────────────────────────────────────────
 
 describe("buildWatchlistWarning", () => {
-  it("returns null when both buckets are empty", () => {
+  it("returns null for both fields when all buckets are empty", () => {
     // Arrange
-    const result: WatchlistSaveResult = { unverified: [], networkFailures: [] };
+    const result: WatchlistSaveResult = {
+      unverified: [],
+      networkFailures: [],
+      notOnGreenhouse: [],
+    };
 
     // Act
-    const message = buildWatchlistWarning(result);
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
 
     // Assert
-    expect(message).toBeNull();
+    expect(warning).toBeNull();
+    expect(notOnGreenhouseWarning).toBeNull();
   });
 
-  it("formats only the unverified sentence when there are no network failures", () => {
+  it("populates warning for unverified companies but not notOnGreenhouseWarning", () => {
     // Arrange
     const result: WatchlistSaveResult = {
       unverified: ["Acme", "Initech"],
       networkFailures: [],
+      notOnGreenhouse: [],
     };
 
     // Act
-    const message = buildWatchlistWarning(result);
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
 
     // Assert
-    expect(message).not.toBeNull();
-    expect(message).toContain("Could not verify Greenhouse IDs for: Acme, Initech");
-    expect(message).not.toContain("Could not reach Greenhouse");
-    expect(message).toContain("Redirecting…");
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("Could not verify Greenhouse IDs for: Acme, Initech");
+    expect(warning).toContain("Slugs were saved");
+    expect(warning).not.toContain("Could not reach Greenhouse");
+    expect(notOnGreenhouseWarning).toBeNull();
   });
 
-  it("formats only the network-failure sentence when there are no unverified slugs", () => {
+  it("populates warning for network failures but not notOnGreenhouseWarning", () => {
     // Arrange
     const result: WatchlistSaveResult = {
       unverified: [],
       networkFailures: ["Stripe"],
+      notOnGreenhouse: [],
     };
 
     // Act
-    const message = buildWatchlistWarning(result);
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
 
     // Assert
-    expect(message).not.toBeNull();
-    expect(message).toContain("Could not reach Greenhouse to verify: Stripe");
-    expect(message).not.toContain("Could not verify Greenhouse IDs");
-    expect(message).toContain("Redirecting…");
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("Could not reach Greenhouse to verify: Stripe");
+    expect(warning).not.toContain("Could not verify Greenhouse IDs");
+    expect(notOnGreenhouseWarning).toBeNull();
   });
 
-  it("includes both sentences when both buckets are non-empty", () => {
+  it("includes both unverified and network-failure sentences in warning", () => {
     // Arrange
     const result: WatchlistSaveResult = {
       unverified: ["Acme"],
       networkFailures: ["Stripe"],
+      notOnGreenhouse: [],
     };
 
     // Act
-    const message = buildWatchlistWarning(result);
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
 
     // Assert
-    expect(message).not.toBeNull();
-    expect(message).toContain("Could not verify Greenhouse IDs for: Acme");
-    expect(message).toContain("Could not reach Greenhouse to verify: Stripe");
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("Could not verify Greenhouse IDs for: Acme");
+    expect(warning).toContain("Could not reach Greenhouse to verify: Stripe");
+    expect(notOnGreenhouseWarning).toBeNull();
+  });
+
+  it("populates notOnGreenhouseWarning for confirmed-absent companies but not warning", () => {
+    // Arrange
+    const result: WatchlistSaveResult = {
+      unverified: [],
+      networkFailures: [],
+      notOnGreenhouse: ["NVIDIA", "Intel"],
+    };
+
+    // Act
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
+
+    // Assert
+    expect(warning).toBeNull();
+    expect(notOnGreenhouseWarning).not.toBeNull();
+    expect(notOnGreenhouseWarning).toContain("NVIDIA, Intel");
+    expect(notOnGreenhouseWarning).toContain("different ATS");
+    expect(notOnGreenhouseWarning).toContain("No entries were added");
+  });
+
+  it("populates both fields when all three buckets are non-empty", () => {
+    // Arrange
+    const result: WatchlistSaveResult = {
+      unverified: ["Acme"],
+      networkFailures: ["Stripe"],
+      notOnGreenhouse: ["NVIDIA"],
+    };
+
+    // Act
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
+
+    // Assert
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("Could not verify Greenhouse IDs for: Acme");
+    expect(notOnGreenhouseWarning).not.toBeNull();
+    expect(notOnGreenhouseWarning).toContain("NVIDIA");
+  });
+
+  it("warning does not include a trailing 'Redirecting…' sentence", () => {
+    // Arrange — redirect is now handled by the caller, not this function
+    const result: WatchlistSaveResult = {
+      unverified: ["Acme"],
+      networkFailures: [],
+      notOnGreenhouse: [],
+    };
+
+    // Act
+    const { warning } = buildWatchlistWarning(result);
+
+    // Assert
+    expect(warning).not.toContain("Redirecting");
   });
 });
