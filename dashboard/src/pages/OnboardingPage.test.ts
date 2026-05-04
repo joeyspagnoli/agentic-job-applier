@@ -433,6 +433,51 @@ describe("resolveGreenhouseSlug", () => {
     expect(result.status).toBe("network_error");
     expect(result.slug).toBe("offlinecorp");
   });
+
+  it("classifies an empty-string name as not_found without crashing", async () => {
+    // Arrange — every pattern collapses to "" for an empty input. Greenhouse
+    // 404s the empty-board URL, so the loop returns not_found.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
+
+    // Act
+    const result = await resolveGreenhouseSlug("", {});
+
+    // Assert — slug falls back to patterns[0] which is "" for empty input;
+    // the contract is "don't throw" rather than "produce a sensible slug".
+    expect(result.status).toBe("not_found");
+    expect(typeof result.slug).toBe("string");
+  });
+
+  it("treats a name that is only a legal suffix as not_found, not a crash", async () => {
+    // Arrange — "Inc." → pattern 4 strips to "" → empty-slug probe 404s.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
+
+    // Act
+    const result = await resolveGreenhouseSlug("Inc.", {});
+
+    // Assert
+    expect(result.status).toBe("not_found");
+    // patterns[0] = "inc." (lowercased, no spaces removed because none exist)
+    expect(result.slug).toBe("inc.");
+  });
+
+  it("network_error wins over not_found when at least one pattern hit the network", async () => {
+    // Arrange — first pattern rejects (network), all later patterns 404.
+    // The function records hadNetworkError = true and returns network_error
+    // even though most calls succeeded with 404. Rationale: a partial outage
+    // is still our problem, not the user's.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockRejectedValueOnce(new TypeError("offline")); // pattern 1
+    fetchSpy.mockResolvedValueOnce(makeResponse(404)); // pattern 2
+    fetchSpy.mockResolvedValueOnce(makeResponse(404)); // pattern 3
+    fetchSpy.mockResolvedValueOnce(makeResponse(404)); // pattern 4
+
+    // Act
+    const result = await resolveGreenhouseSlug("Flaky Co", {});
+
+    // Assert
+    expect(result.status).toBe("network_error");
+  });
 });
 
 // ─── saveWatchlistCompanies ────────────────────────────────────────────────
@@ -669,6 +714,48 @@ describe("saveWatchlistCompanies", () => {
     // Assert — nothing to write, so updateSources is never called
     expect(updateSources).not.toHaveBeenCalled();
   });
+
+  it("does not call fetchSources when every company is not_on_greenhouse", async () => {
+    // Arrange — there is no YAML to merge, so the read-modify-write cycle
+    // must skip the fetchSources call too. Important because fetchSources
+    // is unauthenticated-but-not-free and the user is offline-by-construction
+    // for the not_on_greenhouse case (no validation fetch happens either).
+    vi.spyOn(globalThis, "fetch");
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+
+    // Act
+    await saveWatchlistCompanies("NVIDIA\nAMD", updateSources, fetchSources);
+
+    // Assert
+    expect(fetchSources).not.toHaveBeenCalled();
+  });
+
+  it("writes both YAML entries when two companies normalize to the same naive slug", async () => {
+    // Arrange — "Acme Corp" and "AcmeCorp" both produce "acmecorp" as
+    // patterns[0]. Both 404, both end up in unverified, and both must
+    // appear under their own display-name keys in the YAML so the user can
+    // distinguish the entries in Settings → Sources later.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeResponse(404));
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+
+    // Act
+    const result = await saveWatchlistCompanies(
+      "Acme Corp\nAcmeCorp",
+      updateSources,
+      fetchSources,
+    );
+
+    // Assert — both names land in unverified; both appear in YAML under
+    // distinct mapping keys.
+    expect(result.unverified).toEqual(
+      expect.arrayContaining(["Acme Corp", "AcmeCorp"]),
+    );
+    const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
+    expect(writtenYaml).toContain("  Acme Corp:");
+    expect(writtenYaml).toContain("  AcmeCorp:");
+  });
 });
 
 // ─── YAML escaping (regression coverage for the quote-injection bug) ───────
@@ -844,5 +931,78 @@ describe("buildWatchlistWarning", () => {
 
     // Assert
     expect(warning).not.toContain("Redirecting");
+  });
+
+  // Golden-copy locks. Treat any failure here as a deliberate UI copy
+  // change and update the expected string in lockstep with the source.
+  it("matches the exact unverified-only copy", () => {
+    // Arrange
+    const result: WatchlistSaveResult = {
+      unverified: ["Acme"],
+      networkFailures: [],
+      notOnGreenhouse: [],
+    };
+
+    // Act
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
+
+    // Assert
+    expect(warning).toBe(
+      "Could not verify Greenhouse IDs for: Acme. Slugs were saved; correct them in Settings → Sources.",
+    );
+    expect(notOnGreenhouseWarning).toBeNull();
+  });
+
+  it("matches the exact network-failure-only copy", () => {
+    // Arrange
+    const result: WatchlistSaveResult = {
+      unverified: [],
+      networkFailures: ["Stripe"],
+      notOnGreenhouse: [],
+    };
+
+    // Act
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
+
+    // Assert
+    expect(warning).toBe(
+      "Could not reach Greenhouse to verify: Stripe. Slugs were saved as-is; re-verify from Settings → Sources once your connection is restored.",
+    );
+    expect(notOnGreenhouseWarning).toBeNull();
+  });
+
+  it("matches the exact not-on-greenhouse-only copy", () => {
+    // Arrange
+    const result: WatchlistSaveResult = {
+      unverified: [],
+      networkFailures: [],
+      notOnGreenhouse: ["NVIDIA"],
+    };
+
+    // Act
+    const { warning, notOnGreenhouseWarning } = buildWatchlistWarning(result);
+
+    // Assert
+    expect(warning).toBeNull();
+    expect(notOnGreenhouseWarning).toBe(
+      "NVIDIA don't appear to use Greenhouse — they likely use a different ATS. No entries were added for them.",
+    );
+  });
+
+  it("joins unverified and network-failure sentences with a single space, in that order", () => {
+    // Arrange
+    const result: WatchlistSaveResult = {
+      unverified: ["Acme"],
+      networkFailures: ["Stripe"],
+      notOnGreenhouse: [],
+    };
+
+    // Act
+    const { warning } = buildWatchlistWarning(result);
+
+    // Assert — exact concatenation pinned: unverified first, then network.
+    expect(warning).toBe(
+      "Could not verify Greenhouse IDs for: Acme. Slugs were saved; correct them in Settings → Sources. Could not reach Greenhouse to verify: Stripe. Slugs were saved as-is; re-verify from Settings → Sources once your connection is restored.",
+    );
   });
 });

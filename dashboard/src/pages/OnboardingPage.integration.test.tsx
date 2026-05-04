@@ -231,3 +231,74 @@ describe("OnboardingPage handleFinish watchlist warning (Bug 4)", () => {
     expect(navigateMock).toHaveBeenCalledOnce();
   }, 10000);
 });
+
+describe("OnboardingPage watchlist banners — dismissible UI", () => {
+  beforeEach(() => {
+    navigateMock.mockReset();
+  });
+
+  it("removes the unverified-warning banner from the DOM when ✕ is clicked", async () => {
+    // Arrange — every Greenhouse probe returns 404 so the unverified banner
+    // appears for the typed company.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 404 }));
+
+    const queryClient = buildTestQueryClient();
+    renderOnboarding(queryClient);
+    const user = userEvent.setup();
+
+    await advanceWizardToFinishStep(user);
+
+    const watchlistField = await screen.findByPlaceholderText(/Stripe/);
+    await user.type(watchlistField, "Bogus Inc");
+
+    await user.click(screen.getByRole("button", { name: "Finish Setup" }));
+
+    // The unverified banner appears.
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Could not verify Greenhouse IDs for: Bogus Inc/),
+      ).toBeInTheDocument();
+    });
+
+    // Act — click the dismiss button on the warning banner.
+    const dismissButtons = screen.getAllByRole("button", { name: "Dismiss" });
+    expect(dismissButtons.length).toBeGreaterThanOrEqual(1);
+    await user.click(dismissButtons[0]!);
+
+    // Assert — the banner text is gone from the DOM.
+    expect(
+      screen.queryByText(/Could not verify Greenhouse IDs for: Bogus Inc/),
+    ).not.toBeInTheDocument();
+  }, 10000);
+
+  it("renders both banners independently when the watchlist contains both an unknown company and one confirmed absent from Greenhouse", async () => {
+    // Arrange — "NVIDIA" hits the bundled lookup table (null → not_on_greenhouse,
+    // no fetch call). "Bogus Inc" is unknown and every probe 404s, landing in
+    // unverified. Both banners must render.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 404 }));
+
+    const queryClient = buildTestQueryClient();
+    renderOnboarding(queryClient);
+    const user = userEvent.setup();
+
+    await advanceWizardToFinishStep(user);
+
+    const watchlistField = await screen.findByPlaceholderText(/Stripe/);
+    await user.type(watchlistField, "NVIDIA{enter}Bogus Inc");
+
+    await user.click(screen.getByRole("button", { name: "Finish Setup" }));
+
+    // Both banners visible.
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Could not verify Greenhouse IDs for: Bogus Inc/),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/NVIDIA don't appear to use Greenhouse/),
+    ).toBeInTheDocument();
+
+    // Two dismiss buttons must coexist — one per banner.
+    expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(2);
+  }, 10000);
+});
