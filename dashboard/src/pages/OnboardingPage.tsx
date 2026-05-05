@@ -460,20 +460,21 @@ export async function saveWatchlistCompanies(
     );
   }
 
-  if (newEntries.length > 0) {
-    const appendBlock = newEntries.join("\n") + "\n";
-    const current = await fetchSources();
-    let updatedYaml = current.yaml_text ?? "";
-    if (updatedYaml.includes("greenhouse_companies:")) {
-      updatedYaml = updatedYaml.replace(
-        /(greenhouse_companies:\s*\n)/,
-        `$1${appendBlock}`,
-      );
-    } else {
-      updatedYaml = updatedYaml + "\ngreenhouse_companies:\n" + appendBlock;
-    }
-    await updateSources(updatedYaml);
+  const replaceBlock =
+    newEntries.length > 0
+      ? `greenhouse_companies:\n${newEntries.join("\n")}\n`
+      : `greenhouse_companies:\n`;
+  const current = await fetchSources();
+  let updatedYaml = current.yaml_text ?? "";
+  if (/greenhouse_companies:/.test(updatedYaml)) {
+    updatedYaml = updatedYaml.replace(
+      /greenhouse_companies:\n(?:[ \t][^\n]*\n)*/,
+      replaceBlock,
+    );
+  } else {
+    updatedYaml = updatedYaml + "\n" + replaceBlock;
   }
+  await updateSources(updatedYaml);
 
   return { unverified, networkFailures, notOnGreenhouse };
 }

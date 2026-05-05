@@ -549,7 +549,7 @@ describe("saveWatchlistCompanies", () => {
   });
 
   it("does NOT write a YAML entry for a not_on_greenhouse company", async () => {
-    // Arrange — "NVIDIA" is confirmed absent; no entry should appear
+    // Arrange — "NVIDIA" is confirmed absent; no child entry should appear
     vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
@@ -557,8 +557,10 @@ describe("saveWatchlistCompanies", () => {
     // Act
     await saveWatchlistCompanies("NVIDIA", updateSources, fetchSources);
 
-    // Assert — updateSources must NOT have been called (nothing to write)
-    expect(updateSources).not.toHaveBeenCalled();
+    // Assert — empty block written (clears any stale entries), but no NVIDIA child
+    const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
+    expect(writtenYaml).toContain("greenhouse_companies:\n");
+    expect(writtenYaml).not.toContain("NVIDIA");
   });
 
   it("places a 404'd company in unverified, not networkFailures", async () => {
@@ -666,7 +668,7 @@ describe("saveWatchlistCompanies", () => {
     expect(writtenYaml).toContain("  Stripe:");
   });
 
-  it("inserts entries directly under an existing greenhouse_companies header", async () => {
+  it("replaces all existing entries when greenhouse_companies block already has entries", async () => {
     // Arrange
     vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
@@ -677,14 +679,11 @@ describe("saveWatchlistCompanies", () => {
     // Act
     await saveWatchlistCompanies("Stripe", updateSources, fetchSources);
 
-    // Assert — new entry appears between the header and the previously-existing entry
+    // Assert — stale entry is gone; only the new submission remains
     const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
-    const headerIndex = writtenYaml.indexOf("greenhouse_companies:");
-    const stripeIndex = writtenYaml.indexOf("  Stripe:");
-    const existingIndex = writtenYaml.indexOf("  Existing:");
-    expect(headerIndex).toBeGreaterThanOrEqual(0);
-    expect(stripeIndex).toBeGreaterThan(headerIndex);
-    expect(existingIndex).toBeGreaterThan(stripeIndex);
+    expect(writtenYaml).toContain("greenhouse_companies:");
+    expect(writtenYaml).toContain("  Stripe:");
+    expect(writtenYaml).not.toContain("  Existing:");
   });
 
   it("escapes double-quotes in the company display name when written as a quoted YAML key", async () => {
@@ -702,33 +701,32 @@ describe("saveWatchlistCompanies", () => {
     expect(writtenYaml).toContain('  "Acme \\"Quoted\\" Co":');
   });
 
-  it("does not call updateSources when every company is not_on_greenhouse", async () => {
+  it("replaces greenhouse_companies with empty block when all companies are not_on_greenhouse", async () => {
     // Arrange — only companies confirmed absent from Greenhouse
     vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
-    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
+    const fetchSources = vi.fn().mockResolvedValue({
+      yaml_text: "greenhouse_companies:\n  OldStale:\n    greenhouse_id: \"old\"\n",
+    });
 
     // Act
     await saveWatchlistCompanies("NVIDIA\nAMD\nIntel", updateSources, fetchSources);
 
-    // Assert — nothing to write, so updateSources is never called
-    expect(updateSources).not.toHaveBeenCalled();
+    // Assert — stale entries cleared; empty block written
+    expect(updateSources).toHaveBeenCalledOnce();
+    const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
+    expect(writtenYaml).toContain("greenhouse_companies:\n");
+    expect(writtenYaml).not.toContain("  OldStale:");
   });
 
-  it("does not call fetchSources when every company is not_on_greenhouse", async () => {
-    // Arrange — there is no YAML to merge, so the read-modify-write cycle
-    // must skip the fetchSources call too. Important because fetchSources
-    // is unauthenticated-but-not-free and the user is offline-by-construction
-    // for the not_on_greenhouse case (no validation fetch happens either).
+  it("calls fetchSources even when all companies are not_on_greenhouse to clear stale entries", async () => {
     vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
-    // Act
     await saveWatchlistCompanies("NVIDIA\nAMD", updateSources, fetchSources);
 
-    // Assert
-    expect(fetchSources).not.toHaveBeenCalled();
+    expect(fetchSources).toHaveBeenCalledOnce();
   });
 
   it("writes both YAML entries when two companies normalize to the same naive slug", async () => {
@@ -755,6 +753,27 @@ describe("saveWatchlistCompanies", () => {
     const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
     expect(writtenYaml).toContain("  Acme Corp:");
     expect(writtenYaml).toContain("  AcmeCorp:");
+  });
+
+  it("does not duplicate entries on repeated onboarding runs", async () => {
+    // Arrange — prior run already wrote Stripe; user re-submits only Stripe
+    vi.spyOn(globalThis, "fetch");
+    const existingYaml =
+      "greenhouse_companies:\n" +
+      "  Stripe:\n    greenhouse_id: \"stripe\"\n    priority: 3\n" +
+      "  OldCo:\n    greenhouse_id: \"oldco\"\n    priority: 3\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await saveWatchlistCompanies("Stripe", updateSources, fetchSources);
+
+    // Assert — exactly one greenhouse_id entry, OldCo is gone
+    const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
+    const occurrences = (writtenYaml.match(/greenhouse_id:/g) ?? []).length;
+    expect(occurrences).toBe(1);
+    expect(writtenYaml).toContain("  Stripe:");
+    expect(writtenYaml).not.toContain("  OldCo:");
   });
 });
 
