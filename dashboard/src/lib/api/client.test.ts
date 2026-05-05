@@ -114,7 +114,7 @@ describe("api client success parsing", () => {
         ok: true,
         keys: [
           { name: "OPENAI_API_KEY", configured: true },
-          { name: "APIFY_API_TOKEN", configured: false },
+          { name: "ANTHROPIC_API_KEY", configured: false },
         ],
       }),
     );
@@ -124,7 +124,7 @@ describe("api client success parsing", () => {
     expect(payload.ok).toBe(true);
     expect(payload.keys).toEqual([
       { name: "OPENAI_API_KEY", configured: true },
-      { name: "APIFY_API_TOKEN", configured: false },
+      { name: "ANTHROPIC_API_KEY", configured: false },
     ]);
   });
 

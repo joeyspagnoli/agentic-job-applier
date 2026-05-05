@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
     job_hash TEXT UNIQUE NOT NULL,  -- MD5 hash for deduplication
 
     -- Source metadata
-    source TEXT NOT NULL,            -- 'greenhouse_stripe', 'apify_workday', 'jobspy_indeed'
+    source TEXT NOT NULL,            -- 'greenhouse_stripe', 'workday_pfizer', 'jobspy_indeed'
     source_url TEXT NOT NULL,        -- Original URL
     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_claimed_at ON job_postings(agent_claimed_at
 -- Crawl history tracking
 CREATE TABLE IF NOT EXISTS crawl_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL,            -- 'greenhouse', 'apify_workday', 'jobspy'
+    source TEXT NOT NULL,            -- 'greenhouse', 'workday', 'jobspy'
     company TEXT,                    -- Specific company if applicable
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,

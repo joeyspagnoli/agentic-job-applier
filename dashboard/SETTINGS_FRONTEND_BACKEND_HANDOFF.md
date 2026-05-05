@@ -34,7 +34,7 @@ UI behavior:
 
 - Tier select behavior remains blocked for:
   - `latex` without `OPENAI_API_KEY`
-  - `full` without `OPENAI_API_KEY` and `APIFY_API_TOKEN`
+  - `full` without `OPENAI_API_KEY`
 - Base tier remains default and always selectable.
 
 ### 4) Frontend contract and schema updates

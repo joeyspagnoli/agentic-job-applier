@@ -18,7 +18,6 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from src.database.db_manager import DatabaseManager
-from src.fetchers.apify_fetcher import ApifyWorkdayFetcher
 from src.fetchers.ashby_fetcher import AshbyFetcher
 from src.fetchers.career_page_watcher import CareerPageWatcher
 from src.fetchers.github_repo_fetcher import GitHubRepoFetcher
@@ -26,6 +25,7 @@ from src.fetchers.greenhouse_fetcher import GreenhouseFetcher
 from src.fetchers.jobspy_fetcher import JobSpyFetcher
 from src.fetchers.lever_fetcher import LeverFetcher
 from src.fetchers.linkedin_fetcher import LinkedInFetcher
+from src.fetchers.workday_fetcher import WorkdayFetcher
 from src.filters.job_filter import FilterAction, JobFilter
 from src.models.job_posting import JobPosting
 from src.utils.deduplicator import Deduplicator
@@ -374,7 +374,7 @@ async def fetch_workday_jobs(
     title_include_patterns: list[str] | None = None,
     job_filter: JobFilter | None = None,
 ) -> tuple[int, int, int, int]:
-    """Fetch jobs for every configured Workday company via Apify.
+    """Fetch jobs for every configured Workday company via the public CXS API.
 
     Args:
         companies: Mapping of company names to their Workday configuration.
@@ -392,12 +392,6 @@ async def fetch_workday_jobs(
     sources_success = 0
     sources_failed = 0
 
-    # Workday crawling depends on Apify credentials, so the orchestrator skips
-    # this whole section when the environment is not ready.
-    if not os.getenv("APIFY_API_TOKEN"):
-        logger.warning("APIFY_API_TOKEN not set, skipping Workday sources")
-        return 0, 0, 0, 0
-
     for company_name, config in companies.items():
         workday_url = config.get("workday_url")
         if not workday_url:
@@ -410,9 +404,9 @@ async def fetch_workday_jobs(
         start_time = time.time()
 
         try:
-            crawl_id = await db.start_crawl("apify_workday", company_name)
+            crawl_id = await db.start_crawl("workday", company_name)
 
-            async with ApifyWorkdayFetcher(company_name, workday_url) as fetcher:
+            async with WorkdayFetcher(company_name, workday_url) as fetcher:
                 jobs = await fetcher.fetch_jobs()
                 if title_include_patterns:
                     jobs = _filter_by_title_patterns(jobs, title_include_patterns)
@@ -426,7 +420,7 @@ async def fetch_workday_jobs(
 
                 duration = time.time() - start_time
                 log_crawl_summary(
-                    "apify_workday",
+                    "workday",
                     company_name,
                     crawl_jobs_found,
                     crawl_jobs_new,

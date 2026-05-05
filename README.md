@@ -4,7 +4,7 @@ SQLite-backed autonomous job discovery and application pipeline with a live Fast
 
 ## What The System Does
 
-1. Discovers jobs from Greenhouse, Workday (Apify), and JobSpy-backed boards.
+1. Discovers jobs from Greenhouse, Workday, and JobSpy-backed boards.
 2. Normalizes and deduplicates postings into `job_postings`.
 3. Runs staged workers:
 

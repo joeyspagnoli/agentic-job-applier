@@ -175,7 +175,6 @@ ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
         "OPENAI_API_KEY",
         "GOOGLE_API_KEY",
         "ANTHROPIC_API_KEY",
-        "APIFY_API_TOKEN",
     }
 )
 
@@ -3083,7 +3082,6 @@ def _read_env_key_statuses() -> dict[str, bool]:
             value = line.split("=", 1)[1].strip() if "=" in line else ""
             status[key] = value not in (
                 "",
-                "your_apify_token_here",
                 "your_google_api_key_here",
                 "your_anthropic_key_here",
             )

@@ -13,21 +13,48 @@ from src.utils.deduplicator import Deduplicator
 
 
 @pytest.mark.asyncio
-async def test_fetch_workday_jobs_skips_when_apify_token_missing(
+async def test_fetch_workday_jobs_runs_without_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify Workday crawling is skipped cleanly without Apify credentials.
+    """Verify Workday crawling runs without any environment credentials.
 
     Purpose:
-        Ensure the orchestrator returns deterministic zero counters when the
-        required APIFY token is not configured.
+        The free WorkdayFetcher hits the public CXS endpoint directly, so the
+        orchestrator must no longer gate on `APIFY_API_TOKEN` and should reach
+        the per-company crawl loop unconditionally.
     Args:
-        monkeypatch: Pytest fixture used to isolate environment variables.
+        monkeypatch: Pytest fixture used to replace the Workday fetcher.
     Output:
-        Returns `None`; the test passes when Workday counters are all zero.
+        Returns `None`; the test passes when the empty-result fake fetcher
+        produces a clean (0, 0, 1, 0) counter tuple.
     """
 
+    class EmptyWorkdayFetcher:
+        """Return an empty job list to exercise the success accounting path."""
+
+        def __init__(self, *_: object, **__: object) -> None:
+            """Accept production-shape arguments without storing state."""
+
+        async def __aenter__(self) -> "EmptyWorkdayFetcher":
+            """Return this stub for use as an async context manager."""
+
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: object,
+        ) -> None:
+            """Implement no-op async cleanup for the stub fetcher."""
+
+        async def fetch_jobs(self) -> list[object]:
+            """Return an empty list to mirror a healthy zero-result crawl."""
+
+            return []
+
     monkeypatch.delenv("APIFY_API_TOKEN", raising=False)
+    monkeypatch.setattr(discovery_main, "WorkdayFetcher", EmptyWorkdayFetcher)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
@@ -36,12 +63,12 @@ async def test_fetch_workday_jobs_skips_when_apify_token_missing(
             deduplicator = Deduplicator(db)
 
             counters = await discovery_main.fetch_workday_jobs(
-                {"ExampleCo": {"workday_url": "https://example.workday.com"}},
+                {"ExampleCo": {"workday_url": "https://example.wd1.myworkdayjobs.com/Careers"}},
                 db,
                 deduplicator,
             )
 
-    assert counters == (0, 0, 0, 0)
+    assert counters == (0, 0, 1, 0)
 
 
 @pytest.mark.asyncio
@@ -112,17 +139,16 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
             """Raise a deterministic provider failure.
 
             Purpose:
-                Simulate an upstream Workday/Apify failure for accounting tests.
+                Simulate an upstream Workday CXS failure for accounting tests.
             Args:
                 self: The stub fetcher instance.
             Output:
                 Raises `RuntimeError`.
             """
 
-            raise RuntimeError("simulated apify outage")
+            raise RuntimeError("simulated workday outage")
 
-    monkeypatch.setenv("APIFY_API_TOKEN", "token")
-    monkeypatch.setattr(discovery_main, "ApifyWorkdayFetcher", BrokenWorkdayFetcher)
+    monkeypatch.setattr(discovery_main, "WorkdayFetcher", BrokenWorkdayFetcher)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
@@ -131,7 +157,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
             deduplicator = Deduplicator(db)
 
             counters = await discovery_main.fetch_workday_jobs(
-                {"ExampleCo": {"workday_url": "https://example.workday.com"}},
+                {"ExampleCo": {"workday_url": "https://example.wd1.myworkdayjobs.com/Careers"}},
                 db,
                 deduplicator,
             )
@@ -146,7 +172,7 @@ async def test_fetch_workday_jobs_counts_fetch_exceptions_as_failures(
 
     assert row is not None
     assert row[0] == "FAILED"
-    assert "simulated apify outage" in row[1]
+    assert "simulated workday outage" in row[1]
 
 
 @pytest.mark.asyncio

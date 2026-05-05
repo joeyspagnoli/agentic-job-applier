@@ -152,16 +152,11 @@ const API_KEYS: readonly ApiKeyConfig[] = [
     icon: "auto_awesome",
     description: "Optional provider key for alternative model routing.",
   },
-  {
-    name: "APIFY_API_TOKEN",
-    icon: "api",
-    description: "Required for Workday and JobSpy-backed source coverage.",
-  },
 ];
 const SERVICE_TIER_REQUIREMENTS: Readonly<Record<ServiceTierDto, readonly ApiKeyNameDto[]>> = {
   base: [],
   latex: ["OPENAI_API_KEY"],
-  full: ["OPENAI_API_KEY", "APIFY_API_TOKEN"],
+  full: ["OPENAI_API_KEY"],
 };
 const SERVICE_TIER_CARDS: readonly ServiceTierCard[] = [
   {
@@ -450,7 +445,6 @@ function buildConfiguredKeyMap(
     OPENAI_API_KEY: false,
     GOOGLE_API_KEY: false,
     ANTHROPIC_API_KEY: false,
-    APIFY_API_TOKEN: false,
   };
   keys.forEach((key) => {
     configuredMap[key.name] = key.configured;

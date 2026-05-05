@@ -22,10 +22,8 @@ uv run python -m scripts.test_fetchers
 # Copy environment template
 cp .env.example .env
 
-# Optional: Add Apify token for Workday scraping
-# Get token from: https://console.apify.com/account/integrations
+# Edit .env to set OPENAI_API_KEY (required for gate decisions)
 nano .env
-# Add: APIFY_API_TOKEN=your_token_here
 ```
 
 ## First Run

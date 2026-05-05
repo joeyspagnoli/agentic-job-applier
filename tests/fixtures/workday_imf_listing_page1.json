@@ -1,0 +1,27 @@
+{
+  "total": 3,
+  "jobPostings": [
+    {
+      "title": "Economist/Sr. Economist (Contractual) - ICDCI",
+      "externalPath": "/job/USA-Washington-DC/Economist-Sr-Economist--Contractual----ICDCI_26-R9209",
+      "locationsText": "USA, Washington DC",
+      "postedOn": "Posted Today",
+      "bulletFields": ["26-R9209", "Full time"]
+    },
+    {
+      "title": "Senior Research Officer",
+      "externalPath": "/job/USA-Washington-DC/Senior-Research-Officer_26-R9210",
+      "locationsText": "USA, Washington DC",
+      "postedOn": "Posted 3 Days Ago",
+      "bulletFields": ["26-R9210"]
+    },
+    {
+      "title": "Remote Data Analyst",
+      "externalPath": "/job/Remote/Remote-Data-Analyst_26-R9211",
+      "locationsText": "Remote - Anywhere",
+      "postedOn": "Posted 30+ Days Ago",
+      "bulletFields": ["26-R9211"]
+    }
+  ],
+  "facets": []
+}

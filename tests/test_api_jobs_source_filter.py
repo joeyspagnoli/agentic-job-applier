@@ -53,7 +53,7 @@ def _seed_jobs_for_source_filter(db_path: Path) -> dict[str, str]:
                 description="Greenhouse source row",
             )
             workday_job = JobPosting(
-                source="apify_workday_finance",
+                source="workday_finance",
                 source_url="https://example.com/jobs/workday",
                 company="Workday Co",
                 title="Platform Engineer",

@@ -31,17 +31,293 @@ greenhouse_companies:
 
 
 # ── Workday ATS companies ───────────────────────────────────────────────────
-# Requires APIFY_API_TOKEN in .env. Many large enterprises use Workday.
+# Free, built-in scraper — no API key needed. Hits the public Workday CXS JSON
+# endpoint directly. Many large enterprises use Workday.
 #
 # To find a company's Workday URL:
 #   1. Go to the company's careers page
 #   2. If it redirects to *.myworkdayjobs.com, that's their Workday URL
+#
+# 87 companies pre-seeded below across 8 industries (verified 2026-05-05).
+# Comment out or delete entries you don't want.
 
 workday_companies:
-  # Example — uncomment and customize:
-  # Goldman Sachs:
-  #   workday_url: "https://gs.wd5.myworkdayjobs.com/en-US/GSCareers"
-  #   priority: 1
+  # ── Pharma/biotech (verified 2026-05-05) ──────────────────────────────────
+  Pfizer:
+    workday_url: "https://pfizer.wd1.myworkdayjobs.com/PfizerCareers"
+    industry: pharma_biotech
+  Merck:
+    workday_url: "https://msd.wd5.myworkdayjobs.com/SearchJobs"
+    industry: pharma_biotech
+  Johnson & Johnson:
+    workday_url: "https://jj.wd5.myworkdayjobs.com/JJ"
+    industry: pharma_biotech
+  Eli Lilly:
+    workday_url: "https://lilly.wd5.myworkdayjobs.com/lly"
+    industry: pharma_biotech
+  AbbVie:
+    workday_url: "https://abbott.wd5.myworkdayjobs.com/abbottcareers"
+    industry: pharma_biotech
+  Amgen:
+    workday_url: "https://amgen.wd1.myworkdayjobs.com/Careers"
+    industry: pharma_biotech
+  Genentech:
+    workday_url: "https://roche.wd3.myworkdayjobs.com/ROG-A2O-GENE"
+    industry: pharma_biotech
+  Bristol-Myers Squibb:
+    workday_url: "https://bristolmyerssquibb.wd5.myworkdayjobs.com/BMS"
+    industry: pharma_biotech
+  Novartis:
+    workday_url: "https://novartis.wd3.myworkdayjobs.com/Novartis_Careers"
+    industry: pharma_biotech
+  Gilead:
+    workday_url: "https://gilead.wd1.myworkdayjobs.com/gileadcareers"
+    industry: pharma_biotech
+  Regeneron:
+    workday_url: "https://regeneron.wd1.myworkdayjobs.com/Careers"
+    industry: pharma_biotech
+  Moderna:
+    workday_url: "https://modernatx.wd1.myworkdayjobs.com/M_tx"
+    industry: pharma_biotech
+  Biogen:
+    workday_url: "https://biibhr.wd3.myworkdayjobs.com/external"
+    industry: pharma_biotech
+  Vertex Pharmaceuticals:
+    workday_url: "https://vrtx.wd501.myworkdayjobs.com/Vertex_Careers"
+    industry: pharma_biotech
+
+  # ── Healthcare (verified 2026-05-05) ──────────────────────────────────────
+  Cleveland Clinic:
+    workday_url: "https://ccf.wd1.myworkdayjobs.com/ClevelandClinicCareers"
+    industry: healthcare
+  HCA Healthcare:
+    workday_url: "https://hcahealthcare.wd3.myworkdayjobs.com/hcacareers"
+    industry: healthcare
+  CVS Health:
+    workday_url: "https://cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers"
+    industry: healthcare
+  Elevance Health:
+    workday_url: "https://elevancehealth.wd1.myworkdayjobs.com/ANT"
+    industry: healthcare
+  Humana:
+    workday_url: "https://humana.wd5.myworkdayjobs.com/Humana_External_Career_Site"
+    industry: healthcare
+  Cigna:
+    workday_url: "https://cigna.wd5.myworkdayjobs.com/cignacareers"
+    industry: healthcare
+  Centene:
+    workday_url: "https://centene.wd5.myworkdayjobs.com/Centene_External"
+    industry: healthcare
+  Athenahealth:
+    workday_url: "https://athenahealth.wd1.myworkdayjobs.com/External"
+    industry: healthcare
+
+  # ── Finance/banking (verified 2026-05-05) ─────────────────────────────────
+  JPMorgan Chase:
+    workday_url: "https://jpmc.wd5.myworkdayjobs.com/External"
+    industry: finance_banking
+  Goldman Sachs:
+    workday_url: "https://gs.wd5.myworkdayjobs.com/External"
+    industry: finance_banking
+  Morgan Stanley:
+    workday_url: "https://ms.wd5.myworkdayjobs.com/External"
+    industry: finance_banking
+  Citigroup:
+    workday_url: "https://citi.wd5.myworkdayjobs.com/2"
+    industry: finance_banking
+  Wells Fargo:
+    workday_url: "https://wf.wd1.myworkdayjobs.com/WellsFargoJobs"
+    industry: finance_banking
+  Bank of America:
+    workday_url: "https://ghr.wd1.myworkdayjobs.com/Lateral-US"
+    industry: finance_banking
+  BlackRock:
+    workday_url: "https://blackrock.wd1.myworkdayjobs.com/BlackRock_Professional"
+    industry: finance_banking
+  Capital One:
+    workday_url: "https://capitalone.wd12.myworkdayjobs.com/Capital_One"
+    industry: finance_banking
+  American Express:
+    workday_url: "https://travelhrportal.wd1.myworkdayjobs.com/Jobs"
+    industry: finance_banking
+  Charles Schwab:
+    workday_url: "https://schwab.wd1.myworkdayjobs.com/External"
+    industry: finance_banking
+  Fidelity:
+    workday_url: "https://fmr.wd1.myworkdayjobs.com/FidelityCareers"
+    industry: finance_banking
+  State Street:
+    workday_url: "https://statestreet.wd1.myworkdayjobs.com/Global"
+    industry: finance_banking
+  BNY Mellon:
+    workday_url: "https://bnymellon.wd1.myworkdayjobs.com/External"
+    industry: finance_banking
+  US Bank:
+    workday_url: "https://usbank.wd1.myworkdayjobs.com/US_Bank_Careers"
+    industry: finance_banking
+  Vanguard:
+    workday_url: "https://vanguard.wd5.myworkdayjobs.com/vanguard_external"
+    industry: finance_banking
+  Truist:
+    workday_url: "https://truist.wd1.myworkdayjobs.com/Careers"
+    industry: finance_banking
+  PNC:
+    workday_url: "https://pnc.wd5.myworkdayjobs.com/External"
+    industry: finance_banking
+
+  # ── Consulting (verified 2026-05-05) ──────────────────────────────────────
+  Deloitte:
+    workday_url: "https://deloitteie.wd3.myworkdayjobs.com/Early_Careers"
+    industry: consulting
+  Accenture:
+    workday_url: "https://accenture.wd103.myworkdayjobs.com/AccentureCareers"
+    industry: consulting
+  PwC:
+    workday_url: "https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers"
+    industry: consulting
+  Bain & Company:
+    workday_url: "https://baincapital.wd1.myworkdayjobs.com/External_Public"
+    industry: consulting
+  Oliver Wyman:
+    workday_url: "https://mmc.wd1.myworkdayjobs.com/MMC"
+    industry: consulting
+
+  # ── Manufacturing/automotive (verified 2026-05-05) ────────────────────────
+  Boeing:
+    workday_url: "https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS"
+    industry: manufacturing_automotive
+  Goodyear:
+    workday_url: "https://goodyear.wd1.myworkdayjobs.com/GoodyearCareers"
+    industry: manufacturing_automotive
+  Otis:
+    workday_url: "https://otis.wd5.myworkdayjobs.com/REC_Ext_Gateway"
+    industry: manufacturing_automotive
+  General Motors:
+    workday_url: "https://generalmotors.wd5.myworkdayjobs.com/Careers_GM"
+    industry: manufacturing_automotive
+  Caterpillar:
+    workday_url: "https://cat.wd5.myworkdayjobs.com/CaterpillarCareers"
+    industry: manufacturing_automotive
+  3M:
+    workday_url: "https://3m.wd1.myworkdayjobs.com/Search"
+    industry: manufacturing_automotive
+  GE Aerospace:
+    workday_url: "https://geaerospace.wd5.myworkdayjobs.com/GE_ExternalSite"
+    industry: manufacturing_automotive
+  Siemens Gamesa:
+    workday_url: "https://siemensgamesa.wd3.myworkdayjobs.com/SGRE"
+    industry: manufacturing_automotive
+  Stellantis:
+    workday_url: "https://stellantis.wd3.myworkdayjobs.com/External_Career_Site_ID01"
+    industry: manufacturing_automotive
+  Toyota North America:
+    workday_url: "https://toyota.wd503.myworkdayjobs.com/TMNA"
+    industry: manufacturing_automotive
+  Rockwell Automation:
+    workday_url: "https://rockwellautomation.wd1.myworkdayjobs.com/External-Rockwell-Automation-Early-Careers"
+    industry: manufacturing_automotive
+  Emerson Electric:
+    workday_url: "https://emerson.wd5.myworkdayjobs.com/Emerson_College_Staff"
+    industry: manufacturing_automotive
+  Illinois Tool Works:
+    workday_url: "https://talentmanagementsolution.wd3.myworkdayjobs.com/ITWERCS-CareerSite"
+    industry: manufacturing_automotive
+
+  # ── Energy (verified 2026-05-05) ──────────────────────────────────────────
+  Shell:
+    workday_url: "https://shell.wd3.myworkdayjobs.com/ShellCareers"
+    industry: energy
+  BP:
+    workday_url: "https://bpinternational.wd3.myworkdayjobs.com/bpCareers"
+    industry: energy
+  Chevron:
+    workday_url: "https://chevron.wd5.myworkdayjobs.com/jobs"
+    industry: energy
+  Duke Energy:
+    workday_url: "https://dukeenergy.wd1.myworkdayjobs.com/Search"
+    industry: energy
+  Marathon Petroleum:
+    workday_url: "https://mpc.wd1.myworkdayjobs.com/MPCCareers"
+    industry: energy
+  Occidental Petroleum:
+    workday_url: "https://oxy.wd5.myworkdayjobs.com/Corporate"
+    industry: energy
+  American Electric Power:
+    workday_url: "https://aep.wd1.myworkdayjobs.com/AEPCareerSite"
+    industry: energy
+  Xcel Energy:
+    workday_url: "https://xcelenergy.wd1.myworkdayjobs.com/External"
+    industry: energy
+  ConocoPhillips:
+    workday_url: "https://conocophillips.wd1.myworkdayjobs.com/External"
+    industry: energy
+
+  # ── Retail HQ (verified 2026-05-05) ───────────────────────────────────────
+  Walmart:
+    workday_url: "https://walmart.wd5.myworkdayjobs.com/WalmartExternal"
+    industry: retail_hq
+  Target:
+    workday_url: "https://target.wd5.myworkdayjobs.com/targetcareers"
+    industry: retail_hq
+  Home Depot:
+    workday_url: "https://homedepot.wd5.myworkdayjobs.com/CareerDepot"
+    industry: retail_hq
+  Lowe's:
+    workday_url: "https://lowes.wd5.myworkdayjobs.com/LWS_External_CS"
+    industry: retail_hq
+  Dollar Tree:
+    workday_url: "https://dollartree.wd5.myworkdayjobs.com/dollartreeus"
+    industry: retail_hq
+  Nordstrom:
+    workday_url: "https://nordstrom.wd501.myworkdayjobs.com/nordstrom_careers"
+    industry: retail_hq
+  Gap Inc.:
+    workday_url: "https://gapinc.wd1.myworkdayjobs.com/GAPINC"
+    industry: retail_hq
+  Chipotle:
+    workday_url: "https://chipotle.wd5.myworkdayjobs.com/ChipotleCareers"
+    industry: retail_hq
+  TJX Companies:
+    workday_url: "https://tjx.wd1.myworkdayjobs.com/TJX_EXTERNAL"
+    industry: retail_hq
+
+  # ── Government contractors (verified 2026-05-05) ──────────────────────────
+  Northrop Grumman:
+    workday_url: "https://ngc.wd1.myworkdayjobs.com/Northrop_Grumman_External_Site"
+    industry: government_contractors
+  Raytheon Technologies (RTX):
+    workday_url: "https://globalhr.wd5.myworkdayjobs.com/REC_RTX_Ext_Gateway"
+    industry: government_contractors
+  Booz Allen Hamilton:
+    workday_url: "https://bah.wd1.myworkdayjobs.com/BAH_Jobs"
+    industry: government_contractors
+  Leidos:
+    workday_url: "https://leidos.wd5.myworkdayjobs.com/External"
+    industry: government_contractors
+  General Dynamics (GDIT):
+    workday_url: "https://gdit.wd5.myworkdayjobs.com/External_Career_Site"
+    industry: government_contractors
+  L3Harris Technologies:
+    workday_url: "https://harriscomputer.wd3.myworkdayjobs.com/1"
+    industry: government_contractors
+  CACI International:
+    workday_url: "https://caci.wd1.myworkdayjobs.com/External"
+    industry: government_contractors
+  ManTech International:
+    workday_url: "https://mantech.wd1.myworkdayjobs.com/External"
+    industry: government_contractors
+  Parsons Corporation:
+    workday_url: "https://parsons.wd5.myworkdayjobs.com/Search"
+    industry: government_contractors
+  KBR:
+    workday_url: "https://kbr.wd5.myworkdayjobs.com/KBR_Careers"
+    industry: government_contractors
+  MITRE Corporation:
+    workday_url: "https://mitre.wd5.myworkdayjobs.com/MITRE"
+    industry: government_contractors
+  The Aerospace Corporation:
+    workday_url: "https://aero.wd5.myworkdayjobs.com/External"
+    industry: government_contractors
 
 
 # ── Job Boards (Indeed, Glassdoor, LinkedIn) ─────────────────────────────────

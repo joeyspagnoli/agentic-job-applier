@@ -1,7 +1,6 @@
 """Export the fetcher implementations used by the orchestrator."""
 
 from src.fetchers.adzuna_fetcher import AdzunaFetcher
-from src.fetchers.apify_fetcher import ApifyWorkdayFetcher
 from src.fetchers.ashby_fetcher import AshbyFetcher
 from src.fetchers.ats_scanner import ATSScanner, PortalConfig
 from src.fetchers.base_fetcher import BaseFetcher
@@ -19,11 +18,11 @@ from src.fetchers.remotive_fetcher import RemotiveFetcher
 from src.fetchers.startup_jobs_fetcher import StartupJobsFetcher
 from src.fetchers.themuse_fetcher import TheMuseFetcher
 from src.fetchers.working_nomads_fetcher import WorkingNomadsFetcher
+from src.fetchers.workday_fetcher import WorkdayFetcher
 
 __all__ = [
     "ATSScanner",
     "AdzunaFetcher",
-    "ApifyWorkdayFetcher",
     "AshbyFetcher",
     "BaseFetcher",
     "CareerPageWatcher",
@@ -39,6 +38,7 @@ __all__ = [
     "RemotiveFetcher",
     "StartupJobsFetcher",
     "TheMuseFetcher",
+    "WorkdayFetcher",
     "WorkingNomadsFetcher",
     "check_liveness",
     "is_fuzzy_duplicate",

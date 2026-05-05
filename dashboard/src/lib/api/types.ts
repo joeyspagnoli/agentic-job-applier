@@ -225,8 +225,7 @@ export interface BudgetDto {
 export type ApiKeyNameDto =
   | "OPENAI_API_KEY"
   | "GOOGLE_API_KEY"
-  | "ANTHROPIC_API_KEY"
-  | "APIFY_API_TOKEN";
+  | "ANTHROPIC_API_KEY";
 
 /** One API key status row for write-only key management UI. */
 export interface ApiKeyStatusDto {

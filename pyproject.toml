@@ -9,7 +9,6 @@ dependencies = [
     "aiohttp==3.13.3",
     "aiosqlite==0.22.1",
     "anthropic==0.96.0",
-    "apify-client==2.4.0",
     "apscheduler==3.11.2",
     "authlib==1.6.9",
     "cryptography==46.0.6",

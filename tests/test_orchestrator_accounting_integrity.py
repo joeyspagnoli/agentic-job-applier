@@ -166,8 +166,6 @@ async def test_workday_start_crawl_failure_does_not_abort_other_companies(
         Returns `None`; test passes when one company succeeds after one failure.
     """
 
-    monkeypatch.setenv("APIFY_API_TOKEN", "token")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "jobs.db"
         async with DatabaseManager(str(db_path)) as db:
@@ -191,13 +189,13 @@ async def test_workday_start_crawl_failure_does_not_abort_other_companies(
                     raise RuntimeError("start crawl failed")
                 return await original_start_crawl(source, company)
 
-            monkeypatch.setattr(discovery_main, "ApifyWorkdayFetcher", _StaticFetcher)
+            monkeypatch.setattr(discovery_main, "WorkdayFetcher", _StaticFetcher)
             monkeypatch.setattr(db, "start_crawl", flaky_start_crawl)
 
             counters = await discovery_main.fetch_workday_jobs(
                 {
-                    "BadCo": {"workday_url": "https://bad.workday.com"},
-                    "GoodCo": {"workday_url": "https://good.workday.com"},
+                    "BadCo": {"workday_url": "https://bad.wd1.myworkdayjobs.com/Careers"},
+                    "GoodCo": {"workday_url": "https://good.wd1.myworkdayjobs.com/Careers"},
                 },
                 db,
                 deduplicator,

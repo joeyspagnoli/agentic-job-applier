@@ -2,13 +2,12 @@
 
 Purpose:
     Validate field mapping, default handling, NaN coercion, and salary
-    normalization logic in the Greenhouse, Apify, and JobSpy fetchers
-    without making any network requests.
+    normalization logic in the Greenhouse and JobSpy fetchers without making
+    any network requests.
 """
 
 from __future__ import annotations
 
-from src.fetchers.apify_fetcher import ApifyWorkdayFetcher
 from src.fetchers.greenhouse_fetcher import GreenhouseFetcher
 from src.fetchers.jobspy_fetcher import JobSpyFetcher
 
@@ -30,23 +29,6 @@ def _make_greenhouse() -> GreenhouseFetcher:
         Returns a GreenhouseFetcher configured for 'TestCo'.
     """
     return GreenhouseFetcher(company_name="TestCo", greenhouse_id="testco")
-
-
-def _make_apify() -> ApifyWorkdayFetcher:
-    """Create an ApifyWorkdayFetcher instance for testing without API setup.
-
-    Purpose:
-        Provide a minimal Apify fetcher whose _parse_job can be called
-        directly without an Apify client or async context.
-    Arg(s):
-        None.
-    Output:
-        Returns an ApifyWorkdayFetcher configured for 'TestCo'.
-    """
-    return ApifyWorkdayFetcher(
-        company_name="TestCo",
-        workday_url="https://testco.wd1.myworkdayjobs.com/careers",
-    )
 
 
 def _make_jobspy() -> JobSpyFetcher:
@@ -121,59 +103,6 @@ def test_greenhouse_parse_missing_optional_fields_uses_defaults() -> None:
     assert result.salary_min is None
     assert result.salary_max is None
     assert result.salary_source == "not_listed"
-
-
-# ---------------------------------------------------------------------------
-# Apify tests
-# ---------------------------------------------------------------------------
-
-
-def test_apify_parse_valid_workday_item_maps_fields_correctly() -> None:
-    """Verify _parse_job maps standard Apify Workday fields into JobPosting.
-
-    Purpose:
-        Validate that title, location, description, and URL are correctly
-        extracted from a representative Apify dataset item.
-    """
-
-    fetcher = _make_apify()
-    item = {
-        "title": "Senior Data Engineer",
-        "location": "Austin, TX",
-        "description": "Build pipelines for large-scale data processing.",
-        "url": "https://testco.wd1.myworkdayjobs.com/careers/job/Senior-Data-Engineer",
-        "postedDate": "2024-02-01",
-    }
-
-    result = fetcher._parse_job(item)
-
-    assert result.title == "Senior Data Engineer"
-    assert result.location == "Austin, TX"
-    assert "pipelines" in result.description
-    assert result.source_url == "https://testco.wd1.myworkdayjobs.com/careers/job/Senior-Data-Engineer"
-    assert result.company == "TestCo"
-
-
-def test_apify_parse_alternative_field_names() -> None:
-    """Verify _parse_job picks up jobTitle/jobLocation/jobDescription alternatives.
-
-    Purpose:
-        Validate that Apify items using the alternative field naming convention
-        are normalized correctly without missing data.
-    """
-
-    fetcher = _make_apify()
-    item = {
-        "jobTitle": "ML Engineer",
-        "jobLocation": "Remote",
-        "jobDescription": "Train and deploy machine learning models.",
-    }
-
-    result = fetcher._parse_job(item)
-
-    assert result.title == "ML Engineer"
-    assert result.location == "Remote"
-    assert "machine learning" in result.description
 
 
 # ---------------------------------------------------------------------------

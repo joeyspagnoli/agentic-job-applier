@@ -39,7 +39,6 @@ nano .env
 Minimum recommended keys:
 
 - `OPENAI_API_KEY` for gate decisions
-- `APIFY_API_TOKEN` (optional Workday source)
 - `NTFY_TOPIC` (optional terminal failure alerts)
 
 Optional cost-rate keys:
