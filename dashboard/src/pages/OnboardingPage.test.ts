@@ -1250,4 +1250,452 @@ describe("seedGithubRepos", () => {
     // Assert
     expect(updateSources).toHaveBeenCalledOnce();
   });
+
+  it("seeds an empty-targetRoles array as a no-filter SimplifyJobs block", async () => {
+    // Arrange — handleFinish() currently runs unconditionally; if the user
+    // skipped the roles step (or all lines were whitespace), splitLines yields
+    // [] and we still write a no-categories SimplifyJobs source so downstream
+    // GitHubRepoFetcher returns all listings instead of zero.
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "github_repos: []\n" });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos([], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("owner: SimplifyJobs");
+    expect(written).not.toContain("categories:");
+  });
+
+  it("falls back to an empty string when fetchSources returns undefined yaml_text", async () => {
+    // Arrange — the API contract says yaml_text is always a string, but the
+    // ?? "" fallback in seedGithubRepos must not regress. If yaml_text is
+    // undefined, we should still produce a valid YAML write rather than throw.
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: undefined as unknown as string });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineer"], updateSources, fetchSources);
+
+    // Assert
+    expect(updateSources).toHaveBeenCalledOnce();
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("github_repos:\n");
+    expect(written).toContain("owner: SimplifyJobs");
+  });
+
+  it("preserves a pre-existing greenhouse_companies block alongside github_repos replacement", async () => {
+    // Arrange — handoff Risk Areas: "verify saveWatchlistCompanies is
+    // unaffected when run after seedGithubRepos — the two functions target
+    // different YAML keys (github_repos vs greenhouse_companies) and neither
+    // should clobber the other." This test pins the seed-then-watchlist
+    // direction: a watchlist block written previously must survive a re-seed.
+    const existingYaml =
+      "greenhouse_companies:\n" +
+      '  Stripe:\n    greenhouse_id: "stripe"\n    priority: 3\n' +
+      "github_repos: []\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineering Intern"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("greenhouse_companies:");
+    expect(written).toContain("  Stripe:");
+    expect(written).toContain('    greenhouse_id: "stripe"');
+    expect(written).toContain("    priority: 3");
+    expect(written).toContain("owner: SimplifyJobs");
+  });
+
+  it("preserves YAML content after the github_repos block when it is replaced", async () => {
+    // Arrange — guard against the regex `(?:[ \t][^\n]*\n)*` over-consuming
+    // sibling top-level keys. Section starts (column-0) must not be eaten.
+    const existingYaml =
+      "github_repos:\n" +
+      "  - owner: OldOwner\n" +
+      "    repo: OldRepo\n" +
+      "    enabled: true\n" +
+      "ashby_companies:\n" +
+      "  Acme:\n" +
+      "    ashby_id: acme\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineer"], updateSources, fetchSources);
+
+    // Assert — every preserved-section landmark must still be present
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("ashby_companies:");
+    expect(written).toContain("  Acme:");
+    expect(written).toContain("    ashby_id: acme");
+    expect(written).not.toContain("OldOwner");
+  });
+
+  it("preserves YAML content before the github_repos block when it is replaced", async () => {
+    // Arrange
+    const existingYaml =
+      "indeed:\n  enabled: true\n  api_key: secret_value\n" +
+      "linkedin:\n  enabled: false\n" +
+      "github_repos: []\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineer"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("indeed:\n  enabled: true\n  api_key: secret_value\n");
+    expect(written).toContain("linkedin:\n  enabled: false\n");
+    expect(written).toContain("owner: SimplifyJobs");
+  });
+
+  it("is idempotent: running seed twice with the same roles produces stable YAML", async () => {
+    // Arrange
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+    const fetchSourcesFirst = vi.fn().mockResolvedValue({ yaml_text: "github_repos: []\n" });
+
+    // Act — first run
+    await seedGithubRepos(["Electrical Engineering Intern"], updateSources, fetchSourcesFirst);
+    const firstWrite = updateSources.mock.calls[0]?.[0] as string;
+
+    // Second run starts from the YAML that the first run produced
+    const fetchSourcesSecond = vi.fn().mockResolvedValue({ yaml_text: firstWrite });
+    await seedGithubRepos(["Electrical Engineering Intern"], updateSources, fetchSourcesSecond);
+    const secondWrite = updateSources.mock.calls[1]?.[0] as string;
+
+    // Assert — second write must match first byte-for-byte
+    expect(secondWrite).toBe(firstWrite);
+  });
+
+  it("calls fetchSources before updateSources (read-replace-write order)", async () => {
+    // Arrange — order matters: writing without fetching first would clobber
+    // the rest of sources.yaml. Pin this with call order tracking.
+    const order: string[] = [];
+    const fetchSources = vi.fn().mockImplementation(async () => {
+      order.push("fetch");
+      return { yaml_text: "github_repos: []\n" };
+    });
+    const updateSources = vi.fn().mockImplementation(async () => {
+      order.push("update");
+    });
+
+    // Act
+    await seedGithubRepos(["Software Engineer"], updateSources, fetchSources);
+
+    // Assert
+    expect(order).toEqual(["fetch", "update"]);
+  });
+});
+
+// ─── detectSimplifyCategories — extended keyword + ordering coverage ──────────
+
+describe("detectSimplifyCategories — keyword and ordering coverage", () => {
+  // Each keyword should independently classify the role into the correct
+  // category. The handoff promised "case-insensitive substring match" so we
+  // verify the contract for every keyword the source declares, not just the
+  // few that were spot-checked.
+  it.each([
+    ["electrical engineer"],
+    ["hardware engineer"],
+    ["embedded software"],
+    ["FPGA Designer"],
+    ["RF Engineer"],
+    ["VLSI Intern"],
+    ["ECE Intern"],
+    ["Circuit Design Intern"],
+    ["PCB Engineer"],
+    ["Firmware Developer"],
+  ])("classifies %s as Hardware", (role) => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([role]);
+
+    // Assert
+    expect(result).toContain("Hardware");
+  });
+
+  it.each([
+    ["software engineer"],
+    ["SWE Intern"],
+    ["Frontend Developer"],
+    ["Backend Engineer"],
+    ["Fullstack Engineer"],
+    ["Full-Stack Developer"],
+    ["Web Developer"],
+    ["Mobile Developer"],
+    ["iOS Developer"],
+    ["Android Engineer"],
+  ])("classifies %s as Software", (role) => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([role]);
+
+    // Assert
+    expect(result).toContain("Software");
+  });
+
+  it.each([
+    ["Product Manager Intern"],
+    ["Product Management Associate"],
+    ["Program Manager"],
+  ])("classifies %s as PM", (role) => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([role]);
+
+    // Assert
+    expect(result).toContain("PM");
+  });
+
+  it.each([
+    ["Quant Researcher"],
+    ["Quantitative Analyst"],
+  ])("classifies %s as Quant", (role) => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([role]);
+
+    // Assert
+    expect(result).toContain("Quant");
+  });
+
+  it("returns categories in stable Software-Hardware-PM-Quant order when all four match", () => {
+    // Arrange / Act — order is part of the contract; users who scan the YAML
+    // will rely on it being deterministic when comparing pre/post-onboarding.
+    const result = detectSimplifyCategories([
+      "Quantitative Researcher",
+      "Product Manager",
+      "Hardware Engineer",
+      "Software Engineer",
+    ]);
+
+    // Assert
+    expect(result).toEqual(["Software", "Hardware", "PM", "Quant"]);
+  });
+
+  it("does not duplicate a category when multiple matching keywords appear", () => {
+    // Arrange / Act — "embedded firmware" matches both `embedded` and `firmware`
+    // keywords; output should still contain a single "Hardware" entry.
+    const result = detectSimplifyCategories(["Embedded Firmware Engineer"]);
+
+    // Assert
+    expect(result).toEqual(["Hardware"]);
+  });
+
+  it("does not duplicate categories across multiple matching role strings", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([
+      "Software Engineer",
+      "Frontend Developer",
+      "Backend Engineer",
+    ]);
+
+    // Assert
+    expect(result).toEqual(["Software"]);
+  });
+
+  it("ignores empty strings inside the roles array", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["", "Software Engineer", ""]);
+
+    // Assert
+    expect(result).toEqual(["Software"]);
+  });
+
+  it("returns [] when every entry is an empty string", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["", "", ""]);
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  it("returns [] when entries are whitespace-only", () => {
+    // Arrange / Act — the function does not trim, so whitespace strings
+    // simply contribute spaces to `combined`; no keyword can match.
+    const result = detectSimplifyCategories(["   ", "\t\n"]);
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  // Documented behavior pin: substring matching is intentional. The handoff
+  // notes "no realistic job title triggers this" — we pin the current
+  // behavior so anyone who later switches to word-boundary matching
+  // explicitly chooses to and updates this test.
+  it("matches substring 'rf' inside an unrelated word (substring contract)", () => {
+    // Arrange — "Performance" contains "rf"; this currently classifies
+    // as Hardware. If this test fails, you have changed the matching
+    // strategy from substring to word-boundary — update this test
+    // intentionally, not as a side effect.
+    const result = detectSimplifyCategories(["Performance Engineer"]);
+
+    // Assert
+    expect(result).toContain("Hardware");
+  });
+
+  it.each([
+    ["Mechanical Engineering Intern"],
+    ["Civil Engineering"],
+    ["Biomedical Engineer"],
+    ["Chemical Engineer"],
+    ["Marketing Analyst"],
+    ["Financial Analyst"],
+    ["Project Coordinator"],
+    ["Data Analyst"],
+    ["Sales Associate"],
+    ["Operations Associate"],
+  ])("returns [] for unrelated role %s", (role) => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([role]);
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  it("matches lowercase keyword when role is fully UPPERCASE", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["BACKEND DEVELOPER"]);
+
+    // Assert
+    expect(result).toEqual(["Software"]);
+  });
+
+  it("matches mixed-case role when keyword is in the middle of a sentence", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([
+      "Looking for opportunities in Embedded systems and similar",
+    ]);
+
+    // Assert
+    expect(result).toEqual(["Hardware"]);
+  });
+});
+
+// ─── buildGithubReposBlock — mutation-resistant assertions ────────────────────
+
+describe("buildGithubReposBlock — structure and ordering", () => {
+  it("contains the literal substring 'categories:' zero times when categories is empty", () => {
+    // Arrange / Act — kills mutants that emit "    categories:\n" with no
+    // entries; the empty case must omit the key entirely so YAML parsers
+    // produce `null` rather than `[]` for the categories field.
+    const yaml = buildGithubReposBlock([]);
+
+    // Assert
+    expect(yaml.includes("categories:")).toBe(false);
+  });
+
+  it("ends with a newline so subsequent appended content is not merged into the last category line", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock(["Software"]);
+
+    // Assert
+    expect(yaml.endsWith("\n")).toBe(true);
+  });
+
+  it("preserves the order of categories as written by the caller", () => {
+    // Arrange / Act — the function must not sort or dedupe; output order is
+    // the responsibility of detectSimplifyCategories upstream.
+    const yaml = buildGithubReposBlock(["Quant", "Hardware", "Software"]);
+
+    // Assert
+    const quantIdx = yaml.indexOf('- "Quant"');
+    const hardwareIdx = yaml.indexOf('- "Hardware"');
+    const softwareIdx = yaml.indexOf('- "Software"');
+    expect(quantIdx).toBeGreaterThan(0);
+    expect(hardwareIdx).toBeGreaterThan(quantIdx);
+    expect(softwareIdx).toBeGreaterThan(hardwareIdx);
+  });
+
+  it("emits exactly one category line per category entry", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock(["Software", "Hardware", "PM", "Quant"]);
+
+    // Assert — counts must match exactly so duplicates introduced by a
+    // bad map() refactor are caught.
+    const hardwareMatches = yaml.match(/- "Hardware"/g) ?? [];
+    expect(hardwareMatches).toHaveLength(1);
+    const softwareMatches = yaml.match(/- "Software"/g) ?? [];
+    expect(softwareMatches).toHaveLength(1);
+  });
+
+  it("indents categories list with four spaces and entries with six", () => {
+    // Arrange / Act — YAML indentation is structural; pin the exact widths.
+    const yaml = buildGithubReposBlock(["Hardware"]);
+
+    // Assert
+    expect(yaml).toContain("    categories:\n");
+    expect(yaml).toContain('      - "Hardware"');
+  });
+
+  it("uses dev (not main) as the SimplifyJobs branch — pinned regression", () => {
+    // Arrange / Act — the SimplifyJobs internships repo splits hardware vs
+    // software listings on the dev branch. Switching to main silently halves
+    // the data set, which is exactly the bug Issue #5 fixed.
+    const yaml = buildGithubReposBlock(["Hardware"]);
+
+    // Assert
+    expect(yaml).toContain("branch: dev");
+    expect(yaml).not.toContain("branch: main");
+  });
+});
+
+// ─── seedGithubRepos × saveWatchlistCompanies coexistence ─────────────────────
+
+describe("seedGithubRepos × saveWatchlistCompanies coexistence", () => {
+  it("saveWatchlistCompanies does not clobber a pre-existing github_repos block", async () => {
+    // Arrange — this is the exact regression flagged in the testing handoff:
+    // the two functions target different YAML keys, and writing one must not
+    // affect the other. The watchlist regex `(greenhouse_companies:...)`
+    // must not bleed into the github_repos block below it.
+    vi.spyOn(globalThis, "fetch");
+    const seededYaml =
+      "github_repos:\n" +
+      "  - owner: SimplifyJobs\n" +
+      "    repo: Summer2026-Internships\n" +
+      "    branch: dev\n" +
+      "    json_path: .github/scripts/listings.json\n" +
+      "    enabled: true\n" +
+      '    categories:\n      - "Hardware"\n' +
+      "greenhouse_companies:\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: seededYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act — write a watchlist into YAML that already contains a seeded
+    // github_repos block.
+    await saveWatchlistCompanies("Stripe", updateSources, fetchSources);
+
+    // Assert — every part of the github_repos block survives.
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("github_repos:");
+    expect(written).toContain("owner: SimplifyJobs");
+    expect(written).toContain("repo: Summer2026-Internships");
+    expect(written).toContain("branch: dev");
+    expect(written).toContain('- "Hardware"');
+    expect(written).toContain("  Stripe:");
+  });
+
+  it("seedGithubRepos does not clobber a pre-existing greenhouse_companies block (with entries)", async () => {
+    // Arrange — opposite direction: greenhouse_companies has real entries
+    // when seedGithubRepos runs. Every entry must survive.
+    const existing =
+      "greenhouse_companies:\n" +
+      '  Stripe:\n    greenhouse_id: "stripe"\n    priority: 3\n' +
+      '  Anthropic:\n    greenhouse_id: "anthropic"\n    priority: 3\n' +
+      "github_repos: []\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existing });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineer"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("  Stripe:");
+    expect(written).toContain('    greenhouse_id: "stripe"');
+    expect(written).toContain("  Anthropic:");
+    expect(written).toContain('    greenhouse_id: "anthropic"');
+    expect(written).toContain("owner: SimplifyJobs");
+  });
 });
