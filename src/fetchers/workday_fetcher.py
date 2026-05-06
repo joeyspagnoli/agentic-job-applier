@@ -524,6 +524,9 @@ class WorkdayFetcher(BaseFetcher):
         if not html:
             return ""
         text = re.sub(r"<[^>]+>", " ", html)
+        # The tag regex only matches balanced pairs; scrub stray angle
+        # brackets so cleaned descriptions never leak into prompt context.
+        text = text.replace("<", " ").replace(">", " ")
         return re.sub(r"\s+", " ", text).strip()
 
     @staticmethod
