@@ -1,0 +1,31 @@
+{
+  "requisitionList": [
+    {
+      "contestNo": "10006",
+      "column": [
+        "Human Resources Officer",
+        "",
+        "WIPO",
+        "{\"city\":\"Geneva\",\"state\":\"\",\"country\":\"Switzerland\"}",
+        "HR",
+        "2026-04-23"
+      ]
+    },
+    {
+      "contestNo": "10007",
+      "column": [
+        "Program Officer",
+        "",
+        "WIPO",
+        "{\"city\":\"Geneva\",\"state\":\"\",\"country\":\"Switzerland\"}",
+        "Programs",
+        "2026-04-22"
+      ]
+    }
+  ],
+  "pagingData": {
+    "totalCount": 7,
+    "pageSize": 5,
+    "currentPageNumber": 2
+  }
+}

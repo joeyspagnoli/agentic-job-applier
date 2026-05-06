@@ -320,6 +320,266 @@ workday_companies:
     industry: government_contractors
 
 
+# ── Taleo Enterprise ATS companies ──────────────────────────────────────────
+# Free, built-in scraper — no API key needed. Hits the public Taleo JSON
+# endpoint used by large enterprises (government contractors, pharma, finance).
+# Run scripts/discover_taleo_portals.py once to fill in portal_id values.
+# portal_id: null means the app discovers it automatically (one extra request).
+# 61 companies pre-seeded below (verified 2026-05-05). Comment out any you
+# don't need. TBE companies (.tbe.taleo.net) are not yet supported.
+
+taleo_companies:
+  # ── Healthcare / Pharma ────────────────────────────────────────────────────
+  "Johnson & Johnson":
+    tenant_id: jnjc
+    career_section: iam
+    portal_id: null
+  Abbott Laboratories:
+    tenant_id: abbott
+    career_section: "2"
+    portal_id: null
+  Medtronic:
+    tenant_id: medtronic
+    career_section: "2"
+    portal_id: null
+  Baxter International:
+    tenant_id: baxter
+    career_section: "2"
+    portal_id: null
+  Edwards Lifesciences:
+    tenant_id: edwards
+    career_section: edwards_external_cs
+    portal_id: null
+  HCA Healthcare (Taleo):
+    tenant_id: hca
+    career_section: 0hca
+    portal_id: null
+  Tenet Healthcare:
+    tenant_id: tenet
+    career_section: 10100mb
+    portal_id: null
+  Merck (Taleo):
+    tenant_id: merck
+    career_section: internal_msd_10880
+    portal_id: null
+  AbbVie:
+    tenant_id: abbvie
+    career_section: "5"
+    portal_id: null
+  "Bristol Myers Squibb":
+    tenant_id: bms
+    career_section: "ejs+external+career+site+w2fprofile+ques+v20090518"
+    portal_id: null
+
+  # ── Financial / Insurance ──────────────────────────────────────────────────
+  Morgan Stanley (Taleo):
+    tenant_id: ms
+    career_section: "2"
+    portal_id: null
+  Citigroup (Taleo):
+    tenant_id: citi
+    career_section: "2"
+    portal_id: null
+  US Bancorp:
+    tenant_id: usbank
+    career_section: "10000"
+    portal_id: null
+  "Prudential Financial":
+    tenant_id: pru
+    career_section: pru_campus_core
+    portal_id: null
+  "Aetna (CVS Health)":
+    tenant_id: acthealth
+    career_section: external
+    portal_id: null
+  Cigna (Taleo):
+    tenant_id: cigna
+    career_section: cg_external
+    portal_id: null
+  Humana (Taleo):
+    tenant_id: humana
+    career_section: externalus
+    portal_id: null
+  "Anthem (Elevance Health)":
+    tenant_id: antheminc
+    career_section: "10021"
+    portal_id: null
+  Hartford Financial:
+    tenant_id: thehartford
+    career_section: "2"
+    portal_id: null
+  "JPMorgan Chase (Taleo)":
+    tenant_id: jpmchase
+    career_section: "10140"
+    portal_id: null
+
+  # ── Manufacturing / Industrial ─────────────────────────────────────────────
+  Emerson Electric (Taleo):
+    tenant_id: emerson
+    career_section: ex
+    portal_id: null
+  Eaton Corporation:
+    tenant_id: eaton
+    career_section: ex
+    portal_id: null
+  Textron:
+    tenant_id: textron
+    career_section: textron
+    portal_id: null
+  Rexnord:
+    tenant_id: rexnord
+    career_section: "2"
+    portal_id: null
+  Curtiss-Wright:
+    tenant_id: cwt
+    career_section: ex
+    portal_id: null
+  TransDigm Group:
+    tenant_id: tgh
+    career_section: ex
+    portal_id: null
+  Heico Corporation:
+    tenant_id: hccs
+    career_section: "6"
+    portal_id: null
+  "Moog Inc (External)":
+    tenant_id: moogrecruit
+    career_section: ex
+    portal_id: null
+  "Moog Inc (Internal)":
+    tenant_id: moogrecruit
+    career_section: in
+    portal_id: null
+
+  # ── Energy / Chemicals ─────────────────────────────────────────────────────
+  ConocoPhillips (Taleo):
+    tenant_id: cop
+    career_section: "10000"
+    portal_id: null
+  Dow Chemical:
+    tenant_id: dow
+    career_section: "2"
+    portal_id: null
+  BASF US:
+    tenant_id: basf
+    career_section: "2"
+    portal_id: null
+  "Linde (via Praxair)":
+    tenant_id: praxair
+    career_section: "2"
+    portal_id: null
+  DCP Midstream:
+    tenant_id: dcpmidstream
+    career_section: ex
+    portal_id: null
+  Baker Hughes:
+    tenant_id: bakerhughes
+    career_section: bhiexternal
+    portal_id: null
+  BP US:
+    tenant_id: bt
+    career_section: external
+    portal_id: null
+
+  # ── Retail / Tech / Telecom / Government ──────────────────────────────────
+  "AT&T (Main)":
+    tenant_id: att
+    career_section: "10161"
+    portal_id: null
+  "AT&T (Secondary)":
+    tenant_id: att
+    career_section: "10168"
+    portal_id: null
+  T-Mobile:
+    tenant_id: tmm
+    career_section: "10020"
+    portal_id: null
+  Charter Communications:
+    tenant_id: charter
+    career_section: charter_external_career_site
+    portal_id: null
+  Oracle (Taleo):
+    tenant_id: oracle
+    career_section: "2"
+    portal_id: null
+  "Leidos (External)":
+    tenant_id: leidos
+    career_section: 1leidos_ext
+    portal_id: null
+  "Leidos (Security)":
+    tenant_id: leidos
+    career_section: 3leidos_sec
+    portal_id: null
+  SAIC:
+    tenant_id: saicjobs
+    career_section: ex
+    portal_id: null
+  "SAIC (Security)":
+    tenant_id: saicjobs
+    career_section: 3saic_sec
+    portal_id: null
+  "CACI International (Taleo)":
+    tenant_id: caci
+    career_section: "2"
+    portal_id: null
+  DXC Technology:
+    tenant_id: dxc
+    career_section: "2"
+    portal_id: null
+  Target HQ:
+    tenant_id: target
+    career_section: tgt_hq
+    portal_id: null
+  "Target (Graduate)":
+    tenant_id: target
+    career_section: tgt_hq_grad
+    portal_id: null
+  Cintas:
+    tenant_id: cintas
+    career_section: "10000"
+    portal_id: null
+  "ADT Security (External)":
+    tenant_id: adt
+    career_section: external
+    portal_id: null
+  "ADT Security (Mobile)":
+    tenant_id: adt
+    career_section: exmobile
+    portal_id: null
+  Jacobs Engineering:
+    tenant_id: jacobs
+    career_section: ex
+    portal_id: null
+  KBR (Taleo):
+    tenant_id: kbr
+    career_section: "6"
+    portal_id: null
+  Parsons Corporation (Taleo):
+    tenant_id: parsons
+    career_section: TCN
+    portal_id: null
+  "Burns & McDonnell (External)":
+    tenant_id: burnsmcdonn
+    career_section: external
+    portal_id: null
+  "Burns & McDonnell (Campus)":
+    tenant_id: burnsmcdonn
+    career_section: campus
+    portal_id: null
+  "Booz Allen Hamilton (Taleo)":
+    tenant_id: bah
+    career_section: "10020"
+    portal_id: null
+  "Northrop Grumman (Professional)":
+    tenant_id: ngc
+    career_section: ngc_pro
+    portal_id: null
+  "Northrop Grumman (Campus)":
+    tenant_id: ngc
+    career_section: ngc_coll
+    portal_id: null
+
+
 # ── Job Boards (Indeed, Glassdoor, LinkedIn) ─────────────────────────────────
 # Powered by JobSpy — no API key required for Indeed and Glassdoor.
 

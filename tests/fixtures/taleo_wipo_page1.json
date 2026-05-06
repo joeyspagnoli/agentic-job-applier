@@ -1,0 +1,64 @@
+{
+  "requisitionList": [
+    {
+      "contestNo": "10001",
+      "column": [
+        "Software Engineer",
+        "",
+        "WIPO",
+        "{\"city\":\"Geneva\",\"state\":\"\",\"country\":\"Switzerland\"}",
+        "IT",
+        "2026-04-28"
+      ]
+    },
+    {
+      "contestNo": "10002",
+      "column": [
+        "Legal Officer",
+        "",
+        "WIPO",
+        "{\"city\":\"Geneva\",\"state\":\"\",\"country\":\"Switzerland\"}",
+        "Legal",
+        "2026-04-27"
+      ]
+    },
+    {
+      "contestNo": "10003",
+      "column": [
+        "Data Analyst",
+        "",
+        "WIPO",
+        "{\"city\":\"Geneva\",\"state\":\"\",\"country\":\"Switzerland\"}",
+        "IT",
+        "2026-04-26"
+      ]
+    },
+    {
+      "contestNo": "10004",
+      "column": [
+        "Finance Officer",
+        "",
+        "WIPO",
+        "{\"city\":\"Geneva\",\"state\":\"\",\"country\":\"Switzerland\"}",
+        "Finance",
+        "2026-04-25"
+      ]
+    },
+    {
+      "contestNo": "10005",
+      "column": [
+        "Communications Specialist",
+        "",
+        "WIPO",
+        "{\"city\":\"New York\",\"state\":\"NY\",\"country\":\"United States\"}",
+        "Communications",
+        "2026-04-24"
+      ]
+    }
+  ],
+  "pagingData": {
+    "totalCount": 7,
+    "pageSize": 5,
+    "currentPageNumber": 1
+  }
+}
