@@ -10,6 +10,7 @@ from src.fetchers.fuzzy_dedup import is_fuzzy_duplicate, normalize_company_name
 from src.fetchers.github_repo_fetcher import GitHubRepoFetcher
 from src.fetchers.greenhouse_fetcher import GreenhouseFetcher
 from src.fetchers.himalayas_fetcher import HimalayasFetcher
+from src.fetchers.icims_fetcher import ICIMSFetcher
 from src.fetchers.jobspy_fetcher import JobSpyFetcher
 from src.fetchers.lever_fetcher import LeverFetcher
 from src.fetchers.liveness_checker import LivenessResult, check_liveness
@@ -30,6 +31,7 @@ __all__ = [
     "GitHubRepoFetcher",
     "GreenhouseFetcher",
     "HimalayasFetcher",
+    "ICIMSFetcher",
     "JobSpyFetcher",
     "LeverFetcher",
     "LinkedInFetcher",

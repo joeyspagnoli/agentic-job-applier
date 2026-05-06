@@ -373,6 +373,92 @@ workday_companies:
     industry: government_contractors
 
 
+# ── iCIMS companies (verified 2026-05-05 via 5-agent parallel sweep) ────────
+# Subdomain is stored verbatim; fetcher prepends https://.
+# Fail-soft 404 handling covers any stale entries.
+# Priority: 3 = healthcare, 4 = retail/financial/higher-ed
+#
+# Candidates for future verification (DNS/HTTP redirect check needed):
+#   Dollar Tree (dollartreetogo.icims.com), AutoZone, Ross Stores,
+#   Burlington (may have moved), MetLife, Prudential, Unum
+icims_companies:
+  # ── Healthcare ──────────────────────────────────────────────────────────────
+  # Note: HCA Healthcare also appears in workday_companies — this subdomain
+  # targets a separate iCIMS-hosted portal (hcmhcares subsidiary).
+  HCA Healthcare iCIMS:
+    icims_subdomain: "careers-hcmhcares.icims.com"
+    industry: healthcare
+    priority: 3
+
+  CommonSpirit Health:
+    icims_subdomain: "careers-commonspirit.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Baylor Scott & White Health:
+    icims_subdomain: "careers-baylorscottandwhiteeh.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Providence Health:
+    icims_subdomain: "careers-phc.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Ascension Wisconsin Hospital:
+    icims_subdomain: "careers-ascensionwisconsinhospital.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Ascension Jobs1:
+    icims_subdomain: "ascensionjobs1-ascension.icims.com"
+    industry: healthcare
+    priority: 3
+
+  # ── Retail ──────────────────────────────────────────────────────────────────
+  Dollar General:
+    icims_subdomain: "jobs-dollargeneral.icims.com"
+    industry: retail
+    priority: 4
+
+  PetSmart:
+    icims_subdomain: "careers-petsmart.icims.com"
+    industry: retail
+    priority: 4
+
+  Burlington Stores:
+    icims_subdomain: "corporate-burlingtonstores.icims.com"
+    industry: retail
+    priority: 4
+
+  # ── Financial / Insurance ───────────────────────────────────────────────────
+  Aflac:
+    icims_subdomain: "careers-aflac.icims.com"
+    industry: insurance
+    priority: 4
+
+  Western & Southern Financial:
+    icims_subdomain: "careers-westernsouthern.icims.com"
+    industry: financial
+    priority: 4
+
+  # ── Higher Education ────────────────────────────────────────────────────────
+  UCLA:
+    icims_subdomain: "careers-ucla.icims.com"
+    industry: higher_ed
+    priority: 4
+
+  Emory University:
+    icims_subdomain: "staff-emory.icims.com"
+    industry: higher_ed
+    priority: 4
+
+  NYU:
+    icims_subdomain: "uscareers-nyu.icims.com"
+    industry: higher_ed
+    priority: 4
+
+
 job_boards:
   Indeed:
     enabled: true
