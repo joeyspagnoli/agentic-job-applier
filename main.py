@@ -223,6 +223,7 @@ async def _insert_with_filters(
     *,
     db: DatabaseManager,
     job_filter: JobFilter | None,
+    counters: list[int] | None = None,
 ) -> tuple[int, int, int, int]:
     """Insert jobs after applying pre-gate filters.
 
@@ -233,15 +234,15 @@ async def _insert_with_filters(
         jobs: Deduplicated job postings ready for filtering and insertion.
         db: Connected database manager for persistence.
         job_filter: Pre-gate filter instance, or ``None`` to skip filtering.
+        counters: Optional 4-element list mutated in place as inserts happen.
+            Lets the caller observe partial progress if an insert raises.
 
     Returns:
         A tuple of ``(inserted_new, inserted_qualified, soft_filtered,
         hard_rejected)`` counts.
     """
-    inserted_new = 0
-    inserted_qualified = 0
-    soft_filtered = 0
-    hard_rejected = 0
+    if counters is None:
+        counters = [0, 0, 0, 0]
 
     for job in jobs:
         if job_filter is not None:
@@ -252,7 +253,7 @@ async def _insert_with_filters(
 
         if action == FilterAction.REJECT:
             logger.debug("Hard-rejected {}: {}", job.title, reason)
-            hard_rejected += 1
+            counters[3] += 1
             continue
 
         db_dict = job.to_db_dict()
@@ -261,22 +262,22 @@ async def _insert_with_filters(
             db_dict["status"] = "FILTERED"
             was_inserted = await db.insert_job(db_dict)
             if was_inserted:
-                soft_filtered += 1
+                counters[2] += 1
                 logger.debug("Soft-filtered {}: {}", job.title, reason)
 
         elif action == FilterAction.ACCEPT_QUALIFIED:
             db_dict["status"] = "QUALIFIED"
             was_inserted = await db.insert_job(db_dict)
             if was_inserted:
-                inserted_qualified += 1
+                counters[1] += 1
                 logger.debug("Auto-qualified {}: {}", job.title, reason)
 
         else:
             was_inserted = await db.insert_job(db_dict)
             if was_inserted:
-                inserted_new += 1
+                counters[0] += 1
 
-    return inserted_new, inserted_qualified, soft_filtered, hard_rejected
+    return counters[0], counters[1], counters[2], counters[3]
 
 
 async def fetch_greenhouse_jobs(
@@ -313,7 +314,7 @@ async def fetch_greenhouse_jobs(
 
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -326,10 +327,11 @@ async def fetch_greenhouse_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -355,13 +357,13 @@ async def fetch_greenhouse_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
@@ -400,7 +402,7 @@ async def fetch_workday_jobs(
 
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -413,10 +415,11 @@ async def fetch_workday_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -443,13 +446,13 @@ async def fetch_workday_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
@@ -526,7 +529,7 @@ async def fetch_jobspy_jobs(
             for location in locations:
                 crawl_id: int | None = None
                 crawl_jobs_found = 0
-                crawl_jobs_new = 0
+                partial_counters = [0, 0, 0, 0]
                 start_time = time.time()
 
                 try:
@@ -546,10 +549,11 @@ async def fetch_jobspy_jobs(
                     crawl_jobs_found = len(jobs)
                     new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                    counts = await _insert_with_filters(
+                    await _insert_with_filters(
                         new_jobs, db=db, job_filter=job_filter,
+                        counters=partial_counters,
                     )
-                    crawl_jobs_new = counts[0] + counts[1]
+                    crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                     duration = time.time() - start_time
                     log_crawl_summary(
@@ -579,13 +583,13 @@ async def fetch_jobspy_jobs(
                         await db.complete_crawl(
                             crawl_id=crawl_id,
                             jobs_found=crawl_jobs_found,
-                            jobs_new=crawl_jobs_new,
+                            jobs_new=partial_counters[0] + partial_counters[1],
                             error=str(exc),
                         )
                     sources_failed += 1
                 finally:
                     total_discovered += crawl_jobs_found
-                    total_new += crawl_jobs_new
+                    total_new += partial_counters[0] + partial_counters[1]
 
                 # A short delay reduces the chance of hammering job boards with
                 # back-to-back requests from many search variants.
@@ -628,7 +632,7 @@ async def fetch_lever_jobs(
 
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -641,10 +645,11 @@ async def fetch_lever_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -662,13 +667,13 @@ async def fetch_lever_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
@@ -707,7 +712,7 @@ async def fetch_ashby_jobs(
 
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -720,10 +725,11 @@ async def fetch_ashby_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -741,13 +747,13 @@ async def fetch_ashby_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
@@ -791,7 +797,7 @@ async def fetch_github_repo_jobs(
         repo_label = f"{owner}/{repo_name}"
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -810,10 +816,11 @@ async def fetch_github_repo_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -832,13 +839,13 @@ async def fetch_github_repo_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
@@ -912,7 +919,7 @@ async def fetch_linkedin_jobs(
 
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -936,10 +943,11 @@ async def fetch_linkedin_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -960,13 +968,13 @@ async def fetch_linkedin_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
@@ -1006,7 +1014,7 @@ async def fetch_career_page_jobs(
 
         crawl_id: int | None = None
         crawl_jobs_found = 0
-        crawl_jobs_new = 0
+        partial_counters = [0, 0, 0, 0]
         start_time = time.time()
 
         try:
@@ -1021,10 +1029,11 @@ async def fetch_career_page_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
-                counts = await _insert_with_filters(
+                await _insert_with_filters(
                     new_jobs, db=db, job_filter=job_filter,
+                    counters=partial_counters,
                 )
-                crawl_jobs_new = counts[0] + counts[1]
+                crawl_jobs_new = partial_counters[0] + partial_counters[1]
 
                 duration = time.time() - start_time
                 log_crawl_summary(
@@ -1043,13 +1052,13 @@ async def fetch_career_page_jobs(
                 await db.complete_crawl(
                     crawl_id=crawl_id,
                     jobs_found=crawl_jobs_found,
-                    jobs_new=crawl_jobs_new,
+                    jobs_new=partial_counters[0] + partial_counters[1],
                     error=str(exc),
                 )
             sources_failed += 1
         finally:
             total_discovered += crawl_jobs_found
-            total_new += crawl_jobs_new
+            total_new += partial_counters[0] + partial_counters[1]
 
     return total_discovered, total_new, sources_success, sources_failed
 
