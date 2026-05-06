@@ -67,6 +67,51 @@ const STEP_LABELS = [
   "Watchlist",
 ] as const;
 
+/**
+ * Keywords in target role strings that indicate a hardware or electrical engineering domain.
+ *
+ * @remarks
+ * SimplifyJobs uses `"Hardware"` as the category label. We detect it from role
+ * titles because EE/hardware students phrase roles very differently from software
+ * students but need the same GitHub source to return results.
+ */
+const HARDWARE_ROLE_KEYWORDS = [
+  "electrical",
+  "hardware",
+  "embedded",
+  "fpga",
+  "rf",
+  "vlsi",
+  "ece",
+  "circuit",
+  "pcb",
+  "firmware",
+] as const;
+
+/** Keywords in target role strings that indicate a software engineering domain. */
+const SOFTWARE_ROLE_KEYWORDS = [
+  "software",
+  "swe",
+  "frontend",
+  "backend",
+  "fullstack",
+  "full-stack",
+  "web developer",
+  "mobile",
+  "ios developer",
+  "android",
+] as const;
+
+/** Keywords in target role strings that indicate a product management domain. */
+const PM_ROLE_KEYWORDS = [
+  "product manager",
+  "product management",
+  "program manager",
+] as const;
+
+/** Keywords in target role strings that indicate a quantitative finance domain. */
+const QUANT_ROLE_KEYWORDS = ["quant", "quantitative"] as const;
+
 /** Draft state for step 1: basic profile info. */
 interface ProfileDraft {
   fullName: string;
@@ -521,6 +566,118 @@ export function buildWatchlistWarning(result: WatchlistSaveResult): {
 }
 
 /**
+ * Detect which SimplifyJobs categories apply to the user's target roles.
+ *
+ * @remarks
+ * Performs a case-insensitive keyword scan across all role strings. When no
+ * known keywords match (e.g. mechanical, civil, biomedical), an empty array is
+ * returned so the caller omits the `categories:` field entirely, letting all
+ * SimplifyJobs listings through rather than returning zero results.
+ *
+ * @param targetRoles - Role strings entered by the user (one per element).
+ * @returns A subset of `["Software", "Hardware", "PM", "Quant"]` that matches
+ *   the detected domain, or `[]` when the domain is unrecognised.
+ *
+ * @example
+ * ```ts
+ * detectSimplifyCategories(["Electrical Engineering Intern"]);
+ * // → ["Hardware"]
+ *
+ * detectSimplifyCategories(["Software Engineering Intern", "ML Engineer"]);
+ * // → ["Software"]
+ *
+ * detectSimplifyCategories(["Mechanical Engineering Intern"]);
+ * // → []  (all categories pass through)
+ * ```
+ */
+export function detectSimplifyCategories(targetRoles: string[]): string[] {
+  const combined = targetRoles.join(" ").toLowerCase();
+  const hasKeyword = (keywords: readonly string[]): boolean =>
+    keywords.some((kw) => combined.includes(kw));
+
+  const detected: string[] = [];
+  if (hasKeyword(SOFTWARE_ROLE_KEYWORDS)) detected.push("Software");
+  if (hasKeyword(HARDWARE_ROLE_KEYWORDS)) detected.push("Hardware");
+  if (hasKeyword(PM_ROLE_KEYWORDS)) detected.push("PM");
+  if (hasKeyword(QUANT_ROLE_KEYWORDS)) detected.push("Quant");
+  return detected;
+}
+
+/**
+ * Build the `github_repos:` YAML block for the SimplifyJobs internship source.
+ *
+ * @remarks
+ * When `categories` is empty, the `categories:` field is omitted entirely so
+ * that the {@link GitHubRepoFetcher} receives `null` (no filter) and returns
+ * all listings. When `categories` is non-empty, only matching listings pass.
+ *
+ * @param categories - SimplifyJobs category strings to include, or `[]` for all.
+ * @returns A YAML string fragment starting with `github_repos:\n`.
+ *
+ * @example
+ * ```ts
+ * buildGithubReposBlock([]);
+ * // → "github_repos:\n  - owner: SimplifyJobs\n    ..."  (no categories line)
+ *
+ * buildGithubReposBlock(["Hardware"]);
+ * // → "github_repos:\n  - owner: SimplifyJobs\n    ...\n    categories:\n      - \"Hardware\"\n"
+ * ```
+ */
+export function buildGithubReposBlock(categories: string[]): string {
+  const categoriesYaml =
+    categories.length === 0
+      ? ""
+      : `    categories:\n${categories.map((c) => `      - "${c}"`).join("\n")}\n`;
+  return (
+    `github_repos:\n` +
+    `  - owner: SimplifyJobs\n` +
+    `    repo: Summer2026-Internships\n` +
+    `    branch: dev\n` +
+    `    json_path: .github/scripts/listings.json\n` +
+    `    enabled: true\n` +
+    categoriesYaml
+  );
+}
+
+/**
+ * Write the `github_repos` block into the sources YAML, replacing any
+ * existing entry or appending when the key is absent.
+ *
+ * @remarks
+ * Mirrors the fetch-replace-write pattern used by {@link saveWatchlistCompanies}.
+ * Called during onboarding so every user gets the SimplifyJobs source
+ * configured for their domain rather than the static `["Software"]` default
+ * that shipped in the distribution template.
+ *
+ * The replacement regex matches both the inline form (`github_repos: []`) and
+ * the multi-line block form, so re-running onboarding is idempotent.
+ *
+ * @param targetRoles - Role strings from the user's Target Roles step.
+ * @param updateSources - API function to persist the merged sources YAML.
+ * @param fetchSources - API function to read the current sources YAML.
+ * @returns A promise that resolves once the updated YAML has been persisted.
+ */
+export async function seedGithubRepos(
+  targetRoles: string[],
+  updateSources: (yaml: string) => Promise<unknown>,
+  fetchSources: () => Promise<{ yaml_text: string }>,
+): Promise<void> {
+  const categories = detectSimplifyCategories(targetRoles);
+  const reposBlock = buildGithubReposBlock(categories);
+  const current = await fetchSources();
+  let updatedYaml = current.yaml_text ?? "";
+  if (/github_repos:/.test(updatedYaml)) {
+    updatedYaml = updatedYaml.replace(
+      /github_repos:.*\n(?:[ \t][^\n]*\n)*/,
+      reposBlock,
+    );
+  } else {
+    updatedYaml = updatedYaml + "\n" + reposBlock;
+  }
+  await updateSources(updatedYaml);
+}
+
+/**
  * Render a company name as a YAML mapping key safe for the
  * `greenhouse_companies` block.
  *
@@ -665,6 +822,8 @@ export function OnboardingPage(): JSX.Element {
       // Bug 5 fix: pass roles so strongestAreas populate soft_filters.positive_keywords
       const filtersYaml = buildFiltersYaml(filters, roles);
       await updateFiltersYaml(filtersYaml);
+
+      await seedGithubRepos(splitLines(roles.targetRoles), updateSourcesYaml, fetchSourcesSettings);
 
       // Bug 4 fix: validate Greenhouse slugs; capture unverified + network
       // failures so each gets its own message in the UI below.

@@ -5,7 +5,8 @@
  * {@link ./OnboardingPage}.
  *
  * @remarks
- * Covers the pure helpers that drive the watchlist and filter logic:
+ * Covers the pure helpers that drive the watchlist, filter, and GitHub repo
+ * seeding logic:
  *
  * - {@link buildFiltersYaml} — must emit a `soft_filters` block whose
  *   `positive_keywords` entries come from `roles.strongestAreas`.
@@ -18,15 +19,24 @@
  *   `network_error`, and return the correctly partitioned result.
  * - {@link buildWatchlistWarning} — must return `{ warning, notOnGreenhouseWarning }`
  *   with distinct copy for each failure mode.
+ * - {@link detectSimplifyCategories} — must return the correct SimplifyJobs
+ *   category labels for known role keywords, and `[]` for unrecognised domains.
+ * - {@link buildGithubReposBlock} — must emit valid YAML with or without a
+ *   `categories:` list depending on whether categories are provided.
+ * - {@link seedGithubRepos} — must replace an existing `github_repos:` block or
+ *   append one when absent, then persist the result via `updateSources`.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildFiltersYaml,
+  buildGithubReposBlock,
   buildWatchlistWarning,
+  detectSimplifyCategories,
   resolveGreenhouseSlug,
   saveWatchlistCompanies,
+  seedGithubRepos,
   validateGreenhouseSlug,
   type FiltersDraft,
   type RolesDraft,
@@ -1023,5 +1033,221 @@ describe("buildWatchlistWarning", () => {
     expect(warning).toBe(
       "Could not verify Greenhouse IDs for: Acme. Slugs were saved; correct them in Settings → Sources. Could not reach Greenhouse to verify: Stripe. Slugs were saved as-is; re-verify from Settings → Sources once your connection is restored.",
     );
+  });
+});
+
+// ─── detectSimplifyCategories ─────────────────────────────────────────────────
+
+describe("detectSimplifyCategories", () => {
+  it("returns ['Software'] for a plain software engineering role", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Software Engineering Intern"]);
+
+    // Assert
+    expect(result).toEqual(["Software"]);
+  });
+
+  it("returns ['Hardware'] for an electrical engineering role", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Electrical Engineering Intern"]);
+
+    // Assert
+    expect(result).toEqual(["Hardware"]);
+  });
+
+  it("returns ['Hardware'] for a firmware role", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Firmware Engineer"]);
+
+    // Assert
+    expect(result).toEqual(["Hardware"]);
+  });
+
+  it("returns ['Hardware'] for an embedded systems role", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Embedded Systems Intern"]);
+
+    // Assert
+    expect(result).toEqual(["Hardware"]);
+  });
+
+  it("returns ['PM'] when roles include product manager", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Product Manager Intern"]);
+
+    // Assert
+    expect(result).toEqual(["PM"]);
+  });
+
+  it("returns ['Quant'] when roles include quantitative", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Quantitative Research Intern"]);
+
+    // Assert
+    expect(result).toEqual(["Quant"]);
+  });
+
+  it("returns multiple categories when roles span domains", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([
+      "Software Engineering Intern",
+      "Hardware Engineering Intern",
+    ]);
+
+    // Assert — both domains detected; order is Software, Hardware, PM, Quant.
+    expect(result).toEqual(["Software", "Hardware"]);
+  });
+
+  it("returns [] for an unrecognised domain so all listings pass through", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["Mechanical Engineering Intern"]);
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  it("returns [] for an empty roles array", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories([]);
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  it("is case-insensitive", () => {
+    // Arrange / Act
+    const result = detectSimplifyCategories(["HARDWARE ENGINEER"]);
+
+    // Assert
+    expect(result).toEqual(["Hardware"]);
+  });
+});
+
+// ─── buildGithubReposBlock ────────────────────────────────────────────────────
+
+describe("buildGithubReposBlock", () => {
+  it("always includes the SimplifyJobs owner, repo, branch, and json_path", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock([]);
+
+    // Assert
+    expect(yaml).toContain("owner: SimplifyJobs");
+    expect(yaml).toContain("repo: Summer2026-Internships");
+    expect(yaml).toContain("branch: dev");
+    expect(yaml).toContain("json_path: .github/scripts/listings.json");
+    expect(yaml).toContain("enabled: true");
+  });
+
+  it("omits the categories field when categories is empty (no-filter mode)", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock([]);
+
+    // Assert
+    expect(yaml).not.toContain("categories:");
+  });
+
+  it("emits a categories list when one category is provided", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock(["Hardware"]);
+
+    // Assert
+    expect(yaml).toContain("    categories:\n");
+    expect(yaml).toContain('      - "Hardware"');
+  });
+
+  it("emits multiple category entries when multiple categories are provided", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock(["Software", "Hardware"]);
+
+    // Assert
+    expect(yaml).toContain('      - "Software"');
+    expect(yaml).toContain('      - "Hardware"');
+  });
+
+  it("starts with the github_repos key", () => {
+    // Arrange / Act
+    const yaml = buildGithubReposBlock([]);
+
+    // Assert
+    expect(yaml.startsWith("github_repos:\n")).toBe(true);
+  });
+});
+
+// ─── seedGithubRepos ──────────────────────────────────────────────────────────
+
+describe("seedGithubRepos", () => {
+  it("replaces an existing inline github_repos: [] entry with the built block", async () => {
+    // Arrange
+    const existingYaml = "indeed:\n  enabled: true\ngithub_repos: []\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineering Intern"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("github_repos:\n");
+    expect(written).toContain("owner: SimplifyJobs");
+    expect(written).not.toContain("github_repos: []");
+  });
+
+  it("replaces an existing block-list github_repos entry", async () => {
+    // Arrange
+    const existingYaml =
+      "indeed:\n  enabled: true\ngithub_repos:\n  - owner: OldOwner\n    repo: OldRepo\n    enabled: false\n    categories:\n      - \"Software\"\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Electrical Engineering Intern"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("owner: SimplifyJobs");
+    expect(written).not.toContain("OldOwner");
+    expect(written).toContain('- "Hardware"');
+  });
+
+  it("appends the block when github_repos is absent from the YAML", async () => {
+    // Arrange
+    const existingYaml = "indeed:\n  enabled: true\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineering Intern"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).toContain("indeed:\n  enabled: true\n");
+    expect(written).toContain("github_repos:\n");
+    expect(written).toContain("owner: SimplifyJobs");
+  });
+
+  it("omits categories when roles map to no known SimplifyJobs domain", async () => {
+    // Arrange
+    const existingYaml = "github_repos: []\n";
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Mechanical Engineering Intern"], updateSources, fetchSources);
+
+    // Assert
+    const written: string = updateSources.mock.calls[0]?.[0] as string;
+    expect(written).not.toContain("categories:");
+  });
+
+  it("calls updateSources exactly once", async () => {
+    // Arrange
+    const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "github_repos: []\n" });
+    const updateSources = vi.fn().mockResolvedValue(undefined);
+
+    // Act
+    await seedGithubRepos(["Software Engineer"], updateSources, fetchSources);
+
+    // Assert
+    expect(updateSources).toHaveBeenCalledOnce();
   });
 });
