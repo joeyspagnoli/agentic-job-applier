@@ -14,6 +14,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from .compiler import compile_resume_tex
 from .compiler import get_pdf_page_count
 from .prompts import build_tailor_instruction
@@ -52,6 +54,51 @@ class PiCodingAgentInvocationError(RuntimeError):
 
 class ResumePageFitError(RuntimeError):
     """Represent a terminal failure to satisfy one-page constraints."""
+
+
+def _load_candidate_context(
+    resume_yaml_path: str,
+) -> tuple[list[str], list[str]]:
+    """Load experience_highlights and strongest_areas from candidate_profile.yaml.
+
+    Purpose:
+        Provide the tailor agent with career-level context so it can write
+        stronger, more grounded bullets. Both files always co-locate in the
+        same config/ directory, so the profile path is derived rather than
+        stored separately in the invocation contract.
+    Args:
+        resume_yaml_path: Absolute path to the resume_content.yaml file.
+            Used to derive the sibling candidate_profile.yaml path.
+    Output:
+        Returns a (experience_highlights, strongest_areas) tuple. Either list
+        may be empty. Both are empty when the profile file is missing or
+        malformed — the caller should treat empty lists as "no context".
+    """
+
+    profile_path = Path(resume_yaml_path).parent / "candidate_profile.yaml"
+    try:
+        with open(profile_path, encoding="utf-8") as profile_file:
+            data = yaml.safe_load(profile_file)
+        if not isinstance(data, dict):
+            return [], []
+        raw_profile = data.get("profile") or {}
+        if not isinstance(raw_profile, dict):
+            return [], []
+        raw_highlights = raw_profile.get("experience_highlights") or []
+        raw_areas = raw_profile.get("strongest_areas") or []
+        highlights = (
+            [str(x).strip() for x in raw_highlights if str(x).strip()]
+            if isinstance(raw_highlights, list)
+            else []
+        )
+        areas = (
+            [str(x).strip() for x in raw_areas if str(x).strip()]
+            if isinstance(raw_areas, list)
+            else []
+        )
+        return highlights, areas
+    except (OSError, yaml.YAMLError):
+        return [], []
 
 
 def _job_ref_for_branch(invocation: TailorInvocationContract) -> str:
@@ -493,6 +540,10 @@ def run_resume_tailor_pipeline(
         )
     current_page_count: int | None = None
 
+    experience_highlights, strongest_areas = _load_candidate_context(
+        invocation.resume_yaml_path
+    )
+
     total_content_passes = invocation.content_readjust_attempts + 1
     for content_index in range(total_content_passes):
         try:
@@ -501,6 +552,8 @@ def run_resume_tailor_pipeline(
                 phase="content",
                 attempt_index=content_index,
                 current_page_count=current_page_count,
+                experience_highlights=experience_highlights or None,
+                strongest_areas=strongest_areas or None,
             )
             invoke_pi_coding_agent(
                 invocation=invocation,

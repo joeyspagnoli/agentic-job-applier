@@ -59,6 +59,8 @@ def build_tailor_instruction(
     phase: str,
     attempt_index: int,
     current_page_count: int | None,
+    experience_highlights: list[str] | None = None,
+    strongest_areas: list[str] | None = None,
 ) -> str:
     """Build the user instruction payload for one pi-coding-agent pass.
 
@@ -70,6 +72,12 @@ def build_tailor_instruction(
         phase: Current loop phase (`content` or `layout`).
         attempt_index: Zero-based attempt index within the current phase.
         current_page_count: Most recent measured page count, when available.
+        experience_highlights: Optional bullet-level career evidence from the
+            candidate profile. Forwarded verbatim so the agent can write
+            stronger, more grounded bullets.
+        strongest_areas: Optional top skill/domain areas from the candidate
+            profile. Helps the agent prioritize which aspects of the resume
+            to emphasize for the target role.
     Output:
         Returns the full instruction text for the pi-coding-agent run.
     """
@@ -141,6 +149,16 @@ def build_tailor_instruction(
         "unknown" if current_page_count is None else str(current_page_count)
     )
 
+    candidate_context_section = ""
+    if experience_highlights or strongest_areas:
+        ctx_lines: list[str] = ["Candidate context:"]
+        if strongest_areas:
+            ctx_lines.append(f"- Strongest areas: {', '.join(strongest_areas)}")
+        if experience_highlights:
+            ctx_lines.append("- Experience highlights:")
+            ctx_lines.extend(f"  - {h}" for h in experience_highlights)
+        candidate_context_section = "\n".join(ctx_lines) + "\n\n"
+
     return f"""
 {BASE_SYSTEM_PROMPT}
 
@@ -154,7 +172,7 @@ Run context:
 - Output PDF path: {invocation.output_pdf_path}
 - Content readjust attempts allowed: {invocation.content_readjust_attempts}
 
-Required command sequence:
+{candidate_context_section}Required command sequence:
 0. Fit analysis (before touching anything):
    a. Run: {job_context_command}
    b. Run: {load_yaml_command}

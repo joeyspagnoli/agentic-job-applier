@@ -122,7 +122,12 @@ describe("JobsPage Fetch Jobs Now button feedback states (Bug 3)", () => {
     expect(bouncingDots).toHaveLength(3);
 
     // Act — release the deferred promise so onSuccess fires.
-    releaseFetch({ status: "ok", message: "triggered" } as SystemLifecycleActionDto);
+    releaseFetch({
+      ok: true,
+      action: "fetch_jobs",
+      status: "accepted",
+      request_id: "test-req-1",
+    });
 
     // Assert (just-triggered) — label flips to "Triggered!" within the
     // 2.5 s confirmation window.

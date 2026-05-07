@@ -1241,7 +1241,7 @@ function StepRoles({ draft, onChange }: { draft: RolesDraft; onChange: (d: Roles
       </div>
       <Field label="Target Roles" value={draft.targetRoles} onChange={(v) => { set("targetRoles", v); }} placeholder="Software Engineer&#10;Full Stack Developer&#10;Backend Engineer" multiline required />
       <Field label="Strongest Areas" value={draft.strongestAreas} onChange={(v) => { set("strongestAreas", v); }} placeholder="Python&#10;React&#10;System Design" multiline />
-      <Field label="Experience Highlights" value={draft.experienceHighlights} onChange={(v) => { set("experienceHighlights", v); }} placeholder="5 years at FAANG&#10;Led team of 8 engineers&#10;Shipped products to 10M+ users" multiline />
+      <Field label="Resume Tailor Notes" value={draft.experienceHighlights} onChange={(v) => { set("experienceHighlights", v); }} placeholder={"Led K8s migration reducing cold-start 8s → 800ms\nOwned on-call for 5M evals/day Python + K8s pipeline\nReact dashboard used by 200+ internal analysts\nStripe intern: fraud scoring 50K tx/day, PCI-DSS exposure"} multiline />
       <Field label="Job Board Search Terms" value={draft.searchTerms} onChange={(v) => { set("searchTerms", v); }} placeholder="software engineer&#10;full stack developer&#10;python developer" multiline />
     </div>
   );
