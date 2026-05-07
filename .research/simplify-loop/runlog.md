@@ -334,3 +334,17 @@ interested", visa-status free-form fields, etc).
 - unresolved_required: 2
 - confidence_score: 0.8
 - artifacts: `.research/simplify-loop/iterations/023/`
+
+---
+
+## Iteration 24 — 4631613005
+
+- target: `https://job-boards.greenhouse.io/scaleai/jobs/4631613005`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 6
+- confidence_score: 0.8
+- artifacts: `.research/simplify-loop/iterations/024/`
