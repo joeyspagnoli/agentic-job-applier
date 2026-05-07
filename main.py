@@ -11,7 +11,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable
 
 import yaml
 from dotenv import load_dotenv
@@ -39,7 +39,7 @@ from src.utils.paths import resolve_database_path
 # blockingly serial and a single slow/hung tenant stalls every later source
 # family. Detail-fetching is left to the gate agent on a per-job basis, so
 # the discovery loop only needs title/location/company at insert time.
-WORKDAY_PER_COMPANY_TIMEOUT_SEC = 90
+WORKDAY_PER_COMPANY_TIMEOUT_SEC = 120
 WORKDAY_FETCH_DESCRIPTIONS = False
 
 
@@ -118,6 +118,104 @@ def _normalize_string_list(
         if normalized_item:
             normalized_values.append(normalized_item)
     return normalized_values
+
+
+# Industry tags whose Workday tenants tend to host EE-relevant intern roles.
+# Used by ``_select_filter_for_workday_company`` to relax the strict title-
+# domain requirement: titles like "Engineering Intern" or "Process Engineering
+# Intern" should pass at semiconductor/aerospace/automotive employers even
+# though the candidate's target_roles don't include "process".
+EE_FRIENDLY_INDUSTRIES: frozenset[str] = frozenset({
+    "semiconductor",
+    "aerospace_defense",
+    "automotive",
+    "manufacturing_automotive",
+    "hardware",
+})
+
+# Workday CXS anonymous queries return only ~40 default-sorted results when
+# ``searchText`` is empty. Using one of these tokens (drawn from the
+# candidate's own target_roles) typically expands a tenant's surfaced jobs
+# from 40 to several hundred. Order matters: more specific tokens first.
+_WORKDAY_SEARCH_TOKEN_PRIORITY: tuple[str, ...] = (
+    "intern",
+    "co-op",
+    "new grad",
+    "junior",
+    "early career",
+)
+
+
+# Generic entry-level alternation used by ``_build_loose_filter`` to relax
+# the strict "domain + intern" require_title_pattern down to "intern (any
+# kind)" for Workday tenants tagged with an EE-friendly industry. Kept in
+# lockstep with ``deriveRequireTitlePatterns`` in OnboardingPage.tsx.
+_LOOSE_INTERN_REQUIRE_PATTERN = (
+    r"(?i)\b(?:intern(ship)?|co-?op|new\s+grad(uate)?"
+    r"|early\s+career|junior|jr\.?|entry[\s-]level)\b"
+)
+
+
+def _build_loose_filter(filters_config: dict[str, Any]) -> JobFilter | None:
+    """Build a relaxed-title-requirement clone of the user's JobFilter.
+
+    Purpose:
+        At semiconductor/aerospace/automotive Workday tenants, the strict
+        ``domain + intern`` title requirement (derived from the candidate's
+        target_roles) misses EE-relevant titles like "Engineering Intern"
+        and "Process Engineering Intern" because their domain word is not
+        in the candidate's role list. For these EE-friendly employers we
+        accept any entry-level title; the company's industry already
+        signals role-relevance.
+    Args:
+        filters_config: Parsed ``filters.yaml`` mapping. The clone preserves
+            every other hard/soft filter (excludes, salary, locations,
+            keywords) and only relaxes ``require_title_patterns``.
+    Output:
+        Returns a ``JobFilter`` with the relaxed patterns, or ``None`` when
+        the input config is empty (no filtering at all should apply).
+    """
+
+    if not filters_config:
+        return None
+    relaxed_config: dict[str, Any] = {
+        "hard_filters": {
+            **(filters_config.get("hard_filters") or {}),
+            "require_title_patterns": [_LOOSE_INTERN_REQUIRE_PATTERN],
+        },
+        "soft_filters": filters_config.get("soft_filters") or {},
+    }
+    return JobFilter(relaxed_config)
+
+
+def _resolve_workday_search_text(
+    candidate_profile_config: dict[str, Any],
+) -> str:
+    """Pick a single Workday ``searchText`` token from candidate target_roles.
+
+    Purpose:
+        Expand Workday CXS anonymous query results from the default ~40 per
+        tenant to the hundreds of intern listings actually published, by
+        forwarding the candidate's strongest entry-level signal as a free-
+        text search.
+    Args:
+        candidate_profile_config: Parsed ``candidate_profile.yaml`` mapping.
+            May be empty when onboarding has not yet run.
+    Output:
+        Returns the highest-priority token found in target_roles, or an
+        empty string when no entry-level signal is detected (the legacy
+        default-results behavior is preserved for senior-track candidates).
+    """
+
+    profile = candidate_profile_config.get("profile") or {}
+    target_roles = profile.get("target_roles") or []
+    if not isinstance(target_roles, list):
+        return ""
+    haystack = " ".join(str(role) for role in target_roles).lower()
+    for token in _WORKDAY_SEARCH_TOKEN_PRIORITY:
+        if token in haystack:
+            return token
+    return ""
 
 
 def _normalize_positive_int(
@@ -385,6 +483,8 @@ async def fetch_workday_jobs(
     *,
     title_include_patterns: list[str] | None = None,
     job_filter: JobFilter | None = None,
+    loose_job_filter: JobFilter | None = None,
+    search_text: str = "",
 ) -> tuple[int, int, int, int]:
     """Fetch jobs for every configured Workday company via the public CXS API.
 
@@ -394,6 +494,18 @@ async def fetch_workday_jobs(
         deduplicator: Helper that filters out jobs already present in storage.
         title_include_patterns: Regex patterns a title must match to be kept.
         job_filter: Pre-gate filter instance for hard/soft filtering.
+        loose_job_filter: Optional relaxed-title clone of ``job_filter`` used
+            for tenants whose ``industry`` tag is in
+            :data:`EE_FRIENDLY_INDUSTRIES`. The strict ``domain + intern``
+            requirement misses EE-relevant titles like "Engineering Intern"
+            and "Process Engineering Intern", so for EE-tagged employers we
+            relax to "intern (any kind)". Pass ``None`` to use the strict
+            filter for every company.
+        search_text: Free-text token forwarded to Workday CXS as ``searchText``.
+            Anonymous queries with an empty string return only ~40 default-
+            sorted results per tenant; passing a token like ``"intern"``
+            expands the result set by 10–20×. Pass ``""`` to preserve the
+            legacy default-results behavior.
 
     Returns:
         A tuple of ``(total_discovered, total_new, sources_success,
@@ -422,6 +534,7 @@ async def fetch_workday_jobs(
                 company_name,
                 workday_url,
                 fetch_descriptions=WORKDAY_FETCH_DESCRIPTIONS,
+                search_text=search_text,
             ) as fetcher:
                 jobs = await asyncio.wait_for(
                     fetcher.fetch_jobs(),
@@ -432,8 +545,22 @@ async def fetch_workday_jobs(
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
 
+                # Pick a filter based on the company's industry tag — EE-
+                # friendly tenants accept any entry-level title; everyone
+                # else stays on the strict domain+intern requirement.
+                industry = ""
+                if isinstance(config, dict):
+                    industry_value = config.get("industry")
+                    if isinstance(industry_value, str):
+                        industry = industry_value
+                effective_filter = (
+                    loose_job_filter
+                    if loose_job_filter is not None
+                    and industry in EE_FRIENDLY_INDUSTRIES
+                    else job_filter
+                )
                 await _insert_with_filters(
-                    new_jobs, db=db, job_filter=job_filter,
+                    new_jobs, db=db, job_filter=effective_filter,
                     counters=partial_counters,
                 )
                 crawl_jobs_new = partial_counters[0] + partial_counters[1]
@@ -707,10 +834,17 @@ async def fetch_jobspy_jobs(
             field_name="search_terms",
             source_name=source_name,
         )
-        if configured_search_terms:
-            search_terms = configured_search_terms
-        elif default_search_terms:
+        # Candidate-profile defaults win over the seed defaults baked into
+        # companies.yaml — a fresh user's onboarding populates
+        # ``search_defaults.job_board_search_terms`` from their target roles
+        # ("electrical engineering intern", "fpga intern", …), and the seed's
+        # placeholder ``search_terms: ["software engineer"]`` would otherwise
+        # mute that profile entirely. Empty profile defaults still allow the
+        # configured terms (or a fully-cleared block) to take effect.
+        if default_search_terms:
             search_terms = default_search_terms
+        elif configured_search_terms:
+            search_terms = configured_search_terms
         else:
             logger.warning(
                 "No search terms configured for {} and no profile defaults — skipping",
@@ -1088,10 +1222,17 @@ async def fetch_linkedin_jobs(
     sources_failed = 0
 
     configured_searches: list[dict] = linkedin_config.get("searches", [])
-    if configured_searches:
+    # Candidate-profile defaults win over the seed defaults — same reasoning as
+    # the JobSpy block above. The dist seed keeps ``searches: []`` so this only
+    # matters when an advanced user filled in companies.yaml manually; the more
+    # common path is a fresh onboarding writing target_roles into the profile.
+    if default_search_terms:
+        searches = [
+            {"search_term": term, "location": "United States"}
+            for term in default_search_terms
+        ]
+    elif configured_searches:
         searches = configured_searches
-    elif default_search_terms:
-        searches = [{"search_term": t, "location": "United States"} for t in default_search_terms]
     else:
         logger.warning("No LinkedIn searches configured and no profile defaults — skipping LinkedIn")
         return total_discovered, total_new, sources_success, sources_failed
@@ -1312,9 +1453,21 @@ async def run_job_discovery() -> None:
     # Pre-gate filters reduce gate agent invocations by auto-rejecting or
     # auto-qualifying jobs that are obviously outside the user's criteria.
     job_filter: JobFilter | None = None
+    loose_job_filter: JobFilter | None = None
     if filters_config:
         job_filter = JobFilter(filters_config)
+        loose_job_filter = _build_loose_filter(filters_config)
         logger.info("Pre-gate filters loaded from config/filters.yaml")
+
+    # Workday CXS anonymous queries return only ~40 default-sorted results per
+    # tenant. Passing a single high-value entry-level token as ``searchText``
+    # widens that to hundreds of relevant listings without changing API quotas.
+    workday_search_text = _resolve_workday_search_text(candidate_profile_config)
+    if workday_search_text:
+        logger.info(
+            "Workday searchText derived from candidate target_roles: {!r}",
+            workday_search_text,
+        )
 
     # The database layer owns schema creation and lightweight migrations so each
     # run can safely bootstrap a fresh local environment.
@@ -1333,126 +1486,87 @@ async def run_job_discovery() -> None:
         sources_failed = 0
 
         # Each source family is optional in config. Empty sections are skipped
-        # so users can enable integrations incrementally.
+        # so users can enable integrations incrementally. Families run
+        # concurrently via ``asyncio.gather`` so a slow tenant in one family
+        # (e.g., a hung Workday CXS endpoint) cannot stall fast families
+        # like Greenhouse or GitHub-repo internship lists.
+        family_tasks: list[tuple[str, Awaitable[tuple[int, int, int, int]]]] = []
+
         greenhouse_companies = companies_config.get("greenhouse_companies", {})
         if greenhouse_companies:
             logger.info(
                 f"Fetching from {len(greenhouse_companies)} Greenhouse companies..."
             )
-            d, n, s, f = await fetch_greenhouse_jobs(
+            family_tasks.append(("greenhouse", fetch_greenhouse_jobs(
                 greenhouse_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # Workday uses a different provider path, but the orchestrator still
-        # folds its counts into the same cycle summary.
         workday_companies = companies_config.get("workday_companies", {})
         if workday_companies:
             logger.info(f"Fetching from {len(workday_companies)} Workday companies...")
-            d, n, s, f = await fetch_workday_jobs(
+            family_tasks.append(("workday", fetch_workday_jobs(
                 workday_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+                loose_job_filter=loose_job_filter,
+                search_text=workday_search_text,
+            )))
 
-        # Taleo Enterprise companies use the undocumented AJAX JSON endpoint.
         taleo_companies = companies_config.get("taleo_companies", {})
         if taleo_companies:
             logger.info(
                 "Fetching from {} Taleo companies...", len(taleo_companies),
             )
-            d, n, s, f = await fetch_taleo_jobs(
+            family_tasks.append(("taleo", fetch_taleo_jobs(
                 taleo_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # iCIMS companies use HTML scraping (no free JSON API available).
         icims_companies = companies_config.get("icims_companies", {})
         if icims_companies:
             logger.info(f"Fetching from {len(icims_companies)} iCIMS companies...")
-            d, n, s, f = await fetch_icims_jobs(
+            family_tasks.append(("icims", fetch_icims_jobs(
                 icims_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # Job boards are counted by enabled boards because each board can fan
-        # out into multiple search-term and location combinations.
         job_boards = companies_config.get("job_boards", {})
         if job_boards:
             enabled_boards = [b for b, c in job_boards.items() if c.get("enabled")]
             logger.info(f"Fetching from {len(enabled_boards)} job boards...")
-            d, n, s, f = await fetch_jobspy_jobs(
-                job_boards,
-                db,
-                deduplicator,
+            family_tasks.append(("jobspy", fetch_jobspy_jobs(
+                job_boards, db, deduplicator,
                 default_search_terms=default_search_terms,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # Lever companies (free public API, same pattern as Greenhouse).
         lever_companies = companies_config.get("lever_companies", {})
         if lever_companies:
             logger.info(
                 "Fetching from {} Lever companies...", len(lever_companies),
             )
-            d, n, s, f = await fetch_lever_jobs(
+            family_tasks.append(("lever", fetch_lever_jobs(
                 lever_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # Ashby companies (free public API).
         ashby_companies = companies_config.get("ashby_companies", {})
         if ashby_companies:
             logger.info(
                 "Fetching from {} Ashby companies...", len(ashby_companies),
             )
-            d, n, s, f = await fetch_ashby_jobs(
+            family_tasks.append(("ashby", fetch_ashby_jobs(
                 ashby_companies, db, deduplicator,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # GitHub internship repos (SimplifyJobs format).
         github_repos = companies_config.get("github_repos", [])
         if github_repos:
             enabled_repos = [r for r in github_repos if r.get("enabled", True)]
@@ -1460,48 +1574,62 @@ async def run_job_discovery() -> None:
                 logger.info(
                     "Fetching from {} GitHub repos...", len(enabled_repos),
                 )
-                d, n, s, f = await fetch_github_repo_jobs(
+                family_tasks.append(("github_repos", fetch_github_repo_jobs(
                     enabled_repos, db, deduplicator,
                     title_include_patterns=title_include_patterns,
                     job_filter=job_filter,
-                )
-                total_discovered += d
-                total_new += n
-                total_duplicate += d - n
-                sources_success += s
-                sources_failed += f
+                )))
 
-        # LinkedIn direct scraping (guest API).
         linkedin_config = companies_config.get("linkedin", {})
         if linkedin_config.get("enabled", False):
             logger.info("Fetching from LinkedIn...")
-            d, n, s, f = await fetch_linkedin_jobs(
+            family_tasks.append(("linkedin", fetch_linkedin_jobs(
                 linkedin_config, db, deduplicator,
                 default_search_terms=default_search_terms,
                 title_include_patterns=title_include_patterns,
                 job_filter=job_filter,
-            )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            )))
 
-        # Career page watchers (generic HTML scraping).
         watched_pages = companies_config.get("watched_pages", [])
         if watched_pages:
             logger.info(
                 "Watching {} career pages...", len(watched_pages),
             )
-            d, n, s, f = await fetch_career_page_jobs(
+            family_tasks.append(("watched_pages", fetch_career_page_jobs(
                 watched_pages, db, deduplicator,
                 job_filter=job_filter,
+            )))
+
+        # ``return_exceptions=True`` ensures one family raising does not
+        # cancel the others — the cycle still publishes whatever jobs the
+        # remaining families produced.
+        if family_tasks:
+            family_names = [name for name, _ in family_tasks]
+            logger.info(
+                "Running {} fetcher families concurrently: {}",
+                len(family_tasks),
+                ", ".join(family_names),
             )
-            total_discovered += d
-            total_new += n
-            total_duplicate += d - n
-            sources_success += s
-            sources_failed += f
+            family_results = await asyncio.gather(
+                *(coro for _, coro in family_tasks),
+                return_exceptions=True,
+            )
+            for (family_name, _), result in zip(family_tasks, family_results):
+                if isinstance(result, BaseException):
+                    logger.error(
+                        "Fetcher family {} raised {}: {}",
+                        family_name,
+                        type(result).__name__,
+                        result,
+                    )
+                    sources_failed += 1
+                    continue
+                discovered, new_count, succeeded, failed = result
+                total_discovered += discovered
+                total_new += new_count
+                total_duplicate += discovered - new_count
+                sources_success += succeeded
+                sources_failed += failed
 
         # Daily stats are updated after all crawls finish so the row reflects
         # the full cycle rather than one source family at a time.

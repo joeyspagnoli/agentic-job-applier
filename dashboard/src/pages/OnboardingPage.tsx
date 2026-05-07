@@ -253,41 +253,120 @@ function toYamlDoubleQuoted(value: string): string {
 }
 
 /**
+ * Generic vocabulary that carries no domain signal — entry-level cues, role-
+ * suffix nouns, structural articles, semester names, and degree levels.
+ *
+ * @remarks
+ * Used by {@link extractDomainKeywords} to strip non-discriminating words
+ * from the candidate's target roles before deriving title patterns. Anything
+ * left over after this filter is treated as the candidate's domain
+ * vocabulary (e.g., "fpga", "hardware", "circuit").
+ */
+const TITLE_KEYWORD_STOPWORDS: ReadonlySet<string> = new Set([
+  "intern", "internship", "interns", "interns'", "coop", "co-op",
+  "new", "grad", "grads", "graduate", "junior", "jr",
+  "entry", "level", "early", "career", "rotational",
+  "engineer", "engineers", "engineering", "developer", "developers",
+  "scientist", "scientists", "specialist", "specialists",
+  "technician", "technicians", "analyst", "analysts",
+  "associate", "associates", "assistant", "assistants",
+  "design", "designer", "designers",
+  "the", "a", "an", "and", "or", "of", "in", "at", "for", "to", "with", "on",
+  "summer", "fall", "spring", "winter", "season", "year", "round",
+  "bachelor", "bachelors", "master", "masters", "phd", "mba",
+]);
+
+/**
+ * Maximum character distance allowed between an entry-level signal and a
+ * domain keyword in a job title. Generous enough to span "Internship: UWB
+ * Validation Test Management Automotive UWB" but tight enough that the two
+ * tokens really do refer to the same role.
+ */
+const TITLE_PATTERN_MAX_GAP = 80;
+
+/**
+ * Tokenize candidate target roles and return discriminating domain keywords.
+ *
+ * @remarks
+ * Splits on whitespace and common punctuation, lower-cases each token, and
+ * drops tokens that appear in {@link TITLE_KEYWORD_STOPWORDS}. The remaining
+ * tokens (e.g., "fpga", "embedded", "circuit") form the domain vocabulary
+ * used to require role-relevance in the title filter.
+ *
+ * @param targetRolesText - Raw multi-line target roles text from the wizard.
+ * @returns De-duplicated lower-case domain keywords; empty when the user
+ *   only listed generic role nouns.
+ */
+export function extractDomainKeywords(targetRolesText: string): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const raw of targetRolesText.toLowerCase().split(/[\s/\-,()]+/)) {
+    const cleaned = raw.replace(/[^a-z0-9]/g, "");
+    if (cleaned.length < 3) continue;
+    if (TITLE_KEYWORD_STOPWORDS.has(cleaned)) continue;
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    ordered.push(cleaned);
+  }
+  return ordered;
+}
+
+/**
  * Derive `hard_filters.require_title_patterns` from the candidate's target roles.
  *
  * @remarks
- * Without role-relevance gating at insert time, a candidate looking for
- * an "Electrical Engineering Intern" sees pharma "Sr. Innovation Specialist"
- * postings in their dashboard. By scanning the target-roles text for entry-
- * level signals (intern / co-op / new grad / early career / junior), we emit
- * regex patterns that the JobFilter applies before persisting a job — non-
- * matching titles are dropped at the source. If none of these signals appear
- * (e.g., the candidate is targeting senior roles), no patterns are emitted
- * and all titles pass through.
+ * The pre-gate filter has to do role-relevance triage on its own: discovery
+ * fetches every "Intern" title across 90+ ATS tenants, and the LLM gate
+ * worker may not be running yet (no API key on first install). A naive
+ * `\bintern\b` requirement lets through Nursing, Pharmacy, IT-Billing,
+ * Marketing, and Accounting interns — none of which an electrical-
+ * engineering candidate cares about.
+ *
+ * To gate properly we require **both** an entry-level signal AND a domain
+ * keyword extracted from the candidate's own target roles, in either
+ * order, within {@link TITLE_PATTERN_MAX_GAP} characters. The output is
+ * two regex patterns (one per ordering) which the JobFilter ORs together —
+ * net effect: titles must contain a domain keyword AND an intern/co-op/
+ * new-grad term. "Nursing Intern" is rejected; "Electrical Engineering
+ * Intern" passes; "Hardware Engineer Intern" passes; "Internship: UWB
+ * Validation" with "uwb" or "validation" in target_roles passes.
+ *
+ * Fallback: when no entry-level signal is detected (candidate targeting
+ * senior roles), no patterns are emitted and all titles pass through. When
+ * entry-level signals exist but no domain keywords could be extracted
+ * (target_roles say only "Intern"), we fall back to the broad intern-only
+ * pattern — better than rejecting everything.
  *
  * @param targetRolesText - Raw multi-line target roles text from the wizard.
  * @returns Regex patterns to populate `hard_filters.require_title_patterns`.
  */
 export function deriveRequireTitlePatterns(targetRolesText: string): string[] {
   const lowered = targetRolesText.toLowerCase();
-  const patterns: string[] = [];
-  if (/\bintern(ship)?\b/.test(lowered)) {
-    patterns.push("(?i)\\bintern(ship)?\\b");
-  }
-  if (/\bco-?op\b/.test(lowered)) {
-    patterns.push("(?i)\\bco-?op\\b");
-  }
-  if (/\bnew\s+grad(uate)?\b/.test(lowered)) {
-    patterns.push("(?i)\\bnew\\s+grad(uate)?\\b");
-  }
-  if (/\bearly\s+career\b/.test(lowered)) {
-    patterns.push("(?i)\\bearly\\s+career\\b");
-  }
+  const internAlts: string[] = [];
+  if (/\bintern(ship)?\b/.test(lowered)) internAlts.push("intern(ship)?");
+  if (/\bco-?op\b/.test(lowered)) internAlts.push("co-?op");
+  if (/\bnew\s+grad(uate)?\b/.test(lowered)) internAlts.push("new\\s+grad(uate)?");
+  if (/\bearly\s+career\b/.test(lowered)) internAlts.push("early\\s+career");
   if (/\b(junior|jr\.?|entry[\s-]level)\b/.test(lowered)) {
-    patterns.push("(?i)\\b(junior|jr\\.?)\\b");
-    patterns.push("(?i)\\bentry[\\s-]level\\b");
+    internAlts.push("junior", "jr\\.?", "entry[\\s-]level");
   }
-  return patterns;
+
+  if (internAlts.length === 0) return [];
+
+  const internPart = `\\b(?:${internAlts.join("|")})\\b`;
+  const domainKeywords = extractDomainKeywords(targetRolesText);
+
+  if (domainKeywords.length === 0) {
+    // No discriminating domain words — keep the broad intern-only filter so
+    // the candidate at least gets entry-level results.
+    return [`(?i)${internPart}`];
+  }
+
+  const domainPart = `\\b(?:${domainKeywords.join("|")})\\b`;
+  return [
+    `(?i)${domainPart}.{0,${TITLE_PATTERN_MAX_GAP}}${internPart}`,
+    `(?i)${internPart}.{0,${TITLE_PATTERN_MAX_GAP}}${domainPart}`,
+  ];
 }
 
 /**

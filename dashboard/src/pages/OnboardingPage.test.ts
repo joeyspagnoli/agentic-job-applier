@@ -35,6 +35,7 @@ import {
   buildWatchlistWarning,
   deriveRequireTitlePatterns,
   detectSimplifyCategories,
+  extractDomainKeywords,
   resolveGreenhouseSlug,
   saveWatchlistCompanies,
   seedGithubRepos,
@@ -255,22 +256,25 @@ describe("buildFiltersYaml", () => {
     expect(yaml).toContain("  require_remote: true");
   });
 
-  it("emits require_title_patterns derived from intern roles, replacing the empty list", () => {
-    // Arrange — an EE-intern candidate's target roles all carry "Intern".
+  it("emits combined-domain require_title_patterns derived from intern + EE roles", () => {
+    // Arrange — an EE-intern candidate's roles each carry "Intern" plus a
+    // discriminating domain word (electrical, hardware, fpga).
     const filters = emptyFiltersDraft();
     const roles: RolesDraft = {
       ...emptyRolesDraft(),
       targetRoles:
-        "Electrical Engineering Intern\nHardware Engineering Intern\nFPGA Intern",
+        "Electrical Engineering Intern\nHardware Engineering Intern\nFPGA Engineer Intern",
     };
 
     // Act
     const yaml = buildFiltersYaml(filters, roles);
 
-    // Assert — the empty placeholder must be gone and the regex must appear.
+    // Assert — the empty placeholder must be gone, both orderings must appear,
+    // and each must reference both the entry-level and domain alternation.
     expect(yaml).not.toContain("require_title_patterns: []");
     expect(yaml).toContain("  require_title_patterns:\n");
-    expect(yaml).toContain('    - "(?i)\\\\bintern(ship)?\\\\b"');
+    expect(yaml).toMatch(/electrical\|hardware\|fpga/);
+    expect(yaml).toMatch(/intern\(ship\)\?/);
   });
 
   it("preserves the empty require_title_patterns list when no entry-level signals appear", () => {
@@ -290,46 +294,106 @@ describe("buildFiltersYaml", () => {
   });
 });
 
+// ─── extractDomainKeywords ─────────────────────────────────────────────────
+
+describe("extractDomainKeywords", () => {
+  it("returns the discriminating domain words from EE intern roles", () => {
+    const keywords = extractDomainKeywords(
+      "Electrical Engineering Intern\nHardware Engineering Intern\nFPGA Engineer Intern\nPCB Design Intern\nEmbedded Systems Intern",
+    );
+    expect(keywords).toEqual([
+      "electrical",
+      "hardware",
+      "fpga",
+      "pcb",
+      "embedded",
+      "systems",
+    ]);
+  });
+
+  it("strips entry-level cues, role suffixes, articles, and degree words", () => {
+    const keywords = extractDomainKeywords(
+      "Junior Software Engineer\nNew Grad Developer\nSummer Intern",
+    );
+    expect(keywords).toEqual(["software"]);
+  });
+
+  it("deduplicates and lower-cases tokens across multiple lines", () => {
+    const keywords = extractDomainKeywords(
+      "Hardware Engineer\nHARDWARE Design\nhardware engineering",
+    );
+    expect(keywords).toEqual(["hardware"]);
+  });
+
+  it("drops tokens shorter than three characters", () => {
+    expect(extractDomainKeywords("AI ML Engineer Intern")).toEqual([]);
+  });
+
+  it("returns an empty array for an empty roles string", () => {
+    expect(extractDomainKeywords("")).toEqual([]);
+  });
+});
+
 // ─── deriveRequireTitlePatterns ────────────────────────────────────────────
 
 describe("deriveRequireTitlePatterns", () => {
-  it("emits the intern pattern when target roles contain 'Intern'", () => {
-    expect(deriveRequireTitlePatterns("Electrical Engineering Intern")).toContain(
-      "(?i)\\bintern(ship)?\\b",
+  it("emits two combined patterns requiring both entry-level and domain signals", () => {
+    const patterns = deriveRequireTitlePatterns(
+      "Electrical Engineering Intern\nFPGA Engineer Intern",
     );
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toContain("electrical|fpga");
+    expect(patterns[0]).toContain("intern(ship)?");
+    expect(patterns[1]).toContain("intern(ship)?");
+    expect(patterns[1]).toContain("electrical|fpga");
   });
 
-  it("emits the intern pattern when target roles contain 'Internship'", () => {
-    expect(deriveRequireTitlePatterns("Software Internship")).toContain(
-      "(?i)\\bintern(ship)?\\b",
+  it("rejects unrelated intern titles in the produced regex", () => {
+    const patterns = deriveRequireTitlePatterns(
+      "Electrical Engineering Intern\nHardware Engineering Intern\nFPGA Engineer Intern",
     );
+    // Python `re` accepts the `(?i)` inline flag; JS RegExp does not, so
+    // strip it and supply the `i` flag explicitly when verifying behavior
+    // from the test runner. The wire format we emit is what Python sees.
+    const compiled = patterns.map(
+      (p) => new RegExp(p.replace(/^\(\?i\)/, ""), "i"),
+    );
+    const matches = (title: string): boolean =>
+      compiled.some((re) => re.test(title));
+
+    // Should match — domain + entry-level, in either order.
+    expect(matches("Electrical Engineering Intern")).toBe(true);
+    expect(matches("Hardware Engineering Intern")).toBe(true);
+    expect(matches("Intern - FPGA Validation")).toBe(true);
+    expect(matches("Intern (Hardware Test Engineering)")).toBe(true);
+
+    // Should NOT match — entry-level word but no EE domain keyword.
+    expect(matches("Nursing Intern")).toBe(false);
+    expect(matches("Pharmacy Student Intern")).toBe(false);
+    expect(matches("IT Billing Intern")).toBe(false);
+    expect(matches("Marketing Intern")).toBe(false);
+    expect(matches("Software Engineer Intern")).toBe(false);
+
+    // Should NOT match — domain keyword but no entry-level word.
+    expect(matches("Senior Hardware Engineer")).toBe(false);
+    expect(matches("Principal FPGA Architect")).toBe(false);
   });
 
-  it("emits the co-op pattern when target roles contain 'co-op' or 'coop'", () => {
-    expect(deriveRequireTitlePatterns("Hardware Co-op")).toContain(
-      "(?i)\\bco-?op\\b",
-    );
-    expect(deriveRequireTitlePatterns("Engineering Coop")).toContain(
-      "(?i)\\bco-?op\\b",
-    );
+  it("falls back to a broad intern-only pattern when no domain keywords are extractable", () => {
+    // Generic target roles produce no domain words — keep the broad match
+    // so the candidate at least sees entry-level results.
+    const patterns = deriveRequireTitlePatterns("Engineering Intern\nIntern");
+    expect(patterns).toEqual(["(?i)\\b(?:intern(ship)?)\\b"]);
   });
 
-  it("emits the new-grad pattern when target roles contain 'New Grad'", () => {
-    expect(deriveRequireTitlePatterns("Software Engineer New Grad")).toContain(
-      "(?i)\\bnew\\s+grad(uate)?\\b",
+  it("includes co-op, new-grad, and junior in the entry-level alternation", () => {
+    const patterns = deriveRequireTitlePatterns(
+      "Hardware Co-op\nFPGA New Grad\nJunior Embedded Engineer",
     );
-  });
-
-  it("emits the early-career pattern when target roles contain 'Early Career'", () => {
-    expect(deriveRequireTitlePatterns("Early Career Engineer")).toContain(
-      "(?i)\\bearly\\s+career\\b",
-    );
-  });
-
-  it("emits both junior and entry-level patterns for 'Junior Engineer'", () => {
-    const patterns = deriveRequireTitlePatterns("Junior Hardware Engineer");
-    expect(patterns).toContain("(?i)\\b(junior|jr\\.?)\\b");
-    expect(patterns).toContain("(?i)\\bentry[\\s-]level\\b");
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toContain("co-?op");
+    expect(patterns[0]).toContain("new\\s+grad(uate)?");
+    expect(patterns[0]).toContain("junior");
   });
 
   it("returns an empty array when no entry-level signals are present", () => {
@@ -342,10 +406,10 @@ describe("deriveRequireTitlePatterns", () => {
     expect(deriveRequireTitlePatterns("")).toEqual([]);
   });
 
-  it("is case-insensitive (matches uppercase 'INTERN')", () => {
-    expect(deriveRequireTitlePatterns("ELECTRICAL ENGINEERING INTERN")).toContain(
-      "(?i)\\bintern(ship)?\\b",
-    );
+  it("is case-insensitive (UPPERCASE roles still derive lower-case keywords)", () => {
+    const patterns = deriveRequireTitlePatterns("ELECTRICAL ENGINEERING INTERN");
+    expect(patterns[0]).toContain("electrical");
+    expect(patterns[0]).toContain("intern(ship)?");
   });
 });
 

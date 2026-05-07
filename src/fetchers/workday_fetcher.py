@@ -44,6 +44,7 @@ class WorkdayFetcher(BaseFetcher):
         workday_url: str,
         *,
         fetch_descriptions: bool = True,
+        search_text: str = "",
     ) -> None:
         """Store the Workday board metadata and parse its public URL.
 
@@ -58,6 +59,11 @@ class WorkdayFetcher(BaseFetcher):
             fetch_descriptions: When ``True``, each listing posting is enriched
                 via the detail endpoint so descriptions and ISO posted dates are
                 populated; when ``False``, only listing fields are kept.
+            search_text: Free-text Workday CXS query forwarded as ``searchText``
+                in the listing payload. Anonymous queries with an empty string
+                return only ~40 default-sorted results per tenant; passing a
+                role keyword like ``"intern"`` typically expands the result set
+                by 10–20×. Defaults to ``""`` to preserve legacy behavior.
         Output:
             Returns ``None`` after caching parsed URL components.
         """
@@ -65,6 +71,7 @@ class WorkdayFetcher(BaseFetcher):
         self.company_name = company_name
         self.workday_url = workday_url
         self.fetch_descriptions = fetch_descriptions
+        self.search_text = search_text
         self._client: Optional[httpx.AsyncClient] = None
 
         origin, tenant, site = self._parse_board_url(workday_url)
@@ -286,7 +293,7 @@ class WorkdayFetcher(BaseFetcher):
             "appliedFacets": {},
             "limit": self.LIMIT,
             "offset": offset,
-            "searchText": "",
+            "searchText": self.search_text,
         }
 
         page = await self._post_jobs(f"/wday/cxs/{self.tenant}/{self.site}/jobs", body)
