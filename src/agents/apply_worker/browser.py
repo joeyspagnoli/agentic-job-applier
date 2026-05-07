@@ -49,22 +49,52 @@ _JS_WAIT_FOR_STABILITY = """
 })
 """
 
-# JavaScript that polls for Simplify extension DOM markers.
-# Returns true if Simplify UI elements are detected within the timeout.
+# Simplify Copilot v2.4.x injects a `<div class="simplify-jobs-shadow-root">`
+# host with `attachShadow({mode:"open"})`. Buttons inside the shadow root use
+# stable aria-labels (extracted from contentScript.bundle.js by static
+# analysis on 2026-05-07): "Autofill", "Autofill all fields with AI", "Fill",
+# "Continue filling", "Submit Application" (DO NOT CLICK), "Tailor Resume",
+# etc. Verified behavior: full UI takes ~15s to render after page navigation
+# completes.
+
+# Aria-labels we WILL click on, in priority order. None of these submit.
+_SIMPLIFY_AUTOFILL_LABELS = (
+    "Autofill",
+    "Autofill all fields with AI",
+    "Fill",
+    "Continue filling",
+)
+
+# Aria-labels we MUST NEVER click. Defense in depth — the button click helper
+# refuses to click anything matching this list even if some future code path
+# accidentally adds one.
+_SIMPLIFY_FORBIDDEN_LABELS = (
+    "Submit Application",
+    "Submit",
+)
+
+# JavaScript that polls for the Simplify shadow roots AND searches all of
+# them for the autofill button. Simplify v2.4.x creates MULTIPLE elements
+# with `class="simplify-jobs-shadow-root"`: typically one for the inline
+# resume score banner (small, only "Resume score banner" aria-label) and
+# one for the side panel which holds the Autofill / Tailor Resume / Save
+# Job Instead controls. We must querySelectorAll and walk every shadowRoot.
 _JS_DETECT_SIMPLIFY = """
 ({ intervalMs, timeoutMs }) => new Promise(resolve => {
     const normalizedIntervalMs = Number(intervalMs) || 500;
     const normalizedTimeoutMs = Number(timeoutMs) || 30000;
+    const autofillLabels = %(autofill_labels)s;
     const start = Date.now();
     function check() {
-        // Look for Simplify-injected elements by common markers
-        const markers = document.querySelectorAll(
-            '[class*="simplify" i], [id*="simplify" i], ' +
-            '[data-simplify], [class*="Simplify" i]'
-        );
-        if (markers.length > 0) {
-            resolve(true);
-            return;
+        const hosts = document.querySelectorAll('div.simplify-jobs-shadow-root');
+        for (const host of hosts) {
+            if (!host.shadowRoot) continue;
+            for (const label of autofillLabels) {
+                const btn = host.shadowRoot.querySelector(
+                    '[aria-label="' + label + '"]'
+                );
+                if (btn) { resolve(true); return; }
+            }
         }
         if (Date.now() - start > normalizedTimeoutMs) {
             resolve(false);
@@ -74,15 +104,38 @@ _JS_DETECT_SIMPLIFY = """
     }
     check();
 })
-"""
+""" % {"autofill_labels": list(_SIMPLIFY_AUTOFILL_LABELS)}
 
-# Selector for the Simplify autofill trigger button.
-_SIMPLIFY_BUTTON_SELECTOR = (
-    '[class*="simplify" i] button, '
-    '[id*="simplify" i] button, '
-    'button[class*="simplify" i], '
-    '[data-simplify] button'
-)
+# JavaScript that walks every Simplify shadow root, finds the first visible
+# autofill button (in label-priority order), and clicks it. Defense in
+# depth: skips any element whose aria-label matches the forbidden list
+# (Submit / Submit Application). Returns a status string for telemetry.
+_JS_CLICK_SIMPLIFY_AUTOFILL = """
+({ autofillLabels, forbiddenLabels }) => {
+    const hosts = document.querySelectorAll('div.simplify-jobs-shadow-root');
+    if (!hosts.length) return 'NO_SHADOW_HOST';
+    function isForbidden(label) {
+        if (!label) return false;
+        return forbiddenLabels.some(f => label.indexOf(f) !== -1);
+    }
+    let anyShadow = false;
+    for (const label of autofillLabels) {
+        if (isForbidden(label)) continue;
+        for (const host of hosts) {
+            if (!host.shadowRoot) continue;
+            anyShadow = true;
+            const btn = host.shadowRoot.querySelector('[aria-label="' + label + '"]');
+            if (!btn) continue;
+            const rect = btn.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            btn.click();
+            return 'CLICKED:' + label;
+        }
+    }
+    if (!anyShadow) return 'SHADOW_HOST_BUT_NO_ROOT';
+    return 'NO_AUTOFILL_BUTTON';
+}
+"""
 
 
 async def check_chrome_reachable(cdp_url: str = DEFAULT_CDP_URL) -> bool:
@@ -236,10 +289,22 @@ async def _run_application_flow(
 
     playwright_page = cast(Page, page)
 
-    # Step 1: Navigate to the application page
-    logger.info("Navigating to {} for job_hash={}", source_url, job_hash)
+    # Step 1: Ensure we're on the application page. Skip goto if the page is
+    # already at the target URL — re-navigating mid-flow disrupts Chrome
+    # extensions (notably Simplify Copilot, whose content script will not
+    # re-render its side panel after a programmatic navigation).
+    current_url = playwright_page.url
+    needs_navigate = source_url not in current_url and current_url not in source_url
+    logger.info(
+        "Apply flow start for job_hash={} source_url={} current_url={} "
+        "needs_navigate={}",
+        job_hash, source_url, current_url, needs_navigate,
+    )
     try:
-        await playwright_page.goto(source_url, timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS)
+        if needs_navigate:
+            await playwright_page.goto(
+                source_url, timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS
+            )
         await playwright_page.wait_for_load_state(
             "networkidle",
             timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS,
@@ -276,9 +341,14 @@ async def _run_application_flow(
 
     if simplify_detected:
         logger.info("Simplify extension detected for job_hash={}", job_hash)
-        # Try to click the Simplify autofill button
-        await _trigger_simplify_autofill(playwright_page)
-        # Wait for form to stabilize after autofill
+        autofill_click_status = await _trigger_simplify_autofill(playwright_page)
+        logger.info(
+            "Simplify autofill click status={} for job_hash={}",
+            autofill_click_status,
+            job_hash,
+        )
+        # Wait for form to stabilize after autofill — Simplify can take
+        # several seconds to walk the form and write each field.
         await playwright_page.evaluate(_JS_WAIT_FOR_STABILITY, FORM_STABILITY_WAIT_MS)
     else:
         logger.warning(
@@ -351,25 +421,33 @@ async def _run_application_flow(
     )
 
 
-async def _trigger_simplify_autofill(page: Page) -> None:
-    """Click the Simplify autofill button if visible.
+async def _trigger_simplify_autofill(page: Page) -> str:
+    """Pierce Simplify's shadow root and click the Autofill button.
 
+    Purpose:
+        Find an Autofill-style aria-label inside the open shadow root that
+        Simplify Copilot v2.4.x injects, and click it. Defends against
+        accidental Submit clicks via a forbidden-label list.
     Args:
-        page: The Playwright page to interact with.
+        page: Playwright page already in the right context.
+    Output:
+        Status string for telemetry: e.g. "CLICKED:Autofill",
+        "NO_SHADOW_HOST", "NO_AUTOFILL_BUTTON".
     """
 
     try:
-        button = page.locator(_SIMPLIFY_BUTTON_SELECTOR).first
-        if await button.count() > 0 and await button.is_visible():
-            await button.click()
-            logger.info("Clicked Simplify autofill button")
-        else:
-            logger.info(
-                "No visible Simplify button found; "
-                "extension may auto-trigger",
-            )
+        status: str = await page.evaluate(
+            _JS_CLICK_SIMPLIFY_AUTOFILL,
+            {
+                "autofillLabels": list(_SIMPLIFY_AUTOFILL_LABELS),
+                "forbiddenLabels": list(_SIMPLIFY_FORBIDDEN_LABELS),
+            },
+        )
+        logger.info("Simplify autofill click status: {}", status)
+        return status
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Error clicking Simplify button: {}", exc)
+        logger.warning("Error clicking Simplify autofill button: {}", exc)
+        return f"EXCEPTION:{exc}"
 
 
 async def _save_screenshot_safe(page: Page, path: Path) -> None:

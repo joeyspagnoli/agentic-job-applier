@@ -1,0 +1,8 @@
+{
+  "iteration_count": 13,
+  "last_target_index": 0,
+  "consecutive_successes": 0,
+  "last_run_status": "FAIL",
+  "loop_started_at": "2026-05-07T06:12:10.346200+00:00",
+  "stopping_condition": "3 consecutive successes across 3 different target URLs OR 30 total iterations"
+}

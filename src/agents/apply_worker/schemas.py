@@ -21,8 +21,12 @@ from pydantic import Field
 SIMPLIFY_POLL_INTERVAL_MS = 500
 """Milliseconds between DOM polls when waiting for Simplify activation."""
 
-SIMPLIFY_POLL_TIMEOUT_MS = 30_000
-"""Maximum wait time for Simplify extension to inject its UI markers."""
+SIMPLIFY_POLL_TIMEOUT_MS = 45_000
+"""Maximum wait time for Simplify extension to inject its UI markers.
+
+Verified on 2026-05-07: Simplify v2.4.6 takes ~15s on Greenhouse to render
+its full UI with the Autofill button. 45s leaves headroom for slower pages.
+"""
 
 FORM_STABILITY_WAIT_MS = 2_000
 """Milliseconds of DOM inactivity before considering the form stable."""
