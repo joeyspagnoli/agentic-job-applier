@@ -4,6 +4,34 @@ Append-only narrative. One entry per iteration. Latest at the bottom.
 
 ---
 
+## ✅ STOPPING CONDITION MET — 3 consecutive PASSes (2026-05-07 ~04:00)
+
+| Iter | Target | Confidence | Simplify | Resume | Unresolved | Pass |
+|------|--------|------------|----------|--------|------------|------|
+| 19   | Anthropic 5023394008 | 0.8 | ✓ | ✓ | 2 | ✓ |
+| 20   | Scale AI 4631613005 | 0.8 | ✓ | ✓ | 7 | ✓ |
+| 21   | Scale AI 4654897005 | 0.7 | ✓ | ✓ | 8 | ✓ |
+
+**The fix that worked**: upload the tailored resume PDF to the form's
+file input *before* clicking Simplify Autofill. Simplify's click on
+Greenhouse navigates the tab to a Google Cloud Storage signed-URL
+preview of its own stored resume — uploading first ensures our PDF is
+the one attached when Simplify completes the form.
+
+Combined with:
+- Drop `wait_for_load_state("networkidle")` after click — extensions
+  keep network active and this hangs forever. Use a fixed 8s sleep.
+- Skip apply-flow's own `page.goto` if the page is already at the URL.
+- Don't `page.close()` / `browser.close()` before bare-CDP recovery.
+- Bare-CDP post-flow recovery so a destroyed Playwright context doesn't
+  lose the diagnostic snapshot.
+
+The "unresolved" counts (2/7/8) are Simplify's expected output — those
+are freeform questions Simplify can't autofill (cover letter, "why
+interested", visa-status free-form fields, etc).
+
+---
+
 ## Iteration 0 — setup (2026-05-07)
 
 - Confirmed Simplify v2.4.6 installed in user's Chrome at `pbanhockgagggenencehbnadejlgchfc`.
@@ -166,3 +194,115 @@ Append-only narrative. One entry per iteration. Latest at the bottom.
 - unresolved_required: 5
 - confidence_score: 0.45
 - artifacts: `.research/simplify-loop/iterations/013/`
+
+---
+
+## Iteration 14 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **False**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'MISSING', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: False | shadow_root_accessible: False | buttons_found: 0
+- simplify_autofill_detected: False
+- resume_uploaded: True
+- unresolved_required: 5
+- confidence_score: 0.45
+- artifacts: `.research/simplify-loop/iterations/014/`
+
+---
+
+## Iteration 15 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **False**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': "EXC: Error('Page.evaluate: Execution context was destroyed, most likely because of a navigation.')"}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: None
+- resume_uploaded: None
+- unresolved_required: None
+- confidence_score: None
+- artifacts: `.research/simplify-loop/iterations/015/`
+
+---
+
+## Iteration 16 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **False**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': "EXC: TargetClosedError('Page.evaluate: Target page, context or browser has been closed')"}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: None
+- resume_uploaded: None
+- unresolved_required: None
+- confidence_score: None
+- artifacts: `.research/simplify-loop/iterations/016/`
+
+---
+
+## Iteration 17 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **False**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': "EXC: TargetClosedError('Page.evaluate: Target page, context or browser has been closed')"}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: None
+- resume_uploaded: None
+- unresolved_required: None
+- confidence_score: None
+- artifacts: `.research/simplify-loop/iterations/017/`
+
+---
+
+## Iteration 18 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **False**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: False
+- unresolved_required: 2
+- confidence_score: 0.6
+- artifacts: `.research/simplify-loop/iterations/018/`
+
+---
+
+## Iteration 19 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 2
+- confidence_score: 0.8
+- artifacts: `.research/simplify-loop/iterations/019/`
+
+---
+
+## Iteration 20 — 4631613005
+
+- target: `https://job-boards.greenhouse.io/scaleai/jobs/4631613005`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 7
+- confidence_score: 0.8
+- artifacts: `.research/simplify-loop/iterations/020/`
+
+---
+
+## Iteration 21 — 4654897005
+
+- target: `https://job-boards.greenhouse.io/scaleai/jobs/4654897005`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 8
+- confidence_score: 0.7
+- artifacts: `.research/simplify-loop/iterations/021/`
