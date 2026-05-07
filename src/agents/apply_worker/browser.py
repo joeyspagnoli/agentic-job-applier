@@ -26,28 +26,8 @@ from src.agents.apply_worker.schemas import ApplyRunResult
 from src.agents.apply_worker.schemas import ATSPlatform
 from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
 from src.agents.apply_worker.schemas import DEFAULT_PAGE_LOAD_TIMEOUT_MS
-from src.agents.apply_worker.schemas import FORM_STABILITY_WAIT_MS
 from src.agents.apply_worker.schemas import SIMPLIFY_POLL_INTERVAL_MS
 from src.agents.apply_worker.schemas import SIMPLIFY_POLL_TIMEOUT_MS
-
-# JavaScript that waits for DOM stability by observing mutations.
-# Resolves after the specified quiet period with no changes.
-_JS_WAIT_FOR_STABILITY = """
-(quietMs) => new Promise(resolve => {
-    let timer;
-    const observer = new MutationObserver(() => {
-        clearTimeout(timer);
-        timer = setTimeout(() => { observer.disconnect(); resolve(true); }, quietMs);
-    });
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-    });
-    // Start the initial timer in case no mutations happen at all
-    timer = setTimeout(() => { observer.disconnect(); resolve(true); }, quietMs);
-})
-"""
 
 # Simplify Copilot v2.4.x injects a `<div class="simplify-jobs-shadow-root">`
 # host with `attachShadow({mode:"open"})`. Buttons inside the shadow root use
@@ -339,6 +319,29 @@ async def _run_application_flow(
         },
     )
 
+    # Step 4: Upload OUR tailored resume PDF BEFORE triggering Simplify.
+    # Simplify's Autofill click typically navigates the tab to a preview of
+    # the resume Simplify has on file (storage.googleapis.com/simplify-resumes/...).
+    # Once that happens, the form is no longer visible to upload to. So we
+    # always upload our tailored PDF to the form's file input first.
+    logger.info("Uploading resume for job_hash={}...", job_hash)
+    try:
+        resume_uploaded = await upload_resume(playwright_page, resume_pdf_path)
+        if resume_uploaded:
+            logger.info("Resume uploaded successfully for job_hash={}", job_hash)
+        else:
+            logger.warning("Resume upload failed for job_hash={}", job_hash)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Resume upload step failed for job_hash={}: {}",
+            job_hash,
+            exc,
+        )
+        resume_uploaded = False
+
+    # Step 5: Trigger Simplify Autofill AFTER our resume is in place. This
+    # may navigate the tab away from the form (post-click_capture observed
+    # storage.googleapis.com URLs), but our upload has already happened.
     if simplify_detected:
         logger.info("Simplify extension detected for job_hash={}", job_hash)
         autofill_click_status = await _trigger_simplify_autofill(playwright_page)
@@ -347,38 +350,56 @@ async def _run_application_flow(
             autofill_click_status,
             job_hash,
         )
-        # Wait for form to stabilize after autofill — Simplify can take
-        # several seconds to walk the form and write each field.
-        await playwright_page.evaluate(_JS_WAIT_FOR_STABILITY, FORM_STABILITY_WAIT_MS)
+        # Fixed sleep instead of wait_for_load_state("networkidle"): the
+        # latter can hang indefinitely on pages with chatty extensions, and
+        # the click may navigate the tab anyway.
+        import asyncio
+
+        await asyncio.sleep(8)
     else:
         logger.warning(
             "Simplify extension NOT detected for job_hash={}", job_hash,
         )
 
-    # Step 4: Upload resume PDF (after Simplify, so it can't overwrite)
-    logger.info("Uploading resume for job_hash={}...", job_hash)
-    resume_uploaded = await upload_resume(playwright_page, resume_pdf_path)
-    if resume_uploaded:
-        logger.info("Resume uploaded successfully for job_hash={}", job_hash)
-    else:
-        logger.warning("Resume upload failed for job_hash={}", job_hash)
-
     # Step 5: Scan for unresolved fields (rich metadata for future agent)
-    unresolved_fields = await scan_unresolved_fields(playwright_page)
+    try:
+        unresolved_fields = await scan_unresolved_fields(playwright_page)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Field scan failed for job_hash={}: {}", job_hash, exc,
+        )
+        unresolved_fields = []
     logger.info(
         "Found {} unresolved fields for job_hash={}",
         len(unresolved_fields),
         job_hash,
     )
 
-    # Step 6: Compute confidence score
-    confidence_report = await compute_confidence(
-        playwright_page,
-        resume_uploaded=resume_uploaded,
-        simplify_detected=simplify_detected,
-        ats_platform=ats_platform,
-        original_url=source_url,
-    )
+    # Step 6: Compute confidence score (best-effort)
+    try:
+        confidence_report = await compute_confidence(
+            playwright_page,
+            resume_uploaded=resume_uploaded,
+            simplify_detected=simplify_detected,
+            ats_platform=ats_platform,
+            original_url=source_url,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Confidence computation failed for job_hash={}: {}", job_hash, exc,
+        )
+        from src.agents.apply_worker.schemas import ConfidenceReport
+
+        confidence_report = ConfidenceReport(
+            score=0.0,
+            checks=[],
+            has_hard_blockers=True,
+            resume_uploaded=resume_uploaded,
+            simplify_autofill_detected=simplify_detected,
+            unresolved_required_count=0,
+            unresolved_optional_count=0,
+            ats_platform=ats_platform,
+        )
     logger.info(
         "Confidence score: {:.4f} (hard_blockers={}) for job_hash={}",
         confidence_report.score,

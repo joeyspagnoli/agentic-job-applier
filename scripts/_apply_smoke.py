@@ -86,16 +86,24 @@ def _append_runlog(entry: str) -> None:
             fh.write("\n")
 
 
-def _ensure_simplify_only_via_load_extension() -> None:
-    """Remove the Simplify entry from clone's Default/Extensions and Secure Preferences.
+def _ensure_simplify_dir_in_clone() -> None:
+    """Restore the Simplify extension directory inside the clone if missing.
 
     Purpose:
-        Chrome's content-verification cache rejects a copied extension
-        directory (DidStartWorkerFail: 5). The reliable path is to remove
-        the cached install from the cloned user-data-dir and side-load
-        Simplify via --load-extension. This function makes that idempotent
-        — Chrome may re-extract the extension on launch, so the runner
-        re-runs this cleanup before every iteration.
+        Empirically (2026-05-07 iteration 14+), Simplify's content script
+        only renders the side panel reliably when the extension directory
+        exists at clone's `Default/Extensions/<id>/`, regardless of whether
+        we also pass `--load-extension`. Earlier rationale that we should
+        DELETE this directory to avoid the `DidStartWorkerFail: 5` content
+        verification failure was wrong — that error only occurs when the
+        Secure Preferences file is inconsistent (which only happens if
+        Chrome was running during the clone). With a clean clone (Chrome
+        closed at copy time), keeping the cached extension AND also passing
+        --load-extension works reliably.
+
+        We re-copy the extension from the user's main profile if it's
+        missing (Chrome can sometimes wipe it on launch when running with
+        debug port). Safe to run every iteration.
     Output:
         None.
     """
@@ -103,34 +111,30 @@ def _ensure_simplify_only_via_load_extension() -> None:
     import shutil
 
     sim_id = "pbanhockgagggenencehbnadejlgchfc"
-    cached_path = PROFILE_DIR / "Default" / "Extensions" / sim_id
-    if cached_path.exists():
-        shutil.rmtree(cached_path)
-
-    secure_prefs_path = PROFILE_DIR / "Default" / "Secure Preferences"
-    if secure_prefs_path.exists():
-        try:
-            data = json.loads(secure_prefs_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-        changed = False
-        ext_settings = data.get("extensions", {}).get("settings", {})
-        if sim_id in ext_settings:
-            del ext_settings[sim_id]
-            changed = True
-        macs = (
-            data.get("protection", {})
-            .get("macs", {})
-            .get("extensions", {})
-            .get("settings", {})
+    target = PROFILE_DIR / "Default" / "Extensions" / sim_id
+    if target.exists() and any(target.iterdir()):
+        return
+    source = (
+        Path.home()
+        / "Library"
+        / "Application Support"
+        / "Google"
+        / "Chrome"
+        / "Default"
+        / "Extensions"
+        / sim_id
+    )
+    if not source.exists():
+        logger.warning(
+            "Source Simplify dir not found at {}; cannot restore in clone",
+            source,
         )
-        if sim_id in macs:
-            del macs[sim_id]
-            changed = True
-        if changed:
-            secure_prefs_path.write_text(
-                json.dumps(data, separators=(",", ":")), encoding="utf-8"
-            )
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+    logger.info("Restored Simplify extension dir in clone from {}", source)
 
 
 def _free_port() -> int:
@@ -349,6 +353,121 @@ async def _bare_cdp_reload_page(cdp_port: int) -> bool:
         return False
 
 
+async def _bare_cdp_capture_active_tab(cdp_port: int, save_dir: Path) -> dict:
+    """Walk Chrome's tabs via raw CDP and snapshot the most relevant http(s) tab.
+
+    Purpose:
+        After the apply flow runs, Playwright may have lost track of the page
+        (TargetClosedError) because clicking Autofill can navigate or replace
+        the tab. We re-discover whichever tab is still active and capture
+        screenshots + DOM via raw CDP so the iteration always produces useful
+        artifacts.
+    Args:
+        cdp_port: Chrome CDP port.
+        save_dir: Directory to write artifacts into.
+    Output:
+        Dict with the captured tab's URL and per-shadow-root summary.
+    """
+
+    import base64
+    import websockets
+
+    out: dict = {"tabs_seen": [], "captured_url": None}
+    try:
+        tabs = (
+            await httpx.AsyncClient().get(
+                f"http://127.0.0.1:{cdp_port}/json/list", timeout=3.0
+            )
+        ).json()
+    except Exception as exc:  # noqa: BLE001
+        out["error"] = repr(exc)
+        return out
+
+    page_tabs = [
+        t
+        for t in tabs
+        if t.get("type") == "page" and t.get("url", "").startswith("http")
+    ]
+    out["tabs_seen"] = [t.get("url") for t in page_tabs]
+
+    if not page_tabs:
+        return out
+
+    # Prefer the most recent http(s) tab
+    target = page_tabs[0]
+    out["captured_url"] = target.get("url")
+
+    try:
+        async with websockets.connect(
+            target["webSocketDebuggerUrl"], max_size=20 * 1024 * 1024
+        ) as ws:
+            async def call(method: str, params: dict | None = None) -> dict:
+                cid = getattr(call, "cid", 0) + 1
+                call.cid = cid  # type: ignore[attr-defined]
+                await ws.send(
+                    json.dumps(
+                        {"id": cid, "method": method, "params": params or {}}
+                    )
+                )
+                while True:
+                    msg = json.loads(await ws.recv())
+                    if msg.get("id") == cid:
+                        return msg
+
+            shot = await call("Page.captureScreenshot", {"format": "png"})
+            data = shot.get("result", {}).get("data")
+            if data:
+                (save_dir / "screenshot_post_click.png").write_bytes(
+                    base64.b64decode(data)
+                )
+
+            scan = await call(
+                "Runtime.evaluate",
+                {
+                    "expression": (
+                        "(() => {\n"
+                        "  const hosts = document.querySelectorAll('div.simplify-jobs-shadow-root');\n"
+                        "  const out = {\n"
+                        "    url: location.href,\n"
+                        "    title: document.title,\n"
+                        "    shadow_host_count: hosts.length,\n"
+                        "    shadow_summary: [],\n"
+                        "    autofill_button_present: false,\n"
+                        "    page_form_count: document.forms.length,\n"
+                        "    page_input_count: document.querySelectorAll('input').length,\n"
+                        "  };\n"
+                        "  let i = 0;\n"
+                        "  for (const h of hosts) {\n"
+                        "    const r = h.shadowRoot;\n"
+                        "    const labels = r ? Array.from(r.querySelectorAll('[aria-label]')).map(e => e.getAttribute('aria-label')) : [];\n"
+                        "    out.shadow_summary.push({idx: i, size: r ? r.innerHTML.length : 0, labels});\n"
+                        "    if (r && (r.querySelector('[aria-label=\"Autofill\"]') || r.querySelector('[aria-label=\"Continue filling\"]'))) {\n"
+                        "      out.autofill_button_present = true;\n"
+                        "    }\n"
+                        "    i++;\n"
+                        "  }\n"
+                        "  return JSON.stringify(out);\n"
+                        "})()"
+                    ),
+                    "returnByValue": True,
+                },
+            )
+            v = scan.get("result", {}).get("result", {}).get("value")
+            if v:
+                out.update(json.loads(v))
+
+            html = await call("Runtime.evaluate", {"expression": "document.documentElement.outerHTML", "returnByValue": True})
+            html_str = html.get("result", {}).get("result", {}).get("value")
+            if html_str:
+                (save_dir / "dom_post_click.html").write_text(
+                    html_str, encoding="utf-8"
+                )
+    except Exception as exc:  # noqa: BLE001
+        out["capture_error"] = repr(exc)
+
+    return out
+
+
 async def _capture_shadow_dom(page) -> str:
     """Extract concatenated innerHTML of every Simplify shadow root.
 
@@ -469,9 +588,9 @@ async def run_one(target_url: str, iter_num: int) -> dict:
         (iter_dir / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         return result
 
-    # Self-heal the cloned profile so Simplify is loaded only via --load-extension.
-    # Chrome may re-extract the extension on launch, so we clean up every iteration.
-    _ensure_simplify_only_via_load_extension()
+    # Self-heal: ensure Simplify's extension dir exists in the clone.
+    # Required for the content script to render its side panel reliably.
+    _ensure_simplify_dir_in_clone()
 
     cdp_port = _free_port()
     # Chrome is launched with the target URL as its initial page so Simplify
@@ -637,7 +756,8 @@ async def run_one(target_url: str, iter_num: int) -> dict:
                 logger.exception("apply flow blew up")
                 result["stage_outcomes"]["apply_flow"] = f"EXC: {exc!r}"
 
-            # Re-capture after the flow even if it raised.
+            # Re-capture after the flow even if it raised. If the page got
+            # closed/navigated by Autofill click, fall back to raw CDP.
             try:
                 shadow_html_post = await _capture_shadow_dom(page)
                 (iter_dir / "shadow_dom_post.html").write_text(
@@ -654,11 +774,19 @@ async def run_one(target_url: str, iter_num: int) -> dict:
             try:
                 scan_post = await _scan_simplify_state(page)
                 result["simplify_scan_post"] = scan_post
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                result["simplify_scan_post"] = {"error": str(exc)}
 
-            await page.close()
-            await browser.close()
+            # Don't close page or browser before bare-CDP recovery —
+            # closing the only tab can shut down Chrome entirely.
+
+        # Bare-CDP recovery: capture whichever tab is still open (the apply
+        # flow may have triggered a navigation that detached Playwright).
+        try:
+            recovery = await _bare_cdp_capture_active_tab(cdp_port, iter_dir)
+            result["post_click_capture"] = recovery
+        except Exception as exc:  # noqa: BLE001
+            result["post_click_capture_error"] = repr(exc)
     finally:
         # Always tear down Chrome.
         try:
