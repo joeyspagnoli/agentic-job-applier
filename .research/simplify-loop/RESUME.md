@@ -1,10 +1,12 @@
 # Simplify Apply-Worker Feedback Loop — RESUME
 
+> **Status: ✅ STOPPING CONDITION MET (2026-05-07)** — 5/5 consecutive PASS across 4 distinct Greenhouse URLs (Anthropic 5023394008, Scale AI 4631613005, Scale AI 4654897005, Anthropic 5076929008, then back to Anthropic 5023394008 for regression check). The loop is no longer "active" — it converged. Subsequent sessions can either re-run the smoke runner to confirm or move on to integrating with `process_apply_jobs.py` for the production loop.
+
 If you're reading this after a context compaction, this file tells you exactly where the loop is and how to continue. Read it top to bottom before doing anything.
 
 ## Mission
 
-Iterate on `src/agents/apply_worker/browser.py` (and helpers in the same package) until the apply worker reliably executes the full Simplify-driven application flow against real Greenhouse job pages — **stopping strictly before any submit click**. The user is asleep; keep iterating autonomously until end-to-end is solid.
+Iterate on `src/agents/apply_worker/browser.py` (and helpers in the same package) until the apply worker reliably executes the full Simplify-driven application flow against real Greenhouse job pages — **stopping strictly before any submit click**.
 
 ## The hard rule
 

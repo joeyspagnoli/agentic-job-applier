@@ -306,3 +306,31 @@ interested", visa-status free-form fields, etc).
 - unresolved_required: 8
 - confidence_score: 0.7
 - artifacts: `.research/simplify-loop/iterations/021/`
+
+---
+
+## Iteration 22 — 5076929008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5076929008`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 18
+- confidence_score: 0.7
+- artifacts: `.research/simplify-loop/iterations/022/`
+
+---
+
+## Iteration 23 — 5023394008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5023394008`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 2
+- confidence_score: 0.8
+- artifacts: `.research/simplify-loop/iterations/023/`
