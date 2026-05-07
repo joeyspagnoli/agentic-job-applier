@@ -348,3 +348,45 @@ interested", visa-status free-form fields, etc).
 - unresolved_required: 6
 - confidence_score: 0.8
 - artifacts: `.research/simplify-loop/iterations/024/`
+
+---
+
+## Iteration 25 — 5161980008
+
+- target: `https://job-boards.greenhouse.io/anthropic/jobs/5161980008`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 11
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 13
+- confidence_score: 0.8
+- artifacts: `.research/simplify-loop/iterations/025/`
+
+---
+
+## Iteration 26 — 5822886004
+
+- target: `https://job-boards.greenhouse.io/figma/jobs/5822886004?gh_jid=5822886004`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 14
+- confidence_score: 0.7
+- artifacts: `.research/simplify-loop/iterations/026/`
+
+---
+
+## Iteration 27 — 7480799
+
+- target: `https://boards.greenhouse.io/cloudflare/jobs/7480799?gh_jid=7480799`
+- pass: **True**
+- stages: {'chrome_launch': 'OK', 'simplify_pre_attach': 'OK', 'cdp_connect': 'OK', 'navigate': 'OK', 'apply_flow': 'OK'}
+- shadow_host_present: True | shadow_root_accessible: True | buttons_found: 10
+- simplify_autofill_detected: True
+- resume_uploaded: True
+- unresolved_required: 7
+- confidence_score: 0.8
+- artifacts: `.research/simplify-loop/iterations/027/`
