@@ -1,47 +1,129 @@
-# =============================================================================
-# Job Discovery Sources
-#
-# This file controls WHERE jobs are fetched from. Add the companies and job
-# boards you want to track. Priority: 1 = highest, 10 = lowest.
-#
-# You can also edit this through the dashboard:
-#   Settings → Company & Job Filters → Company Sources (Advanced YAML)
-# =============================================================================
-
-
-# ── Greenhouse ATS companies ─────────────────────────────────────────────────
-# Many tech companies use Greenhouse. The greenhouse_id is the subdomain in
-# their jobs page URL: https://<greenhouse_id>.greenhouse.io
-#
-# To find a company's greenhouse_id:
-#   1. Go to the company's careers page
-#   2. Click on a job listing
-#   3. If the URL contains "greenhouse.io", the subdomain is their ID
-#      Example: https://boards.greenhouse.io/stripe → greenhouse_id: "stripe"
+# Target companies for job discovery
+# Priority: 1 = highest, 10 = lowest
 
 greenhouse_companies:
-  # Example — uncomment and customize:
-  # Stripe:
-  #   greenhouse_id: "stripe"
-  #   priority: 1
-  #
-  # Cloudflare:
-  #   greenhouse_id: "cloudflare"
-  #   priority: 2
+  # Top Priority - High-profile tech companies
+  Stripe:
+    greenhouse_id: "stripe"
+    priority: 1
 
+  Plaid:
+    greenhouse_id: "plaid"
+    priority: 1
 
-# ── Workday ATS companies ───────────────────────────────────────────────────
-# Free, built-in scraper — no API key needed. Hits the public Workday CXS JSON
-# endpoint directly. Many large enterprises use Workday.
-#
-# To find a company's Workday URL:
-#   1. Go to the company's careers page
-#   2. If it redirects to *.myworkdayjobs.com, that's their Workday URL
-#
-# 87 companies pre-seeded below across 8 industries (verified 2026-05-05).
-# Comment out or delete entries you don't want.
+  Cloudflare:
+    greenhouse_id: "cloudflare"
+    priority: 1
+
+  # Priority 2 - Strong tech companies
+  Databricks:
+    greenhouse_id: "databricks"
+    priority: 2
+
+  Snowflake:
+    greenhouse_id: "snowflakecomputing"
+    priority: 2
+
+  Datadog:
+    greenhouse_id: "datadog"
+    priority: 2
+
+  MongoDB:
+    greenhouse_id: "mongodb"
+    priority: 2
+
+  Confluent:
+    greenhouse_id: "confluent"
+    priority: 2
+
+  # Priority 3 - Solid companies
+  HashiCorp:
+    greenhouse_id: "hashicorp"
+    priority: 3
+
+  Vercel:
+    greenhouse_id: "vercel"
+    priority: 3
+
+  Figma:
+    greenhouse_id: "figma"
+    priority: 3
+
+  Notion:
+    greenhouse_id: "notion"
+    priority: 3
+
+  Linear:
+    greenhouse_id: "linear"
+    priority: 3
+
+  Ramp:
+    greenhouse_id: "ramp"
+    priority: 3
+
+  Retool:
+    greenhouse_id: "retool"
+    priority: 3
+
+  Supabase:
+    greenhouse_id: "supabase"
+    priority: 3
+
+  Palantir:
+    greenhouse_id: "palantir"
+    priority: 3
+
+  Rippling:
+    greenhouse_id: "rippling"
+    priority: 3
+
+  Scale AI:
+    greenhouse_id: "scaleai"
+    priority: 2
+
+  Anthropic:
+    greenhouse_id: "anthropic"
+    priority: 1
+
+  OpenAI:
+    greenhouse_id: "openai"
+    priority: 1
+
+  Cohere:
+    greenhouse_id: "cohere"
+    priority: 2
+
 
 workday_companies:
+  # ── Semiconductors / hardware (verified 2026-05-07) ───────────────────────
+  # Workday tenants for the major US/EU semiconductor and hardware vendors.
+  # AMD is on iCIMS (see icims_companies); Qualcomm, TI, Skyworks, onsemi,
+  # Infineon, ST, Lattice, Western Digital, Seagate are on other ATSes.
+  Intel:
+    workday_url: "https://intel.wd1.myworkdayjobs.com/External"
+    industry: semiconductor
+  NVIDIA:
+    workday_url: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"
+    industry: semiconductor
+  Analog Devices:
+    workday_url: "https://analogdevices.wd1.myworkdayjobs.com/External"
+    industry: semiconductor
+  Marvell Technology:
+    workday_url: "https://marvell.wd1.myworkdayjobs.com/MarvellCareers"
+    industry: semiconductor
+  Micron Technology:
+    workday_url: "https://micron.wd1.myworkdayjobs.com/External"
+    industry: semiconductor
+  Microchip Technology:
+    workday_url: "https://microchiphr.wd5.myworkdayjobs.com/External"
+    industry: semiconductor
+  Broadcom:
+    workday_url: "https://broadcom.wd1.myworkdayjobs.com/External_Career"
+    industry: semiconductor
+  NXP Semiconductors:
+    workday_url: "https://nxp.wd3.myworkdayjobs.com/careers"
+    industry: semiconductor
+
   # ── Pharma/biotech (verified 2026-05-05) ──────────────────────────────────
   Pfizer:
     workday_url: "https://pfizer.wd1.myworkdayjobs.com/PfizerCareers"
@@ -320,16 +402,106 @@ workday_companies:
     industry: government_contractors
 
 
-# ── Taleo Enterprise ATS companies ──────────────────────────────────────────
-# Free, built-in scraper — no API key needed. Hits the public Taleo JSON
-# endpoint used by large enterprises (government contractors, pharma, finance).
-# Run scripts/discover_taleo_portals.py once to fill in portal_id values.
-# portal_id: null means the app discovers it automatically (one extra request).
-# 61 companies pre-seeded below (verified 2026-05-05). Comment out any you
-# don't need. TBE companies (.tbe.taleo.net) are not yet supported.
+# ── iCIMS companies (verified 2026-05-05 via 5-agent parallel sweep) ────────
+# Subdomain is stored verbatim; fetcher prepends https://.
+# Fail-soft 404 handling covers any stale entries.
+# Priority: 3 = healthcare, 4 = retail/financial/higher-ed
+#
+# Candidates for future verification (DNS/HTTP redirect check needed):
+#   Dollar Tree (dollartreetogo.icims.com), AutoZone, Ross Stores,
+#   Burlington (may have moved), MetLife, Prudential, Unum
+icims_companies:
+  # ── Semiconductors / hardware ──────────────────────────────────────────────
+  AMD:
+    icims_subdomain: "careers-amd.icims.com"
+    industry: semiconductor
+    priority: 2
 
+  # ── Healthcare ──────────────────────────────────────────────────────────────
+  # Note: HCA Healthcare also appears in workday_companies — this subdomain
+  # targets a separate iCIMS-hosted portal (hcmhcares subsidiary).
+  HCA Healthcare iCIMS:
+    icims_subdomain: "careers-hcmhcares.icims.com"
+    industry: healthcare
+    priority: 3
+
+  CommonSpirit Health:
+    icims_subdomain: "careers-commonspirit.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Baylor Scott & White Health:
+    icims_subdomain: "careers-baylorscottandwhiteeh.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Providence Health:
+    icims_subdomain: "careers-phc.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Ascension Wisconsin Hospital:
+    icims_subdomain: "careers-ascensionwisconsinhospital.icims.com"
+    industry: healthcare
+    priority: 3
+
+  Ascension Jobs1:
+    icims_subdomain: "ascensionjobs1-ascension.icims.com"
+    industry: healthcare
+    priority: 3
+
+  # ── Retail ──────────────────────────────────────────────────────────────────
+  Dollar General:
+    icims_subdomain: "jobs-dollargeneral.icims.com"
+    industry: retail
+    priority: 4
+
+  PetSmart:
+    icims_subdomain: "careers-petsmart.icims.com"
+    industry: retail
+    priority: 4
+
+  Burlington Stores:
+    icims_subdomain: "corporate-burlingtonstores.icims.com"
+    industry: retail
+    priority: 4
+
+  # ── Financial / Insurance ───────────────────────────────────────────────────
+  Aflac:
+    icims_subdomain: "careers-aflac.icims.com"
+    industry: insurance
+    priority: 4
+
+  Western & Southern Financial:
+    icims_subdomain: "careers-westernsouthern.icims.com"
+    industry: financial
+    priority: 4
+
+  # ── Higher Education ────────────────────────────────────────────────────────
+  UCLA:
+    icims_subdomain: "careers-ucla.icims.com"
+    industry: higher_ed
+    priority: 4
+
+  Emory University:
+    icims_subdomain: "staff-emory.icims.com"
+    industry: higher_ed
+    priority: 4
+
+  NYU:
+    icims_subdomain: "uscareers-nyu.icims.com"
+    industry: higher_ed
+    priority: 4
+
+
+# ── Taleo Enterprise ATS companies (verified 2026-05-05) ────────────────────
+# Hits the undocumented Taleo AJAX JSON endpoint — no API key required.
+# Run scripts/discover_taleo_portals.py once to fill in portal_id values.
+# portal_id: null means the fetcher discovers it at runtime (one extra GET).
+# Companies also in workday_companies are intentional — they run both portals.
+# TBE (.tbe.taleo.net) companies are tracked separately in issue #17.
 taleo_companies:
-  # ── Healthcare / Pharma ────────────────────────────────────────────────────
+  # ── Healthcare / Pharma (verified 2026-05-05) ─────────────────────────────
   "Johnson & Johnson":
     tenant_id: jnjc
     career_section: iam
@@ -371,7 +543,7 @@ taleo_companies:
     career_section: "ejs+external+career+site+w2fprofile+ques+v20090518"
     portal_id: null
 
-  # ── Financial / Insurance ──────────────────────────────────────────────────
+  # ── Financial / Insurance (verified 2026-05-05) ───────────────────────────
   Morgan Stanley (Taleo):
     tenant_id: ms
     career_section: "2"
@@ -413,7 +585,7 @@ taleo_companies:
     career_section: "10140"
     portal_id: null
 
-  # ── Manufacturing / Industrial ─────────────────────────────────────────────
+  # ── Manufacturing / Industrial (verified 2026-05-05) ──────────────────────
   Emerson Electric (Taleo):
     tenant_id: emerson
     career_section: ex
@@ -451,7 +623,7 @@ taleo_companies:
     career_section: in
     portal_id: null
 
-  # ── Energy / Chemicals ─────────────────────────────────────────────────────
+  # ── Energy / Chemicals (verified 2026-05-05) ──────────────────────────────
   ConocoPhillips (Taleo):
     tenant_id: cop
     career_section: "10000"
@@ -481,7 +653,7 @@ taleo_companies:
     career_section: external
     portal_id: null
 
-  # ── Retail / Tech / Telecom / Government ──────────────────────────────────
+  # ── Retail / Tech / Telecom / Government (verified 2026-05-05) ───────────
   "AT&T (Main)":
     tenant_id: att
     career_section: "10161"
@@ -580,39 +752,34 @@ taleo_companies:
     portal_id: null
 
 
-# ── Job Boards (Indeed, Glassdoor, LinkedIn) ─────────────────────────────────
-# Powered by JobSpy — no API key required for Indeed and Glassdoor.
-
 job_boards:
   Indeed:
     enabled: true
-    search_terms:
-      - "software engineer"
+    # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
+      - "United States"
     results_wanted: 25
     priority: 2
 
   Glassdoor:
     enabled: true
-    search_terms:
-      - "software engineer"
+    # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
     results_wanted: 25
     priority: 3
 
   LinkedIn:
-    enabled: false   # Rate-limited without proxies — enable at your own risk
-    search_terms:
-      - "software engineer"
+    enabled: false  # Requires proxies - enable when ready
+    # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
     results_wanted: 25
     priority: 3
 
 
-# ── Lever ATS companies (free public API, no auth) ──────────────────────────
+# ── Lever ATS companies (free public API, no auth) ──────────────────
 lever_companies: {}
   # Example:
   # Netflix:
@@ -620,7 +787,7 @@ lever_companies: {}
   #   priority: 1
 
 
-# ── Ashby ATS companies (free public API, no auth) ──────────────────────────
+# ── Ashby ATS companies (free public API, no auth) ──────────────────
 ashby_companies: {}
   # Example:
   # Notion:
@@ -628,45 +795,50 @@ ashby_companies: {}
   #   priority: 2
 
 
-# ── GitHub internship/job repos ──────────────────────────────────────────────
-github_repos: []
-  # Example — SimplifyJobs maintains popular internship lists:
-  # - owner: SimplifyJobs
-  #   repo: Summer2026-Internships
-  #   branch: dev
-  #   json_path: .github/scripts/listings.json
-  #   enabled: true
-  #   categories:
-  #     - "Software"
+# ── GitHub internship repos (JSON listing format) ───────────────────
+github_repos:
+  - owner: SimplifyJobs
+    repo: Summer2026-Internships
+    branch: dev
+    json_path: .github/scripts/listings.json
+    enabled: true
+    categories:
+      - "Hardware"
 
 
-# ── Direct LinkedIn scraping ────────────────────────────────────────────────
-# WARNING: LinkedIn rate-limits aggressively. Use with caution.
+# ── Direct LinkedIn scraping (guest API, no auth) ───────────────────
+# WARNING: LinkedIn rate-limits aggressively.  Use proxies for heavy usage.
 linkedin:
   enabled: true
   # searches intentionally empty — generated from candidate_profile.yaml search_defaults at runtime
   searches: []
+  # Time range in seconds: 3600=1hr, 7200=2hr, 86400=24hr, 604800=7d
   time_range_seconds: 86400
   # 2 pages × ~10 results = ~20 requests per cycle; well under the ~100–150 req/hr threshold
   # that triggers LinkedIn IP bans from a residential IP at a 60-minute polling interval.
+  # Increase max_pages only if also increasing linkedin_interval_minutes proportionally.
   max_pages: 2
   fetch_descriptions: false
+  # Danger zone — aggressive settings increase block risk
   danger:
-    aggressive_mode: false
-    aggressive_time_range: 3600
+    aggressive_mode: false       # When true: shorter time range, more pages
+    aggressive_time_range: 3600  # 1 hour
     aggressive_max_pages: 10
-    proxy_url: ""
+    proxy_url: ""                # e.g. "http://user:pass@proxy:8080"
 
 
-# ── Career page watchers (generic HTML scraping) ────────────────────────────
+# ── Career page watchers (generic HTML scraping) ────────────────────
 watched_pages: []
   # Example:
   # - company: Anthropic
   #   url: https://www.anthropic.com/careers
   #   link_selector: "a[href*='/jobs/']"
+  # - company: Apple
+  #   url: https://jobs.apple.com/en-us/search
+  #   link_pattern: 'href="(/en-us/details/[^"]+)"'
 
 
-# ── Polling intervals (minutes between scans per source type) ────────────────
+# ── Polling intervals (minutes) ─────────────────────────────────────
 polling:
   greenhouse_interval_minutes: 30
   lever_interval_minutes: 30

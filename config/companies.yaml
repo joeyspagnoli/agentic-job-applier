@@ -95,6 +95,35 @@ greenhouse_companies:
 
 
 workday_companies:
+  # ── Semiconductors / hardware (verified 2026-05-07) ───────────────────────
+  # Workday tenants for the major US/EU semiconductor and hardware vendors.
+  # AMD is on iCIMS (see icims_companies); Qualcomm, TI, Skyworks, onsemi,
+  # Infineon, ST, Lattice, Western Digital, Seagate are on other ATSes.
+  Intel:
+    workday_url: "https://intel.wd1.myworkdayjobs.com/External"
+    industry: semiconductor
+  NVIDIA:
+    workday_url: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"
+    industry: semiconductor
+  Analog Devices:
+    workday_url: "https://analogdevices.wd1.myworkdayjobs.com/External"
+    industry: semiconductor
+  Marvell Technology:
+    workday_url: "https://marvell.wd1.myworkdayjobs.com/MarvellCareers"
+    industry: semiconductor
+  Micron Technology:
+    workday_url: "https://micron.wd1.myworkdayjobs.com/External"
+    industry: semiconductor
+  Microchip Technology:
+    workday_url: "https://microchiphr.wd5.myworkdayjobs.com/External"
+    industry: semiconductor
+  Broadcom:
+    workday_url: "https://broadcom.wd1.myworkdayjobs.com/External_Career"
+    industry: semiconductor
+  NXP Semiconductors:
+    workday_url: "https://nxp.wd3.myworkdayjobs.com/careers"
+    industry: semiconductor
+
   # ── Pharma/biotech (verified 2026-05-05) ──────────────────────────────────
   Pfizer:
     workday_url: "https://pfizer.wd1.myworkdayjobs.com/PfizerCareers"
@@ -382,6 +411,12 @@ workday_companies:
 #   Dollar Tree (dollartreetogo.icims.com), AutoZone, Ross Stores,
 #   Burlington (may have moved), MetLife, Prudential, Unum
 icims_companies:
+  # ── Semiconductors / hardware ──────────────────────────────────────────────
+  AMD:
+    icims_subdomain: "careers-amd.icims.com"
+    industry: semiconductor
+    priority: 2
+
   # ── Healthcare ──────────────────────────────────────────────────────────────
   # Note: HCA Healthcare also appears in workday_companies — this subdomain
   # targets a separate iCIMS-hosted portal (hcmhcares subsidiary).

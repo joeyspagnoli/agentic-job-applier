@@ -253,6 +253,44 @@ function toYamlDoubleQuoted(value: string): string {
 }
 
 /**
+ * Derive `hard_filters.require_title_patterns` from the candidate's target roles.
+ *
+ * @remarks
+ * Without role-relevance gating at insert time, a candidate looking for
+ * an "Electrical Engineering Intern" sees pharma "Sr. Innovation Specialist"
+ * postings in their dashboard. By scanning the target-roles text for entry-
+ * level signals (intern / co-op / new grad / early career / junior), we emit
+ * regex patterns that the JobFilter applies before persisting a job — non-
+ * matching titles are dropped at the source. If none of these signals appear
+ * (e.g., the candidate is targeting senior roles), no patterns are emitted
+ * and all titles pass through.
+ *
+ * @param targetRolesText - Raw multi-line target roles text from the wizard.
+ * @returns Regex patterns to populate `hard_filters.require_title_patterns`.
+ */
+export function deriveRequireTitlePatterns(targetRolesText: string): string[] {
+  const lowered = targetRolesText.toLowerCase();
+  const patterns: string[] = [];
+  if (/\bintern(ship)?\b/.test(lowered)) {
+    patterns.push("(?i)\\bintern(ship)?\\b");
+  }
+  if (/\bco-?op\b/.test(lowered)) {
+    patterns.push("(?i)\\bco-?op\\b");
+  }
+  if (/\bnew\s+grad(uate)?\b/.test(lowered)) {
+    patterns.push("(?i)\\bnew\\s+grad(uate)?\\b");
+  }
+  if (/\bearly\s+career\b/.test(lowered)) {
+    patterns.push("(?i)\\bearly\\s+career\\b");
+  }
+  if (/\b(junior|jr\.?|entry[\s-]level)\b/.test(lowered)) {
+    patterns.push("(?i)\\b(junior|jr\\.?)\\b");
+    patterns.push("(?i)\\bentry[\\s-]level\\b");
+  }
+  return patterns;
+}
+
+/**
  * Serialize the onboarding filters draft and domain keywords to a filters.yaml string.
  *
  * @remarks
@@ -260,12 +298,15 @@ function toYamlDoubleQuoted(value: string): string {
  * (domain-specific auto-qualification and generic negative signals). The
  * `positive_keywords` under `soft_filters` come from the user's `strongestAreas`
  * so that jobs mentioning any of those skills are auto-qualified without needing
- * the gate agent. All user-supplied strings pass through {@link escapeYamlDoubleQuoted}
- * so that quote and backslash characters in company names or title patterns
- * cannot produce malformed YAML.
+ * the gate agent. The `require_title_patterns` come from {@link deriveRequireTitlePatterns}
+ * so role-irrelevant postings (e.g., senior or director-level jobs for an intern
+ * candidate) are rejected before they enter the database. All user-supplied
+ * strings pass through {@link escapeYamlDoubleQuoted} so that quote and backslash
+ * characters in company names or title patterns cannot produce malformed YAML.
  *
  * @param draft - The filters draft state from the onboarding wizard.
- * @param roles - The roles draft; `strongestAreas` becomes `soft_filters.positive_keywords`.
+ * @param roles - The roles draft; `strongestAreas` becomes `soft_filters.positive_keywords`
+ *   and `targetRoles` drives `hard_filters.require_title_patterns`.
  * @returns YAML string ready to write to filters.yaml.
  */
 export function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
@@ -282,6 +323,7 @@ export function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string
     .filter(Boolean);
 
   const domainKeywords = splitLines(roles.strongestAreas);
+  const requireTitlePatterns = deriveRequireTitlePatterns(roles.targetRoles);
 
   const lines: string[] = [
     "hard_filters:",
@@ -293,7 +335,10 @@ export function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string
     "  exclude_title_patterns:",
     ...excludeTitles.map((pattern) => `    - ${toYamlDoubleQuoted(pattern)}`),
     "  exclude_job_types: []",
-    "  require_title_patterns: []",
+    requireTitlePatterns.length === 0
+      ? "  require_title_patterns: []"
+      : "  require_title_patterns:",
+    ...requireTitlePatterns.map((pattern) => `    - ${toYamlDoubleQuoted(pattern)}`),
     "  exclude_locations: []",
     "  max_days_old: 30",
     "soft_filters:",

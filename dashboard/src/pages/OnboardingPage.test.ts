@@ -33,6 +33,7 @@ import {
   buildFiltersYaml,
   buildGithubReposBlock,
   buildWatchlistWarning,
+  deriveRequireTitlePatterns,
   detectSimplifyCategories,
   resolveGreenhouseSlug,
   saveWatchlistCompanies,
@@ -252,6 +253,99 @@ describe("buildFiltersYaml", () => {
 
     // Assert
     expect(yaml).toContain("  require_remote: true");
+  });
+
+  it("emits require_title_patterns derived from intern roles, replacing the empty list", () => {
+    // Arrange — an EE-intern candidate's target roles all carry "Intern".
+    const filters = emptyFiltersDraft();
+    const roles: RolesDraft = {
+      ...emptyRolesDraft(),
+      targetRoles:
+        "Electrical Engineering Intern\nHardware Engineering Intern\nFPGA Intern",
+    };
+
+    // Act
+    const yaml = buildFiltersYaml(filters, roles);
+
+    // Assert — the empty placeholder must be gone and the regex must appear.
+    expect(yaml).not.toContain("require_title_patterns: []");
+    expect(yaml).toContain("  require_title_patterns:\n");
+    expect(yaml).toContain('    - "(?i)\\\\bintern(ship)?\\\\b"');
+  });
+
+  it("preserves the empty require_title_patterns list when no entry-level signals appear", () => {
+    // Arrange — a senior candidate's roles produce no intern/co-op patterns.
+    const filters = emptyFiltersDraft();
+    const roles: RolesDraft = {
+      ...emptyRolesDraft(),
+      targetRoles: "Staff Software Engineer\nPrincipal Engineer",
+    };
+
+    // Act
+    const yaml = buildFiltersYaml(filters, roles);
+
+    // Assert — empty list placeholder remains; no patterns emitted.
+    expect(yaml).toContain("  require_title_patterns: []");
+    expect(yaml).not.toContain('    - "(?i)\\\\bintern');
+  });
+});
+
+// ─── deriveRequireTitlePatterns ────────────────────────────────────────────
+
+describe("deriveRequireTitlePatterns", () => {
+  it("emits the intern pattern when target roles contain 'Intern'", () => {
+    expect(deriveRequireTitlePatterns("Electrical Engineering Intern")).toContain(
+      "(?i)\\bintern(ship)?\\b",
+    );
+  });
+
+  it("emits the intern pattern when target roles contain 'Internship'", () => {
+    expect(deriveRequireTitlePatterns("Software Internship")).toContain(
+      "(?i)\\bintern(ship)?\\b",
+    );
+  });
+
+  it("emits the co-op pattern when target roles contain 'co-op' or 'coop'", () => {
+    expect(deriveRequireTitlePatterns("Hardware Co-op")).toContain(
+      "(?i)\\bco-?op\\b",
+    );
+    expect(deriveRequireTitlePatterns("Engineering Coop")).toContain(
+      "(?i)\\bco-?op\\b",
+    );
+  });
+
+  it("emits the new-grad pattern when target roles contain 'New Grad'", () => {
+    expect(deriveRequireTitlePatterns("Software Engineer New Grad")).toContain(
+      "(?i)\\bnew\\s+grad(uate)?\\b",
+    );
+  });
+
+  it("emits the early-career pattern when target roles contain 'Early Career'", () => {
+    expect(deriveRequireTitlePatterns("Early Career Engineer")).toContain(
+      "(?i)\\bearly\\s+career\\b",
+    );
+  });
+
+  it("emits both junior and entry-level patterns for 'Junior Engineer'", () => {
+    const patterns = deriveRequireTitlePatterns("Junior Hardware Engineer");
+    expect(patterns).toContain("(?i)\\b(junior|jr\\.?)\\b");
+    expect(patterns).toContain("(?i)\\bentry[\\s-]level\\b");
+  });
+
+  it("returns an empty array when no entry-level signals are present", () => {
+    expect(deriveRequireTitlePatterns("Staff Engineer\nPrincipal Engineer")).toEqual(
+      [],
+    );
+  });
+
+  it("returns an empty array for an empty roles string", () => {
+    expect(deriveRequireTitlePatterns("")).toEqual([]);
+  });
+
+  it("is case-insensitive (matches uppercase 'INTERN')", () => {
+    expect(deriveRequireTitlePatterns("ELECTRICAL ENGINEERING INTERN")).toContain(
+      "(?i)\\bintern(ship)?\\b",
+    );
   });
 });
 

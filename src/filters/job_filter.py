@@ -396,13 +396,17 @@ class JobFilter:
         """Compile a list of regex pattern strings, skipping invalid ones.
 
         Args:
-            patterns: Raw regex strings from the YAML config.
+            patterns: Raw regex strings from the YAML config. Tolerates
+                ``None`` (an empty key in YAML parses to ``None`` rather than
+                an empty list) by treating it as no patterns.
             label: Config field name used in warning logs for bad patterns.
 
         Returns:
             A list of compiled regex pattern objects.
         """
         compiled: list[re.Pattern[str]] = []
+        if not patterns:
+            return compiled
         for raw in patterns:
             if not isinstance(raw, str):
                 continue

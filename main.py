@@ -34,6 +34,14 @@ from src.utils.deduplicator import Deduplicator
 from src.utils.logger import log_crawl_summary, log_cycle_summary, setup_logger
 from src.utils.paths import resolve_database_path
 
+# Per-company crawl ceilings. Workday tenants for large enterprises (Merck,
+# J&J) can return 800+ listings; without these guards the orchestrator runs
+# blockingly serial and a single slow/hung tenant stalls every later source
+# family. Detail-fetching is left to the gate agent on a per-job basis, so
+# the discovery loop only needs title/location/company at insert time.
+WORKDAY_PER_COMPANY_TIMEOUT_SEC = 90
+WORKDAY_FETCH_DESCRIPTIONS = False
+
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
     """Load a YAML file and return the parsed mapping.
@@ -410,8 +418,15 @@ async def fetch_workday_jobs(
         try:
             crawl_id = await db.start_crawl("workday", company_name)
 
-            async with WorkdayFetcher(company_name, workday_url) as fetcher:
-                jobs = await fetcher.fetch_jobs()
+            async with WorkdayFetcher(
+                company_name,
+                workday_url,
+                fetch_descriptions=WORKDAY_FETCH_DESCRIPTIONS,
+            ) as fetcher:
+                jobs = await asyncio.wait_for(
+                    fetcher.fetch_jobs(),
+                    timeout=WORKDAY_PER_COMPANY_TIMEOUT_SEC,
+                )
                 if title_include_patterns:
                     jobs = _filter_by_title_patterns(jobs, title_include_patterns)
                 crawl_jobs_found = len(jobs)
