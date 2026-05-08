@@ -28,9 +28,32 @@ from src.orchestrator.config_loader import (
     resolve_job_board_default_search_terms,
     resolve_workday_search_text,
 )
+from src.orchestrator.domains import (
+    apply_domain_filter_to_config,
+    resolve_user_domains,
+)
 from src.utils.deduplicator import Deduplicator
 from src.utils.logger import log_cycle_summary
 from src.utils.paths import resolve_database_path
+
+
+def _section_dict(
+    companies_config: dict[str, Any], section: str
+) -> dict[str, Any]:
+    """Return a watchlist section as a dict, treating missing/non-dict as empty.
+
+    Purpose:
+        Safely measure section sizes for the domain-filter log line without
+        leaking ``object`` typing through ``mapping.get(...)`` into ``len()``.
+    Args:
+        companies_config: Parsed `companies.yaml` mapping.
+        section: Top-level key (e.g. ``"workday_companies"``).
+    Output:
+        Returns the section mapping or an empty dict.
+    """
+
+    raw = companies_config.get(section)
+    return raw if isinstance(raw, dict) else {}
 
 
 def _resolve_main_attr(name: str, default: Any) -> Any:
@@ -109,6 +132,37 @@ async def run_job_discovery() -> None:
         config_dir / "candidate_profile.yaml",
     )
     filters_config = load_optional_yaml(config_dir / "filters.yaml")
+
+    # Scope the company watchlist to the user's chosen domains. Untagged
+    # companies and search-term-driven sections (LinkedIn, JobSpy, GitHub
+    # repos, watched_pages) are left intact so the filter never silently
+    # hides results that have no industry classification yet.
+    user_domains = resolve_user_domains(candidate_profile_config)
+    if user_domains:
+        before_counts = {
+            section: len(_section_dict(companies_config, section))
+            for section in (
+                "greenhouse_companies",
+                "workday_companies",
+                "icims_companies",
+                "taleo_companies",
+                "lever_companies",
+                "ashby_companies",
+            )
+        }
+        companies_config = apply_domain_filter_to_config(
+            companies_config, user_domains
+        )
+        after_counts = {
+            section: len(_section_dict(companies_config, section))
+            for section in before_counts
+        }
+        logger.info(
+            "Domain filter active for {}: watchlist {} -> {}",
+            sorted(user_domains),
+            sum(before_counts.values()),
+            sum(after_counts.values()),
+        )
     default_search_terms = resolve_job_board_default_search_terms(
         search_criteria_config=search_criteria_config,
         candidate_profile_config=candidate_profile_config,
