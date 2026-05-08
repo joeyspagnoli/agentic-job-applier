@@ -271,9 +271,7 @@ function parseFiltersGuidedDraft(data: Record<string, unknown>): FiltersGuidedDr
   const excludeJobTypes = hard["exclude_job_types"];
 
   return {
-    hard_exclude_job_types: Array.isArray(excludeJobTypes)
-      ? (excludeJobTypes as string[])
-      : [],
+    hard_exclude_job_types: Array.isArray(excludeJobTypes) ? (excludeJobTypes as string[]) : [],
     hard_exclude_title_patterns: getStringList(hard, "exclude_title_patterns"),
     hard_require_title_patterns: getStringList(hard, "require_title_patterns"),
     hard_exclude_locations: getStringList(hard, "exclude_locations"),
@@ -571,14 +569,12 @@ export function SettingsPage(): JSX.Element {
 
   useEffect(() => {
     if (budgetQuery.data !== undefined && !isBudgetDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBudgetInput(budgetQuery.data.monthly_budget_usd.toFixed(2));
     }
   }, [budgetQuery.data, isBudgetDirty]);
 
   useEffect(() => {
     if (profileQuery.data !== undefined && !isProfileDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProfileDraft(toProfileDraft(profileQuery.data));
       setProfileYamlDraft(profileQuery.data.yaml_text);
     }
@@ -586,7 +582,6 @@ export function SettingsPage(): JSX.Element {
 
   useEffect(() => {
     if (resumeQuery.data !== undefined && !isResumeDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResumeDraft(toResumeDraft(resumeQuery.data));
       setResumeYamlDraft(resumeQuery.data.yaml_text);
     }
@@ -594,25 +589,21 @@ export function SettingsPage(): JSX.Element {
 
   useEffect(() => {
     if (filtersQuery.data !== undefined && !isFiltersDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFiltersYamlDraft(filtersQuery.data.yaml_text);
     }
     if (filtersQuery.data !== undefined && !isFiltersGuidedDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFiltersGuidedDraft(parseFiltersGuidedDraft(filtersQuery.data.data));
     }
   }, [filtersQuery.data, isFiltersDirty, isFiltersGuidedDirty]);
 
   useEffect(() => {
     if (sourcesQuery.data !== undefined && !isSourcesDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSourcesYamlDraft(sourcesQuery.data.yaml_text);
     }
   }, [sourcesQuery.data, isSourcesDirty]);
 
   useEffect(() => {
     if (tierQuery.data !== undefined && !isTierDirty) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedServiceTier(tierQuery.data.tier);
     }
   }, [tierQuery.data, isTierDirty]);
@@ -2922,12 +2913,16 @@ export function SettingsPage(): JSX.Element {
                   </p>
 
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                    <p
+                      className="text-xs font-semibold"
+                      style={{ color: COLOR_ON_SURFACE_VARIANT }}
+                    >
                       Exclude Job Types
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {JOB_TYPES.map((jobType) => {
-                        const isChecked = filtersGuidedDraft.hard_exclude_job_types.includes(jobType);
+                        const isChecked =
+                          filtersGuidedDraft.hard_exclude_job_types.includes(jobType);
                         return (
                           <label
                             key={jobType}

@@ -16,7 +16,9 @@ describe("toSafeJobPostingUrl", () => {
   });
 
   it("rejects data protocol URLs", () => {
-    expect(toSafeJobPostingUrl("data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==")).toBeNull();
+    expect(
+      toSafeJobPostingUrl("data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="),
+    ).toBeNull();
   });
 
   it("rejects malformed URLs", () => {

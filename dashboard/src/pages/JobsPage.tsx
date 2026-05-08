@@ -6,7 +6,7 @@
  */
 
 import type { ChangeEvent, JSX } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toJobsRows, type JobsRowModel } from "@/lib/api/adapters";
 import { fetchJobs, fetchJobsNow, getTailoredResumeUrl } from "@/lib/api/client";
@@ -141,7 +141,9 @@ export function JobsPage(): JSX.Element {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
       setJustTriggered(true);
-      window.setTimeout(() => { setJustTriggered(false); }, 2500);
+      window.setTimeout(() => {
+        setJustTriggered(false);
+      }, 2500);
     },
   });
 
@@ -175,7 +177,7 @@ export function JobsPage(): JSX.Element {
       }),
   });
 
-  const rows = jobsQuery.data ? toJobsRows(jobsQuery.data) : [];
+  const rows = useMemo(() => (jobsQuery.data ? toJobsRows(jobsQuery.data) : []), [jobsQuery.data]);
   const totalItems = jobsQuery.data?.total_items ?? 0;
   const totalPages = jobsQuery.data?.total_pages ?? 1;
 
@@ -243,16 +245,22 @@ export function JobsPage(): JSX.Element {
           <button
             className="px-4 py-2 rounded-xl border text-sm font-semibold transition-all"
             style={{ borderColor: COLOR_OUTLINE_VARIANT, color: COLOR_ON_SURFACE_VARIANT }}
-            onClick={() => { setIsImportOpen(true); }}
+            onClick={() => {
+              setIsImportOpen(true);
+            }}
           >
-            <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">add</span>
+            <span className="material-symbols-outlined text-[16px] align-text-bottom mr-1">
+              add
+            </span>
             Import Job
           </button>
           <button
             disabled={fetchJobsMutation.isPending}
             className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-all scale-98-on-click disabled:opacity-60"
             style={{ backgroundColor: COLOR_PRIMARY }}
-            onClick={() => { fetchJobsMutation.mutate(); }}
+            onClick={() => {
+              fetchJobsMutation.mutate();
+            }}
           >
             {fetchJobsMutation.isPending ? (
               <>
@@ -263,7 +271,11 @@ export function JobsPage(): JSX.Element {
                   <span className="animate-bounce">.</span>
                 </span>
               </>
-            ) : justTriggered ? "Triggered!" : "Fetch Jobs Now"}
+            ) : justTriggered ? (
+              "Triggered!"
+            ) : (
+              "Fetch Jobs Now"
+            )}
           </button>
         </div>
       </div>
@@ -323,7 +335,9 @@ export function JobsPage(): JSX.Element {
           >
             <option value="">All Sources</option>
             {SOURCE_OPTIONS.map((src) => (
-              <option key={src} value={src}>{src}</option>
+              <option key={src} value={src}>
+                {src}
+              </option>
             ))}
           </select>
         </div>
@@ -339,13 +353,18 @@ export function JobsPage(): JSX.Element {
       {/* Keyboard hint */}
       <div className="flex items-center gap-4 text-[11px]" style={{ color: COLOR_OUTLINE }}>
         <span>
-          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">↑↓</kbd> navigate
+          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">↑↓</kbd>{" "}
+          navigate
         </span>
         <span>
-          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">Enter</kbd> expand
+          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">
+            Enter
+          </kbd>{" "}
+          expand
         </span>
         <span>
-          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">Esc</kbd> close
+          <kbd className="px-1 py-0.5 rounded bg-surface-container font-mono text-[10px]">Esc</kbd>{" "}
+          close
         </span>
       </div>
 
@@ -359,22 +378,22 @@ export function JobsPage(): JSX.Element {
         aria-label="Jobs list"
       >
         <table className="w-full text-left border-collapse">
-          <thead
-            style={{ backgroundColor: COLOR_SURFACE_CONTAINER_LOW }}
-          >
+          <thead style={{ backgroundColor: COLOR_SURFACE_CONTAINER_LOW }}>
             <tr>
-              {["COMPANY", "POSITION", "LOCATION", "SOURCE", "STATUS", "DISCOVERED", ""].map((heading) => (
-                <th
-                  key={heading}
-                  className="px-5 py-3.5 text-[10px] font-bold tracking-widest uppercase"
-                  style={{
-                    color: COLOR_ON_SURFACE_VARIANT,
-                    textAlign: heading === "" ? "right" : "left",
-                  }}
-                >
-                  {heading}
-                </th>
-              ))}
+              {["COMPANY", "POSITION", "LOCATION", "SOURCE", "STATUS", "DISCOVERED", ""].map(
+                (heading) => (
+                  <th
+                    key={heading}
+                    className="px-5 py-3.5 text-[10px] font-bold tracking-widest uppercase"
+                    style={{
+                      color: COLOR_ON_SURFACE_VARIANT,
+                      textAlign: heading === "" ? "right" : "left",
+                    }}
+                  >
+                    {heading}
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody ref={tableRef}>
@@ -421,7 +440,9 @@ export function JobsPage(): JSX.Element {
       {/* Import modal */}
       <ImportJobModal
         open={isImportOpen}
-        onClose={() => { setIsImportOpen(false); }}
+        onClose={() => {
+          setIsImportOpen(false);
+        }}
         onImported={() => {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
         }}
@@ -457,7 +478,11 @@ function JobRow({ row, expanded, focused, onToggle }: JobRowProps): JSX.Element 
         className="border-t transition-colors cursor-pointer"
         style={{
           borderColor: `${COLOR_OUTLINE_VARIANT}20`,
-          backgroundColor: focused ? COLOR_PRIMARY_FIXED : expanded ? COLOR_SURFACE_CONTAINER_LOW : "transparent",
+          backgroundColor: focused
+            ? COLOR_PRIMARY_FIXED
+            : expanded
+              ? COLOR_SURFACE_CONTAINER_LOW
+              : "transparent",
         }}
         onClick={onToggle}
       >
@@ -471,12 +496,16 @@ function JobRow({ row, expanded, focused, onToggle }: JobRowProps): JSX.Element 
           {row.location}
         </td>
         <td className="px-5 py-3.5">
-          <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold tracking-wider ${sourceBadgeClass(row.source)}`}>
+          <span
+            className={`rounded-lg px-2 py-0.5 text-[10px] font-bold tracking-wider ${sourceBadgeClass(row.source)}`}
+          >
             {row.source}
           </span>
         </td>
         <td className="px-5 py-3.5">
-          <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}>
+          <span
+            className={`rounded-lg px-2 py-0.5 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}
+          >
             {row.status}
           </span>
         </td>
@@ -501,7 +530,10 @@ function JobRow({ row, expanded, focused, onToggle }: JobRowProps): JSX.Element 
           <td className="px-5 py-5" colSpan={7}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: COLOR_OUTLINE }}>
+                <p
+                  className="text-[10px] uppercase tracking-widest font-bold"
+                  style={{ color: COLOR_OUTLINE }}
+                >
                   Gate Verdict
                 </p>
                 <p className="text-sm font-semibold" style={{ color: COLOR_ON_SURFACE }}>
@@ -529,7 +561,10 @@ function JobRow({ row, expanded, focused, onToggle }: JobRowProps): JSX.Element 
               </div>
 
               <div className="space-y-2 lg:col-span-2">
-                <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: COLOR_OUTLINE }}>
+                <p
+                  className="text-[10px] uppercase tracking-widest font-bold"
+                  style={{ color: COLOR_OUTLINE }}
+                >
                   Pipeline
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -599,7 +634,12 @@ interface PaginationProps {
  * @param props - {@link PaginationProps}
  * @returns Pagination footer row.
  */
-function Pagination({ currentPage, totalPages, totalItems, onPageChange }: PaginationProps): JSX.Element {
+function Pagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  onPageChange,
+}: PaginationProps): JSX.Element {
   const safeTotalPages = Math.max(1, totalPages);
 
   return (
@@ -617,7 +657,9 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
             borderColor: COLOR_OUTLINE_VARIANT,
             color: COLOR_ON_SURFACE_VARIANT,
           }}
-          onClick={() => { onPageChange(Math.max(1, currentPage - 1)); }}
+          onClick={() => {
+            onPageChange(Math.max(1, currentPage - 1));
+          }}
           disabled={currentPage <= 1}
         >
           Prev
@@ -628,7 +670,9 @@ function Pagination({ currentPage, totalPages, totalItems, onPageChange }: Pagin
             borderColor: COLOR_OUTLINE_VARIANT,
             color: COLOR_ON_SURFACE_VARIANT,
           }}
-          onClick={() => { onPageChange(Math.min(safeTotalPages, currentPage + 1)); }}
+          onClick={() => {
+            onPageChange(Math.min(safeTotalPages, currentPage + 1));
+          }}
           disabled={currentPage >= safeTotalPages}
         >
           Next

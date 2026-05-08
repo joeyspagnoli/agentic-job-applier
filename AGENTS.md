@@ -1,7 +1,7 @@
 # Agentic Job Applier Guide
 
 ## Purpose
-- This repository discovers jobs from Greenhouse, Workday, and JobSpy-backed boards, normalizes them into a shared model, stores them in SQLite, and optionally runs an ADK-based apply/skip decision step.
+- This repository discovers jobs from Greenhouse, Workday, Lever, Ashby, iCIMS, Taleo, JobSpy-backed boards (Indeed, LinkedIn, Glassdoor), Remotive, Himalayas, Working Nomads, The Muse, Adzuna, Startup Jobs, curated GitHub repos (e.g. SimplifyJobs internships), and direct career-page watchers. Postings are normalized into a shared model, stored in SQLite, and optionally driven through gate / tailor / review / apply workers.
 - The project is organized so fetchers gather raw postings, the database layer persists normalized records, and operational scripts expose common workflows for discovery, querying, and agent processing.
 
 ## Key Entry Points
@@ -11,7 +11,7 @@
 - `scripts/process_new_jobs.py`: Pulls NEW jobs from the database, builds the agent prompt payload, runs the ADK decider, and records the resulting status.
 
 ## Major Subsystems
-- `src/fetchers/`: Source-specific integrations for Greenhouse, Workday (free CXS scraper), and JobSpy-backed sites.
+- `src/fetchers/`: Source-specific integrations for every board listed in Purpose, plus shared helpers (`base_fetcher`, `ats_scanner`, `fuzzy_dedup`, `liveness_checker`, `errors`).
 - `src/utils/`: Cross-cutting helpers for logging, deduplication, cost tracking, notifications, and path resolution used across orchestrators and workers.
 - `src/agents/`: Agent schemas and builder code for the apply/skip workflow.
 - `tests/`: Integration-style tests that validate the database lifecycle, deduplication, crawl tracking, and model normalization.
@@ -28,7 +28,7 @@
 - Avoid comments that merely restate syntax or repeat a function's name.
 
 ## Source of Truth
-- Start with `.aqa/spec/index.md` for repo orientation and follow its linked architecture, interface, and data-model documents when behavior is unclear.
+- Start with `README.md` for orientation and follow links from there.
 - If code and documentation disagree, treat the current source code as authoritative and update surrounding documentation to match.
 
 ## Test Flags

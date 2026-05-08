@@ -35,7 +35,7 @@ services:
     build:
       context: .
       target: base
-    command: uv run uvicorn api.main:app --host 0.0.0.0 --port 8000
+    command: uv run --no-dev uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "${API_PORT:-8000}:8000"
     <<: *base-volumes
@@ -54,7 +54,7 @@ services:
 
   gate:
     <<: *base-service
-    command: uv run python -m scripts.process_new_jobs --loop
+    command: uv run --no-dev python -m scripts.process_new_jobs --loop
 
   # ----------------------------------------------------------
   # TAILOR profile — resume tailoring + review
@@ -66,7 +66,7 @@ services:
       context: .
       target: latex
     profiles: [tailor, full]
-    command: uv run python -m scripts.process_qualified_jobs --loop
+    command: uv run --no-dev python -m scripts.process_qualified_jobs --loop
     env_file: .env
     <<: *base-volumes
     depends_on:
@@ -79,7 +79,7 @@ services:
       context: .
       target: latex
     profiles: [tailor, full]
-    command: uv run python -m scripts.process_reviewed_resumes --loop
+    command: uv run --no-dev python -m scripts.process_reviewed_resumes --loop
     env_file: .env
     <<: *base-volumes
     depends_on:
@@ -106,7 +106,7 @@ services:
           sleep 1;
         done &&
         echo 'Chrome CDP ready' &&
-        uv run python -m scripts.process_apply_jobs --loop
+        uv run --no-dev python -m scripts.process_apply_jobs --loop
       "
     env_file: .env
     volumes:

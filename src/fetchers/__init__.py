@@ -17,6 +17,7 @@ from src.fetchers.liveness_checker import LivenessResult, check_liveness
 from src.fetchers.linkedin_fetcher import LinkedInFetcher
 from src.fetchers.remotive_fetcher import RemotiveFetcher
 from src.fetchers.startup_jobs_fetcher import StartupJobsFetcher
+from src.fetchers.taleo_fetcher import TaleoFetcher
 from src.fetchers.themuse_fetcher import TheMuseFetcher
 from src.fetchers.working_nomads_fetcher import WorkingNomadsFetcher
 from src.fetchers.workday_fetcher import WorkdayFetcher
@@ -39,6 +40,7 @@ __all__ = [
     "PortalConfig",
     "RemotiveFetcher",
     "StartupJobsFetcher",
+    "TaleoFetcher",
     "TheMuseFetcher",
     "WorkdayFetcher",
     "WorkingNomadsFetcher",

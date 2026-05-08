@@ -186,7 +186,9 @@ export function CostTrackingPage(): JSX.Element {
           label="Avg Cost Per App"
           value={kpis.avgCostPerApp}
           icon="analytics"
-          subtitle={<span className="text-slate-500 font-medium">Based on approved applications</span>}
+          subtitle={
+            <span className="text-slate-500 font-medium">Based on approved applications</span>
+          }
         />
         <StatCard
           label="API Calls Today"
@@ -245,11 +247,22 @@ interface StatCardProps {
  * @param props - Card display props.
  * @returns Card element.
  */
-function StatCard({ label, value, icon, iconFilled = false, subtitle }: StatCardProps): JSX.Element {
+function StatCard({
+  label,
+  value,
+  icon,
+  iconFilled = false,
+  subtitle,
+}: StatCardProps): JSX.Element {
   return (
-    <div className="bg-white p-8 rounded-xl" style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}>
+    <div
+      className="bg-white p-8 rounded-xl"
+      style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}
+    >
       <div className="flex items-center justify-between mb-4">
-        <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-[0.05em]">{label}</p>
+        <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-[0.05em]">
+          {label}
+        </p>
         <span
           className="material-symbols-outlined"
           style={{
@@ -293,9 +306,16 @@ const SPEND_FILTER_LABELS: Record<SpendRangeFilter, string> = {
  * @param props - Spend chart props.
  * @returns Trend card element.
  */
-function DailySpendTrendCard({ bars, activeFilter, onFilterChange }: DailySpendTrendCardProps): JSX.Element {
+function DailySpendTrendCard({
+  bars,
+  activeFilter,
+  onFilterChange,
+}: DailySpendTrendCardProps): JSX.Element {
   return (
-    <div className="bg-white p-11 rounded-xl" style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}>
+    <div
+      className="bg-white p-11 rounded-xl"
+      style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}
+    >
       <div className="flex justify-between items-start mb-10">
         <div>
           <h3 className="text-xl font-bold text-on-surface">Daily Spend Trend</h3>
@@ -333,7 +353,10 @@ function DailySpendTrendCard({ bars, activeFilter, onFilterChange }: DailySpendT
         }`}
       >
         {bars.map((bar) => (
-          <div key={`${bar.label}-${bar.spendUsd}`} className="flex-1 flex flex-col items-center gap-2 group">
+          <div
+            key={`${bar.label}-${bar.spendUsd}`}
+            className="flex-1 flex flex-col items-center gap-2 group"
+          >
             <div
               className="w-full rounded-t-lg transition-all relative"
               style={{
@@ -377,7 +400,10 @@ interface CostByStageCardProps {
  */
 function CostByStageCard({ stageRows }: CostByStageCardProps): JSX.Element {
   return (
-    <div className="bg-white p-11 rounded-xl" style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}>
+    <div
+      className="bg-white p-11 rounded-xl"
+      style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}
+    >
       <h3 className="text-xl font-bold text-on-surface mb-8">Cost by Stage</h3>
       <div className="space-y-6">
         {stageRows.length === 0 && (
@@ -424,9 +450,16 @@ interface RecentFailuresCardProps {
  * @param props - Recent failures props.
  * @returns Recent failures card.
  */
-function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCardProps): JSX.Element {
+function RecentFailuresCard({
+  rows,
+  pendingRetryId,
+  onRetry,
+}: RecentFailuresCardProps): JSX.Element {
   return (
-    <div className="bg-white p-11 rounded-xl overflow-hidden" style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}>
+    <div
+      className="bg-white p-11 rounded-xl overflow-hidden"
+      style={{ boxShadow: "0 12px 32px -4px rgba(70,72,212,0.06)" }}
+    >
       <h3 className="text-xl font-bold text-on-surface mb-8">Recent Failures</h3>
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -441,9 +474,14 @@ function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCar
           </thead>
           <tbody className="divide-y divide-outline-variant/20">
             {rows.map((row) => (
-              <tr key={row.id} className="group hover:bg-surface-container-low/50 transition-colors">
+              <tr
+                key={row.id}
+                className="group hover:bg-surface-container-low/50 transition-colors"
+              >
                 <td className="py-5">
-                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase tracking-tighter ${failureStageClass(row.stage)}`}>
+                  <span
+                    className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase tracking-tighter ${failureStageClass(row.stage)}`}
+                  >
                     {row.stage}
                   </span>
                 </td>
@@ -456,7 +494,9 @@ function RecentFailuresCard({ rows, pendingRetryId, onRetry }: RecentFailuresCar
                   </code>
                 </td>
                 <td className="py-5">
-                  <p className="text-[10px] text-on-surface-variant font-medium">{formatFailureTime(row.time)}</p>
+                  <p className="text-[10px] text-on-surface-variant font-medium">
+                    {formatFailureTime(row.time)}
+                  </p>
                 </td>
                 <td className="py-5 text-right">
                   <button

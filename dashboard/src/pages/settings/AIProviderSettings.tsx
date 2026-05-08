@@ -77,13 +77,18 @@ export function AIProviderSettings(): JSX.Element {
   }, [settingsQuery.data]);
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { mode: AiProviderMode; provider_type?: AiProviderType; api_key?: string }) =>
-      updateAiProviderSettings(payload),
+    mutationFn: (payload: {
+      mode: AiProviderMode;
+      provider_type?: AiProviderType;
+      api_key?: string;
+    }) => updateAiProviderSettings(payload),
     onSuccess: () => {
       setSaveStatus("saved");
       setSaveError(null);
       void queryClient.invalidateQueries({ queryKey: ["ai-provider-settings"] });
-      window.setTimeout(() => { setSaveStatus("idle"); }, 2000);
+      window.setTimeout(() => {
+        setSaveStatus("idle");
+      }, 2000);
     },
     onError: (err: Error) => {
       setSaveStatus("error");
@@ -162,7 +167,9 @@ export function AIProviderSettings(): JSX.Element {
   }
 
   useEffect(() => {
-    return () => { stopCodexPolling(); };
+    return () => {
+      stopCodexPolling();
+    };
   }, []);
 
   /**
@@ -182,7 +189,8 @@ export function AIProviderSettings(): JSX.Element {
   }
 
   const isCodexActive = settingsQuery.data?.mode === "codex" && settingsQuery.data?.is_configured;
-  const codexIsPolling = codexSnapshot?.status === "starting" || codexSnapshot?.status === "running";
+  const codexIsPolling =
+    codexSnapshot?.status === "starting" || codexSnapshot?.status === "running";
 
   return (
     <div className="space-y-6">
@@ -203,7 +211,9 @@ export function AIProviderSettings(): JSX.Element {
             backgroundColor: mode === "codex" ? COLOR_PRIMARY_FIXED : "transparent",
             borderColor: mode === "codex" ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
           }}
-          onClick={() => { setMode("codex"); }}
+          onClick={() => {
+            setMode("codex");
+          }}
         >
           <span
             className="material-symbols-outlined text-xl"
@@ -212,7 +222,10 @@ export function AIProviderSettings(): JSX.Element {
             cloud
           </span>
           <div>
-            <p className="text-sm font-bold" style={{ color: mode === "codex" ? COLOR_PRIMARY : COLOR_ON_SURFACE }}>
+            <p
+              className="text-sm font-bold"
+              style={{ color: mode === "codex" ? COLOR_PRIMARY : COLOR_ON_SURFACE }}
+            >
               Codex Subscription
             </p>
             <p className="text-xs mt-0.5" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
@@ -227,7 +240,9 @@ export function AIProviderSettings(): JSX.Element {
             backgroundColor: mode === "byok" ? COLOR_PRIMARY_FIXED : "transparent",
             borderColor: mode === "byok" ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
           }}
-          onClick={() => { setMode("byok"); }}
+          onClick={() => {
+            setMode("byok");
+          }}
         >
           <span
             className="material-symbols-outlined text-xl"
@@ -236,7 +251,10 @@ export function AIProviderSettings(): JSX.Element {
             key
           </span>
           <div>
-            <p className="text-sm font-bold" style={{ color: mode === "byok" ? COLOR_PRIMARY : COLOR_ON_SURFACE }}>
+            <p
+              className="text-sm font-bold"
+              style={{ color: mode === "byok" ? COLOR_PRIMARY : COLOR_ON_SURFACE }}
+            >
               Bring Your Own Key
             </p>
             <p className="text-xs mt-0.5" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
@@ -258,7 +276,10 @@ export function AIProviderSettings(): JSX.Element {
           {isCodexActive && !codexIsPolling && (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-lg" style={{ color: COLOR_SUCCESS }}>
+                <span
+                  className="material-symbols-outlined text-lg"
+                  style={{ color: COLOR_SUCCESS }}
+                >
                   check_circle
                 </span>
                 <span className="text-sm font-semibold" style={{ color: COLOR_SUCCESS }}>
@@ -268,7 +289,9 @@ export function AIProviderSettings(): JSX.Element {
               <button
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors"
                 style={{ color: COLOR_ERROR, borderColor: `${COLOR_ERROR}40` }}
-                onClick={() => { void handleDisconnectCodex(); }}
+                onClick={() => {
+                  void handleDisconnectCodex();
+                }}
               >
                 Disconnect
               </button>
@@ -278,12 +301,15 @@ export function AIProviderSettings(): JSX.Element {
           {!isCodexActive && !codexIsPolling && codexSnapshot?.status !== "failed" && (
             <>
               <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-                Sign in with your Codex/OpenAI subscription. A verification URL and one-time code will appear below.
+                Sign in with your Codex/OpenAI subscription. A verification URL and one-time code
+                will appear below.
               </p>
               <button
                 className="px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all scale-98-on-click"
                 style={{ backgroundColor: COLOR_PRIMARY }}
-                onClick={() => { void handleStartCodex(); }}
+                onClick={() => {
+                  void handleStartCodex();
+                }}
               >
                 Sign in with Codex
               </button>
@@ -333,7 +359,9 @@ export function AIProviderSettings(): JSX.Element {
               <button
                 className="px-4 py-2 rounded-xl text-sm font-bold text-white"
                 style={{ backgroundColor: COLOR_PRIMARY }}
-                onClick={() => { void handleStartCodex(); }}
+                onClick={() => {
+                  void handleStartCodex();
+                }}
               >
                 Retry
               </button>
@@ -346,7 +374,10 @@ export function AIProviderSettings(): JSX.Element {
       {mode === "byok" && (
         <div className="space-y-4">
           <div>
-            <span className="text-xs font-semibold mb-2 block" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+            <span
+              className="text-xs font-semibold mb-2 block"
+              style={{ color: COLOR_ON_SURFACE_VARIANT }}
+            >
               Provider
             </span>
             <div className="flex flex-wrap gap-2">
@@ -357,9 +388,12 @@ export function AIProviderSettings(): JSX.Element {
                   style={{
                     backgroundColor: providerType === p.value ? COLOR_PRIMARY_FIXED : "transparent",
                     color: providerType === p.value ? COLOR_PRIMARY : COLOR_ON_SURFACE_VARIANT,
-                    borderColor: providerType === p.value ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
+                    borderColor:
+                      providerType === p.value ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
                   }}
-                  onClick={() => { setProviderType(p.value); }}
+                  onClick={() => {
+                    setProviderType(p.value);
+                  }}
                 >
                   {p.label}
                 </button>
@@ -368,7 +402,10 @@ export function AIProviderSettings(): JSX.Element {
           </div>
 
           <label className="block">
-            <span className="text-xs font-semibold mb-1.5 block" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+            <span
+              className="text-xs font-semibold mb-1.5 block"
+              style={{ color: COLOR_ON_SURFACE_VARIANT }}
+            >
               API Key
             </span>
             <input
@@ -380,8 +417,12 @@ export function AIProviderSettings(): JSX.Element {
               }}
               type="password"
               value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); }}
-              placeholder={PROVIDER_OPTIONS.find((p) => p.value === providerType)?.placeholder ?? "API key"}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+              }}
+              placeholder={
+                PROVIDER_OPTIONS.find((p) => p.value === providerType)?.placeholder ?? "API key"
+              }
             />
             {settingsQuery.data?.is_configured && settingsQuery.data.mode === "byok" && (
               <p className="text-xs mt-1" style={{ color: COLOR_SUCCESS }}>

@@ -89,8 +89,7 @@ describe("JobsPage Fetch Jobs Now button feedback states (Bug 3)", () => {
 
   it("transitions Idle → Fetching → Triggered! → Idle across the mutation lifecycle", async () => {
     // Arrange — a deferred fetchJobsNow we can release on demand.
-    let releaseFetch: (value: SystemLifecycleActionDto) => void = () =>
-      undefined;
+    let releaseFetch: (value: SystemLifecycleActionDto) => void = () => undefined;
     const fetchPromise = new Promise<SystemLifecycleActionDto>((resolve) => {
       releaseFetch = resolve;
     });
@@ -116,9 +115,7 @@ describe("JobsPage Fetch Jobs Now button feedback states (Bug 3)", () => {
     });
     expect(pendingButton).toBeDisabled();
     expect(pendingButton.textContent).toContain("Fetching");
-    const bouncingDots = pendingButton.querySelectorAll(
-      "span.animate-bounce",
-    );
+    const bouncingDots = pendingButton.querySelectorAll("span.animate-bounce");
     expect(bouncingDots).toHaveLength(3);
 
     // Act — release the deferred promise so onSuccess fires.
@@ -132,18 +129,14 @@ describe("JobsPage Fetch Jobs Now button feedback states (Bug 3)", () => {
     // Assert (just-triggered) — label flips to "Triggered!" within the
     // 2.5 s confirmation window.
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Triggered!" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Triggered!" })).toBeInTheDocument();
     });
 
     // Assert (return-to-idle) — after the 2.5 s window elapses, the
     // label reverts to "Fetch Jobs Now".
     await waitFor(
       () => {
-        expect(
-          screen.getByRole("button", { name: "Fetch Jobs Now" }),
-        ).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Fetch Jobs Now" })).toBeInTheDocument();
       },
       { timeout: JUST_TRIGGERED_DURATION_MS + 1500 },
     );

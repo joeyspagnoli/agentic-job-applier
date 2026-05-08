@@ -1,27 +1,96 @@
-# Python-generated files
+# =============================================================================
+# Python
+# =============================================================================
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.egg-info/
 build/
-
+dist/
 wheels/
-*.egg-info
+.eggs/
 
-# Virtual environments
-.venv
-node_modules
+# =============================================================================
+# Virtual environments / package managers
+# =============================================================================
+.venv/
+venv/
+env/
+node_modules/
+.python-version
+
+# =============================================================================
 # Environment and secrets
-.env*
+# =============================================================================
+.env
+.env.*
 !.env.example
 config/candidate_profile.yaml
 config/candidate_profile.local.yaml
+config/*.bak
+config/backups/
 
-# Data and logs
+# =============================================================================
+# Runtime data and logs
+# =============================================================================
 data/
 !dashboard/src/data/
 logs/
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
 
-# IDE
+# =============================================================================
+# Test / coverage / cache artifacts
+# =============================================================================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.mutmut-cache
+htmlcov/
+coverage/
+*.cover
+.coverage
+.coverage.*
+dashboard/coverage/
+
+# =============================================================================
+# Playwright
+# =============================================================================
+.playwright/
+.playwright-cli/
+dashboard/.playwright-cli/
+playwright-report/
+test-results/
+
+# =============================================================================
+# Editors / IDEs
+# =============================================================================
 .idea/
 .vscode/
 *.swp
-.DS_STORE
+*.swo
+.DS_Store
+.aqa/
+.claude/
+
+# =============================================================================
+# Generated build output
+# =============================================================================
+dashboard/dist/
+dashboard/build/
+
+# =============================================================================
+# Internal scratch (not committed to OSS)
+# =============================================================================
+.research/
+.codex-review-artifacts/
+reference-repos/
+temp-resume/
+claude_notes/
+codex_oneoff.*

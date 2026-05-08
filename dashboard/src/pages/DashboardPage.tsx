@@ -118,7 +118,11 @@ export function DashboardPage(): JSX.Element {
                   ? COLOR_TERTIARY
                   : COLOR_OUTLINE
             }
-            badge={card.label === "Awaiting Review" && Number.parseInt(card.value, 10) > 0 ? "URGENT" : undefined}
+            badge={
+              card.label === "Awaiting Review" && Number.parseInt(card.value, 10) > 0
+                ? "URGENT"
+                : undefined
+            }
             loading={statsQuery.isLoading}
           />
         ))}
@@ -148,12 +152,16 @@ export function DashboardPage(): JSX.Element {
               <RangeButton
                 active={trendRange === "7d"}
                 label="7 days"
-                onClick={() => { setTrendRange("7d"); }}
+                onClick={() => {
+                  setTrendRange("7d");
+                }}
               />
               <RangeButton
                 active={trendRange === "30d"}
                 label="30 days"
-                onClick={() => { setTrendRange("30d"); }}
+                onClick={() => {
+                  setTrendRange("30d");
+                }}
               />
             </div>
           </div>
@@ -179,7 +187,13 @@ export function DashboardPage(): JSX.Element {
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={sourceBreakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>
+                <Pie
+                  data={sourceBreakdown}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={50}
+                  outerRadius={80}
+                >
                   {sourceBreakdown.map((entry) => (
                     <Cell key={entry.name} fill={entry.color} />
                   ))}
@@ -216,9 +230,14 @@ export function DashboardPage(): JSX.Element {
               <div key={row.stage} className="space-y-1">
                 <div className="flex items-center justify-between text-xs font-medium">
                   <span style={{ color: COLOR_ON_SURFACE }}>{row.stage}</span>
-                  <span style={{ color: COLOR_ON_SURFACE_VARIANT }}>{row.count.toLocaleString()}</span>
+                  <span style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+                    {row.count.toLocaleString()}
+                  </span>
                 </div>
-                <div className="h-2 rounded-full" style={{ backgroundColor: `${COLOR_OUTLINE_VARIANT}30` }}>
+                <div
+                  className="h-2 rounded-full"
+                  style={{ backgroundColor: `${COLOR_OUTLINE_VARIANT}30` }}
+                >
                   <div
                     className="h-2 rounded-full transition-all duration-500"
                     style={{ width: `${row.widthPct}%`, backgroundColor: COLOR_PRIMARY }}
@@ -287,7 +306,14 @@ interface StatCardProps {
  * @param props - {@link StatCardProps}
  * @returns One dashboard KPI card.
  */
-function StatCard({ label, value, subText, subTextColor, badge, loading }: StatCardProps): JSX.Element {
+function StatCard({
+  label,
+  value,
+  subText,
+  subTextColor,
+  badge,
+  loading,
+}: StatCardProps): JSX.Element {
   return (
     <div
       className="p-5 rounded-2xl ambient-shadow border"
@@ -307,7 +333,10 @@ function StatCard({ label, value, subText, subTextColor, badge, loading }: StatC
         )}
       </div>
       <div className="flex items-baseline gap-2">
-        <span className="text-fluid-2xl font-extrabold tracking-tight" style={{ color: COLOR_ON_SURFACE }}>
+        <span
+          className="text-fluid-2xl font-extrabold tracking-tight"
+          style={{ color: COLOR_ON_SURFACE }}
+        >
           {loading ? "--" : value}
         </span>
         <span className="text-xs font-semibold" style={{ color: subTextColor }}>

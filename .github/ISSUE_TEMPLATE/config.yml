@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/jspagnoli/agentic-job-applier/discussions
+    about: For open-ended questions, ideas, or help requests, please start a discussion instead of opening an issue.

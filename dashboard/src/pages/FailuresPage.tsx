@@ -190,7 +190,16 @@ export function FailuresPage(): JSX.Element {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-surface-container-low">
-              {["Stage", "Company", "Position", "Error", "Attempts", "Status", "Time", "Actions"].map((column) => (
+              {[
+                "Stage",
+                "Company",
+                "Position",
+                "Error",
+                "Attempts",
+                "Status",
+                "Time",
+                "Actions",
+              ].map((column) => (
                 <th
                   key={column}
                   className={`px-6 py-4 text-[10px] font-bold tracking-widest uppercase ${column === "Actions" ? "text-right" : ""}`}
@@ -266,9 +275,7 @@ function SummaryCard({ label, value, subtitle }: SummaryCardProps): JSX.Element 
   return (
     <div className="rounded-xl bg-white border border-white p-6 shadow-sm">
       <p className="text-[11px] font-bold tracking-widest uppercase text-outline">{label}</p>
-      <p className="mt-2 text-3xl font-black text-on-surface">
-        {value}
-      </p>
+      <p className="mt-2 text-3xl font-black text-on-surface">{value}</p>
       <p className="mt-1 text-xs text-outline">{subtitle}</p>
     </div>
   );
@@ -307,25 +314,37 @@ interface FailureRowProps {
  * @param props - {@link FailureRowProps}
  * @returns Row with optional detail panel.
  */
-function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureRowProps): JSX.Element {
+function FailureRow({
+  row,
+  expanded,
+  pendingRetry,
+  onToggle,
+  onRetry,
+}: FailureRowProps): JSX.Element {
   return (
     <>
       <tr className="border-t border-outline-variant/30 hover:bg-surface-container-low/50 transition-colors">
         <td className="px-6 py-4">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${stageClass(row.stage)}`}>
+          <span
+            className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${stageClass(row.stage)}`}
+          >
             {row.stage}
           </span>
         </td>
         <td className="px-6 py-4 font-semibold text-on-surface">{row.company}</td>
         <td className="px-6 py-4 text-on-surface-variant">{row.position}</td>
         <td className="px-6 py-4">
-          <code className="rounded bg-error-container px-2 py-0.5 text-xs font-semibold text-on-error-container">{row.error_code}</code>
+          <code className="rounded bg-error-container px-2 py-0.5 text-xs font-semibold text-on-error-container">
+            {row.error_code}
+          </code>
         </td>
         <td className="px-6 py-4 text-xs text-on-surface-variant">
           {row.attempts}/{row.max_attempts}
         </td>
         <td className="px-6 py-4">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${statusClass(row.status)}`}>
+          <span
+            className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${statusClass(row.status)}`}
+          >
             {row.status}
           </span>
         </td>
@@ -355,7 +374,9 @@ function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureR
           <td className="px-6 py-6" colSpan={8}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Job Details</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">
+                  Job Details
+                </p>
                 <p className="text-sm font-semibold text-on-surface">{row.company}</p>
                 <p className="text-xs text-on-surface-variant">{row.position}</p>
                 <p className="text-xs text-on-surface-variant">Platform: {row.platform}</p>
@@ -371,9 +392,14 @@ function FailureRow({ row, expanded, pendingRetry, onToggle, onRetry }: FailureR
               </div>
 
               <div className="lg:col-span-2 space-y-2">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Error Trace</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">
+                  Error Trace
+                </p>
                 <div className="rounded-xl bg-[#171922] p-4 text-xs text-slate-100 font-mono whitespace-pre-wrap">
-                  {(row.error_trace.length === 0 ? ["No error trace available."] : row.error_trace).join("\n")}
+                  {(row.error_trace.length === 0
+                    ? ["No error trace available."]
+                    : row.error_trace
+                  ).join("\n")}
                 </div>
               </div>
             </div>
@@ -402,7 +428,12 @@ interface PaginationProps {
  * @param props - {@link PaginationProps}
  * @returns Pagination footer element.
  */
-function Pagination({ currentPage, totalPages, totalItems, onPageChange }: PaginationProps): JSX.Element {
+function Pagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  onPageChange,
+}: PaginationProps): JSX.Element {
   const safeTotalPages = Math.max(1, totalPages);
 
   return (

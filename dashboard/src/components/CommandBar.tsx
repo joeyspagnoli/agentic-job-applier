@@ -10,14 +10,7 @@
  * the bar.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type JSX,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -125,11 +118,7 @@ export function useCommandBar(): UseCommandBarReturn {
  * @param props - {@link CommandBarProps}
  * @returns The command bar JSX, or `null` when closed.
  */
-export function CommandBar({
-  open,
-  onClose,
-  onAction,
-}: CommandBarProps): JSX.Element | null {
+export function CommandBar({ open, onClose, onAction }: CommandBarProps): JSX.Element | null {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -269,9 +258,7 @@ export function CommandBar({
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex(
-            (prev) => (prev - 1 + filtered.length) % Math.max(1, filtered.length),
-          );
+          setSelectedIndex((prev) => (prev - 1 + filtered.length) % Math.max(1, filtered.length));
           break;
         case "Enter":
           e.preventDefault();
@@ -435,9 +422,7 @@ export function CommandBar({
                       textAlign: "left",
                       borderRadius: 0,
                       color: isSelected ? COLOR_PRIMARY : COLOR_ON_SURFACE,
-                      backgroundColor: isSelected
-                        ? COLOR_PRIMARY_FIXED
-                        : "transparent",
+                      backgroundColor: isSelected ? COLOR_PRIMARY_FIXED : "transparent",
                       transition: "background-color 120ms ease, color 120ms ease",
                     }}
                   >

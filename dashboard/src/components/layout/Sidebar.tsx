@@ -95,9 +95,7 @@ export function Sidebar(): JSX.Element {
     >
       {/* Logo / wordmark */}
       <div className="px-6 mb-10 flex items-center gap-3">
-        <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center signature-gradient"
-        >
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center signature-gradient">
           <span
             className="material-symbols-outlined text-white text-lg"
             style={{ fontVariationSettings: "'FILL' 1" }}
@@ -105,10 +103,7 @@ export function Sidebar(): JSX.Element {
             bolt
           </span>
         </div>
-        <span
-          className="text-xl font-extrabold tracking-tight"
-          style={{ color: COLOR_PRIMARY }}
-        >
+        <span className="text-xl font-extrabold tracking-tight" style={{ color: COLOR_PRIMARY }}>
           AutoApply
         </span>
       </div>

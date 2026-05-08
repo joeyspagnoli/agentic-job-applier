@@ -181,10 +181,7 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
         backgroundColor: COLOR_SURFACE,
       }}
     >
-      <h1
-        className="text-fluid-xl font-bold tracking-tight"
-        style={{ color: COLOR_ON_SURFACE }}
-      >
+      <h1 className="text-fluid-xl font-bold tracking-tight" style={{ color: COLOR_ON_SURFACE }}>
         {title}
       </h1>
 
@@ -197,16 +194,10 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
             className={`w-2 h-2 rounded-full ${syncDotColor} ${isSyncing ? "animate-pulse" : ""}`}
           />
           <div className="flex flex-col leading-tight">
-            <span
-              className="text-[10px] font-bold tracking-wider"
-              style={{ color: COLOR_PRIMARY }}
-            >
+            <span className="text-[10px] font-bold tracking-wider" style={{ color: COLOR_PRIMARY }}>
               {syncLabel}
             </span>
-            <span
-              className="text-[10px]"
-              style={{ color: `${COLOR_PRIMARY}99` }}
-            >
+            <span className="text-[10px]" style={{ color: `${COLOR_PRIMARY}99` }}>
               {syncSubLabel}
             </span>
           </div>

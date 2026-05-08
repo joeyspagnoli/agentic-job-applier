@@ -1,8 +1,0 @@
-{
-  "venvPath": ".",
-  "venv": ".venv",
-  "pythonVersion": "3.12",
-  "typeCheckingMode": "standard",
-  "include": ["api", "src", "scripts"],
-  "exclude": ["dist", "reference-repos", ".venv"]
-}

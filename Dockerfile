@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# uv — fast Python package installer
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# uv — fast Python package installer (pinned for reproducible builds)
+COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /usr/local/bin/uv
 
 # Python dependencies — installed before source copy for better layer caching
 WORKDIR /app
@@ -74,8 +74,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/pi-coding-agent
-RUN npm install -g @openai/codex 2>/dev/null || true
+# Pinned for reproducible builds. Bump these together when upgrading.
+ARG PI_CODING_AGENT_VERSION=0.129.0
+ARG CODEX_CLI_VERSION=0.129.0
+RUN npm install -g \
+        @anthropic-ai/pi-coding-agent@${PI_CODING_AGENT_VERSION} \
+        @openai/codex@${CODEX_CLI_VERSION}
 
 # ============================================================
 # Stage 4: full — adds browser-based job applying

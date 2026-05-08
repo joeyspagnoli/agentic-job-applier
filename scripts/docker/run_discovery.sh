@@ -12,7 +12,7 @@ INTERVAL="${RUN_INTERVAL_MINUTES:-30}"
 
 while true; do
     echo "[discovery] Starting run at $(date -Iseconds)"
-    uv run python main.py \
+    uv run --no-dev python main.py \
         || echo "[discovery] Run failed — will retry next cycle"
     echo "[discovery] Sleeping ${INTERVAL}m until next run"
     sleep "${INTERVAL}m"

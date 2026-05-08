@@ -8,11 +8,7 @@ import type { ChangeEvent, JSX } from "react";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toHumanReviewModel, toHumanReviewRow } from "@/lib/api/adapters";
-import {
-  completeHumanReview,
-  dismissHumanReview,
-  fetchHumanReviewQueue,
-} from "@/lib/api/client";
+import { completeHumanReview, dismissHumanReview, fetchHumanReviewQueue } from "@/lib/api/client";
 import {
   COLOR_ON_SURFACE,
   COLOR_OUTLINE_VARIANT,
@@ -207,7 +203,11 @@ export function HumanReviewPage(): JSX.Element {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <SummaryCard label="Queue Size" value={String(reviewQuery.data?.total_items ?? 0)} subtitle="Filtered result" />
+        <SummaryCard
+          label="Queue Size"
+          value={String(reviewQuery.data?.total_items ?? 0)}
+          subtitle="Filtered result"
+        />
         <SummaryCard label="Needs Review" value={String(pendingCount)} subtitle="On this page" />
         <SummaryCard label="Resolved" value={String(reviewedCount)} subtitle="On this page" />
       </div>
@@ -265,7 +265,9 @@ export function HumanReviewPage(): JSX.Element {
                 key={row.id}
                 row={row}
                 expanded={expandedRowId === row.id}
-                pendingComplete={completeMutation.isPending && completeMutation.variables === row.id}
+                pendingComplete={
+                  completeMutation.isPending && completeMutation.variables === row.id
+                }
                 pendingDismiss={dismissMutation.isPending && dismissMutation.variables === row.id}
                 onToggle={() => {
                   setExpandedRowId((previous) => (previous === row.id ? null : row.id));
@@ -331,9 +333,7 @@ function SummaryCard({ label, value, subtitle }: SummaryCardProps): JSX.Element 
   return (
     <div className="rounded-xl bg-white border border-white p-6 shadow-sm">
       <p className="text-[11px] font-bold tracking-widest uppercase text-outline">{label}</p>
-      <p className="mt-2 text-3xl font-black text-on-surface">
-        {value}
-      </p>
+      <p className="mt-2 text-3xl font-black text-on-surface">{value}</p>
       <p className="mt-1 text-xs text-outline">{subtitle}</p>
     </div>
   );
@@ -397,14 +397,23 @@ function ReviewRow({
         <td className="px-6 py-4 font-semibold text-on-surface">{row.company_name}</td>
         <td className="px-6 py-4 text-on-surface-variant">{row.position}</td>
         <td className="px-6 py-4">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}>
+          <span
+            className={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider ${statusBadgeClass(row.status)}`}
+          >
             {statusLabel(row.status)}
           </span>
         </td>
-        <td className="px-6 py-4 text-xs font-semibold text-on-surface-variant">{row.confidence_pct}%</td>
-        <td className="px-6 py-4 text-xs text-on-surface-variant">{formatAppliedDate(row.applied_date)}</td>
+        <td className="px-6 py-4 text-xs font-semibold text-on-surface-variant">
+          {row.confidence_pct}%
+        </td>
+        <td className="px-6 py-4 text-xs text-on-surface-variant">
+          {formatAppliedDate(row.applied_date)}
+        </td>
         <td className="px-6 py-4 text-right">
-          <button className="rounded-lg border border-outline-variant px-2 py-1 text-xs font-semibold text-on-surface-variant" onClick={onToggle}>
+          <button
+            className="rounded-lg border border-outline-variant px-2 py-1 text-xs font-semibold text-on-surface-variant"
+            onClick={onToggle}
+          >
             {expanded ? "Hide" : isPending ? "Review" : "View"}
           </button>
         </td>
@@ -415,7 +424,9 @@ function ReviewRow({
           <td className="px-6 py-6" colSpan={6}>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-3">
-                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">Why Flagged</p>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-outline">
+                  Why Flagged
+                </p>
                 <div className="rounded-xl border border-outline-variant bg-white p-4 text-sm text-on-surface-variant leading-6">
                   {row.agent_diagnostic}
                 </div>
@@ -450,7 +461,10 @@ function ReviewRow({
                 ) : (
                   <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
                     {row.unresolved_fields.map((field) => (
-                      <div key={field.field_name} className="rounded-xl border border-outline-variant bg-white p-4 space-y-2">
+                      <div
+                        key={field.field_name}
+                        className="rounded-xl border border-outline-variant bg-white p-4 space-y-2"
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <p className="text-xs font-bold uppercase tracking-wider text-outline">
                             {field.field_name}
@@ -515,7 +529,12 @@ interface PaginationProps {
  * @param props - Pagination display and callbacks.
  * @returns Pagination footer element.
  */
-function Pagination({ currentPage, totalPages, totalItems, onPageChange }: PaginationProps): JSX.Element {
+function Pagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  onPageChange,
+}: PaginationProps): JSX.Element {
   const safeTotalPages = Math.max(1, totalPages);
 
   return (

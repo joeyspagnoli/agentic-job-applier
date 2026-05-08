@@ -48,9 +48,7 @@ function formatStageLabel(stage: string): string {
   if (stage === "") {
     return "Initializing";
   }
-  return stage
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return stage.replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 /**
@@ -81,10 +79,7 @@ function CompactPill({
         style={{ backgroundColor: COLOR_SURFACE_CONTAINER_LOW }}
       >
         <Pause size={12} style={{ color: COLOR_OUTLINE }} />
-        <span
-          className="text-[10px] font-semibold tracking-wide"
-          style={{ color: COLOR_OUTLINE }}
-        >
+        <span className="text-[10px] font-semibold tracking-wide" style={{ color: COLOR_OUTLINE }}>
           PIPELINE IDLE
         </span>
       </div>
@@ -99,10 +94,7 @@ function CompactPill({
         style={{ backgroundColor: COLOR_WARNING_CONTAINER }}
       >
         <AlertTriangle size={12} style={{ color: COLOR_WARNING }} />
-        <span
-          className="text-[10px] font-semibold tracking-wide"
-          style={{ color: COLOR_WARNING }}
-        >
+        <span className="text-[10px] font-semibold tracking-wide" style={{ color: COLOR_WARNING }}>
           {totalErrors} ERROR{totalErrors > 1 ? "S" : ""}
         </span>
       </div>
@@ -117,10 +109,7 @@ function CompactPill({
         style={{ backgroundColor: COLOR_SUCCESS_CONTAINER }}
       >
         <CheckCircle size={12} style={{ color: COLOR_SUCCESS }} />
-        <span
-          className="text-[10px] font-semibold tracking-wide"
-          style={{ color: COLOR_SUCCESS }}
-        >
+        <span className="text-[10px] font-semibold tracking-wide" style={{ color: COLOR_SUCCESS }}>
           {latest.jobsFound} JOBS
         </span>
       </div>
@@ -133,15 +122,8 @@ function CompactPill({
       className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
       style={{ backgroundColor: COLOR_PRIMARY_FIXED }}
     >
-      <Loader2
-        size={12}
-        className="animate-spin"
-        style={{ color: COLOR_PRIMARY }}
-      />
-      <span
-        className="text-[10px] font-semibold tracking-wide"
-        style={{ color: COLOR_PRIMARY }}
-      >
+      <Loader2 size={12} className="animate-spin" style={{ color: COLOR_PRIMARY }} />
+      <span className="text-[10px] font-semibold tracking-wide" style={{ color: COLOR_PRIMARY }}>
         {Math.round(latest.progress * 100)}%
       </span>
     </div>
@@ -184,10 +166,7 @@ function FullCard({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity size={16} style={{ color: COLOR_PRIMARY }} />
-          <span
-            className="text-sm font-bold tracking-tight"
-            style={{ color: COLOR_ON_SURFACE }}
-          >
+          <span className="text-sm font-bold tracking-tight" style={{ color: COLOR_ON_SURFACE }}>
             Pipeline Progress
           </span>
         </div>
@@ -230,26 +209,17 @@ function FullCard({
       {/* Stage + Source */}
       {latest !== undefined && !isIdle ? (
         <div className="mb-3">
-          <p
-            className="text-sm font-semibold"
-            style={{ color: COLOR_ON_SURFACE }}
-          >
+          <p className="text-sm font-semibold" style={{ color: COLOR_ON_SURFACE }}>
             {formatStageLabel(latest.stage)}
           </p>
           {latest.source !== "" ? (
-            <p
-              className="text-xs"
-              style={{ color: COLOR_ON_SURFACE_VARIANT }}
-            >
+            <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
               Source: {latest.source}
             </p>
           ) : null}
         </div>
       ) : (
-        <p
-          className="mb-3 text-sm"
-          style={{ color: COLOR_ON_SURFACE_VARIANT }}
-        >
+        <p className="mb-3 text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
           Pipeline idle — waiting for next run.
         </p>
       )}
@@ -257,16 +227,10 @@ function FullCard({
       {/* Progress bar */}
       <div className="mb-3">
         <div className="mb-1 flex items-center justify-between">
-          <span
-            className="text-[11px] font-medium"
-            style={{ color: COLOR_ON_SURFACE_VARIANT }}
-          >
+          <span className="text-[11px] font-medium" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
             Progress
           </span>
-          <span
-            className="text-[11px] font-bold tabular-nums"
-            style={{ color: COLOR_PRIMARY }}
-          >
+          <span className="text-[11px] font-bold tabular-nums" style={{ color: COLOR_PRIMARY }}>
             {progressPercent}%
           </span>
         </div>
@@ -291,16 +255,10 @@ function FullCard({
       {/* Stats row */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
-          <span
-            className="text-xs font-medium"
-            style={{ color: COLOR_ON_SURFACE_VARIANT }}
-          >
+          <span className="text-xs font-medium" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
             Jobs found:
           </span>
-          <span
-            className="text-xs font-bold tabular-nums"
-            style={{ color: COLOR_ON_SURFACE }}
-          >
+          <span className="text-xs font-bold tabular-nums" style={{ color: COLOR_ON_SURFACE }}>
             {latest?.jobsFound ?? 0}
           </span>
         </div>
@@ -311,10 +269,7 @@ function FullCard({
             style={{ backgroundColor: COLOR_WARNING_CONTAINER }}
           >
             <AlertTriangle size={11} style={{ color: COLOR_WARNING }} />
-            <span
-              className="text-[11px] font-semibold"
-              style={{ color: COLOR_WARNING }}
-            >
+            <span className="text-[11px] font-semibold" style={{ color: COLOR_WARNING }}>
               {totalErrors} error{totalErrors > 1 ? "s" : ""}
             </span>
           </div>
@@ -366,26 +321,15 @@ function FullCard({
  * <PipelineProgress />
  * ```
  */
-export function PipelineProgress({
-  compact = false,
-}: PipelineProgressProps): JSX.Element {
+export function PipelineProgress({ compact = false }: PipelineProgressProps): JSX.Element {
   const { events, isConnected, error: sseError } = useSSE();
 
   const latest: PipelineEvent | undefined = events.at(-1);
 
-  const totalErrors = events.reduce(
-    (count, event) => count + event.errors.length,
-    0,
-  );
+  const totalErrors = events.reduce((count, event) => count + event.errors.length, 0);
 
   if (compact) {
-    return (
-      <CompactPill
-        latest={latest}
-        isConnected={isConnected}
-        totalErrors={totalErrors}
-      />
-    );
+    return <CompactPill latest={latest} isConnected={isConnected} totalErrors={totalErrors} />;
   }
 
   return (

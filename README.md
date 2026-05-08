@@ -1,112 +1,168 @@
 # Agentic Job Applier
 
-SQLite-backed autonomous job discovery and application pipeline with a live FastAPI + React dashboard.
+A self-hosted, AI-driven job discovery and application pipeline. It crawls a long list of ATSes, aggregators, and remote-only boards (full list below), decides which postings are worth applying to, generates a tailored LaTeX resume per job, runs a second-pass review, and (optionally) drives a real browser to file the application. State lives in a local SQLite database, and a FastAPI + React dashboard exposes everything that happens at runtime.
 
-## What The System Does
+### Supported sources
 
-1. Discovers jobs from Greenhouse, Workday, and JobSpy-backed boards.
-2. Normalizes and deduplicates postings into `job_postings`.
-3. Runs staged workers:
+| Category                     | Sources                                                              |
+| ---------------------------- | -------------------------------------------------------------------- |
+| ATS / company career portals | Greenhouse, Workday, Lever, Ashby, iCIMS, Taleo                      |
+| Aggregators (via JobSpy)     | Indeed, LinkedIn, Glassdoor                                          |
+| Direct LinkedIn scraper      | LinkedIn (separate from JobSpy)                                      |
+| Remote-only boards           | Remotive, Himalayas, Working Nomads                                  |
+| General job boards           | The Muse, Adzuna, Startup Jobs                                       |
+| Curated GitHub repos         | e.g. SimplifyJobs internships repos via the GitHub fetcher           |
+| Custom company watchers      | Direct career-page polling for non-ATS sites                         |
 
-- Gate (`NEW -> QUALIFIED/FILTERED`)
-- Resume tailor (`QUALIFIED -> tailor_runs`)
-- Resume review (`tailor_runs SUCCESS -> review_runs`)
-- Apply worker (`review_runs SUCCESS -> apply_runs` + `apply_handoffs`)
+<!-- screenshots TBD -->
 
-1. Exposes operational state in a FastAPI backend (`api/main.py`) and React dashboard (`dashboard/`).
-2. Tracks per-stage cost telemetry (`cost_events`) and monthly budget (`budget_settings`).
+## Quickstart (Docker)
 
-## Runtime Architecture
-
-- Producer: `main.py` discovery cycle.
-- Consumers: `scripts/process_new_jobs.py`, `scripts/process_qualified_jobs.py`, `scripts/process_reviewed_resumes.py`, `scripts/process_apply_jobs.py`.
-- Persistence: `src/database/db_manager.py` + `src/database/schema.sql`.
-- API + static serving: `api/main.py`.
-- Frontend: Vite/React app in `dashboard/`, wired to `/api/*` via React Query.
-
-## Prerequisites
-
-- Python 3.11+
-- `uv`
-- Node.js 20+
-- `latexmk` (tailor/review pipeline)
-- `pi` command (tailor/review runtime)
-- Chrome + Playwright CDP target (apply worker)
-
-## Setup
+Docker is the recommended way to run the project. The image is split into three build targets so you only install what you need.
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/joeyspagnoli/agentic-job-applier.git
+cd agentic-job-applier
+cp .env.example .env
+# Open .env and fill in at least OPENAI_API_KEY and GOOGLE_API_KEY.
+docker compose up -d
+```
+
+Open `http://localhost:8000` once the `api` container is healthy. The first visit redirects to the in-app onboarding wizard described below.
+
+The default `docker compose up` starts the **base** profile (api, discovery, gate). Tailoring, review, and browser-driven apply are opt-in profiles documented under [Profiles and opt-in tiers](#profiles-and-opt-in-tiers).
+
+To stop the stack while preserving data:
+
+```bash
+docker compose down
+```
+
+To stop and discard all SQLite state and logs:
+
+```bash
+docker compose down -v
+```
+
+## Onboarding
+
+The dashboard refuses to load until `config/candidate_profile.yaml`, `config/resume_content.yaml`, and `config/filters.yaml` are populated. The onboarding wizard at `/onboarding` walks through the six steps below and writes the YAML files for you. It runs automatically the first time you open the dashboard.
+
+| Step | Label              | What it captures                                                                                                  |
+| ---- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| 1    | About You          | Name, email, phone, location, LinkedIn, professional summary. Written to `config/candidate_profile.yaml`.         |
+| 2    | Target Roles       | Target titles, strongest areas, experience highlights for the resume tailor, and job-board search terms.          |
+| 3    | Resume             | Upload a `.pdf`, `.tex`, `.yaml`, or `.yml` resume. Parsed into the structured `config/resume_content.yaml`.       |
+| 4    | Filters            | Salary range, job types, remote/hybrid requirement, title exclusion patterns, company blocklist. Writes `config/filters.yaml`. |
+| 5    | AI Provider        | Pick Codex (subscription, device-code login) or Bring Your Own Key (OpenAI, Anthropic, Gemini, OpenRouter).        |
+| 6    | Watchlist          | Optional list of companies to track explicitly. Resolved against known Greenhouse slugs and written to `config/companies.yaml`. |
+
+After the final step the dashboard becomes available. Re-run any step later from **Settings** in the sidebar; raw YAML is editable there too.
+
+## Profiles and opt-in tiers
+
+The Compose file ships three docker compose profiles. Each one inherits the layers of the previous tier, so opting up later only builds the delta.
+
+| Profile  | Build target | Services started                            | Adds to image                                       | Approx. extra build time |
+| -------- | ------------ | ------------------------------------------- | --------------------------------------------------- | ------------------------ |
+| _(none)_ | `base`       | `api`, `discovery`, `gate`                  | Python deps, FastAPI, prebuilt React dashboard      | ~3-5 min                 |
+| `tailor` | `latex`      | base + `tailor`, `review`                   | TeX Live, `latexmk`, poppler-utils, Node, `pi` CLI  | +8-12 min                |
+| `full`   | `full`       | base + tailor + `apply`                     | Chromium (via Playwright) and Xvfb virtual display  | +3-5 min                 |
+
+Bring up a higher tier with:
+
+```bash
+docker compose --profile tailor up -d
+docker compose --profile full up -d
+```
+
+Adding a profile to a running stack is safe. Existing containers stay up and the new services share the same `app-data` and `app-logs` volumes.
+
+Useful operational commands:
+
+```bash
+docker compose ps                      # status of all services
+docker compose logs -f gate            # tail one service
+docker compose restart tailor          # restart one service
+docker compose exec api bash           # shell into a running container
+./scripts/docker/start_stack.sh        # host-level start
+./scripts/docker/stop_stack.sh         # host-level stop
+./scripts/docker/restart_stack.sh      # host-level restart
+```
+
+The dashboard's TopBar power menu can also dispatch Stop/Restart while the stack is up. When everything is already down, use the host-level scripts.
+
+### Chrome profile (apply service only)
+
+The apply worker runs without a Chrome profile, but the Simplify autofill extension only loads if you import yours. From a workstation already signed in:
+
+```bash
+bash scripts/docker/profile_export.sh        # produces chrome-profile.tar.gz
+# Copy the tarball to the server, then on the server:
+bash scripts/docker/profile_import.sh chrome-profile.tar.gz
+docker compose --profile full up -d
+```
+
+## Configuration
+
+`.env.example` is the canonical list of every environment variable the pipeline reads. Copy it to `.env` and fill in the keys you need. The most important ones:
+
+| Variable                       | Required for                       | Notes                                                     |
+| ------------------------------ | ---------------------------------- | --------------------------------------------------------- |
+| `OPENAI_API_KEY`               | Gate worker / apply-decider        | At least one model key is required to start the pipeline. |
+| `GOOGLE_API_KEY`               | Resume tailor and review workers   | Used through the `pi` CLI in the `latex` image.           |
+| `ANTHROPIC_API_KEY`            | Optional Claude-powered tailoring  | Leave blank to skip.                                      |
+| `NTFY_TOPIC`                   | Push alerts on terminal failures   | Blank disables alerts.                                    |
+| `RUN_INTERVAL_MINUTES`         | Discovery cadence                  | Defaults to 30.                                           |
+| `API_PORT`                     | Host port for the dashboard        | Defaults to 8000.                                         |
+| `CDP_PORT`                     | Chrome remote-debug port           | Apply service only. Defaults to 9222.                     |
+| `TAILORED_RESUME_DOWNLOAD_TOKEN` | Remote download of tailored PDFs | Leave blank to keep the endpoint local-only.              |
+
+User-facing YAML files live under `config/` and are persisted via the Docker `./config:/app/config` bind mount:
+
+| File                          | Owner                                  |
+| ----------------------------- | -------------------------------------- |
+| `config/candidate_profile.yaml` | About You + Target Roles wizard steps |
+| `config/resume_content.yaml`  | Resume wizard step                     |
+| `config/filters.yaml`         | Filters wizard step                    |
+| `config/companies.yaml`       | Watchlist wizard step                  |
+
+Cost telemetry rates (`COST_RATE_GATE_USD`, `COST_RATE_TAILOR_USD`, `COST_RATE_REVIEW_USD`, `COST_RATE_APPLY_USD`, `COST_RATE_DISCOVERY_USD`) default to `0.0` if unset and feed the dashboard cost charts.
+
+## Local development
+
+Use this path if you are contributing or running individual workers without Docker.
+
+Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js 20+. The tailor and review workers also require `latexmk` and the `pi` CLI; the apply worker additionally needs Chrome and Playwright.
+
+```bash
+git clone https://github.com/joeyspagnoli/agentic-job-applier.git
 cd agentic-job-applier
 uv sync
+npm --prefix dashboard install
 cp .env.example .env
 ```
 
-Optional frontend install for local dashboard development:
-
-```bash
-npm --prefix dashboard install
-```
-
-## Core Commands
-
-Discovery once:
-
-```bash
-uv run python main.py
-```
-
-Gate worker:
-
-```bash
-uv run python -m scripts.process_new_jobs --once --limit 25
-```
-
-Tailor worker:
-
-```bash
-uv run python -m scripts.process_qualified_jobs --once
-```
-
-Review worker:
-
-```bash
-uv run python -m scripts.process_reviewed_resumes --once
-```
-
-Apply worker:
-
-```bash
-uv run python -m scripts.process_apply_jobs --once
-```
-
-Pipeline one-shot helper:
-
-```bash
-uv run python -m scripts.run_pipeline_once --limit 25
-```
-
-## FastAPI + Dashboard
-
-Run backend:
+Run the API and dashboard:
 
 ```bash
 uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
+npm --prefix dashboard run dev      # Vite dev server with HMR
+npm --prefix dashboard run build    # production bundle, served by FastAPI fallback
 ```
 
-Run dashboard dev server:
+Run the pipeline stages individually:
 
 ```bash
-npm --prefix dashboard run dev
+uv run python main.py                                                   # one discovery cycle
+uv run python -m scripts.process_new_jobs --once --limit 25             # gate
+uv run python -m scripts.process_qualified_jobs --once                  # tailor
+uv run python -m scripts.process_reviewed_resumes --once                # review
+uv run python -m scripts.process_apply_jobs --once                      # apply
+uv run python -m scripts.run_pipeline_once --limit 25                   # discovery + gate one-shot
 ```
 
-Build dashboard static assets (served by FastAPI fallback routes):
-
-```bash
-npm --prefix dashboard run build
-```
-
-Useful API checks:
+Smoke-check the API:
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/health
@@ -114,170 +170,76 @@ curl -sS http://127.0.0.1:8000/api/dashboard/stats
 curl -sS "http://127.0.0.1:8000/api/jobs?page=1&page_size=20"
 ```
 
-## API Surface (Current)
+## Architecture
 
-- Dashboard: `GET /api/dashboard/stats`, `GET /api/dashboard/discovery-trend`
-- Jobs: `GET /api/jobs`, `GET /api/jobs/{job_hash}/resume`
-- Human review: `GET /api/human-review`, `POST /api/human-review/{handoff_id}/complete`, `POST /api/human-review/{handoff_id}/dismiss`
-- Failures: `GET /api/failures`, `POST /api/failures/{failure_id}/retry`
-- System lifecycle: `POST /api/system/stop`, `POST /api/system/restart`
-- Costs: `GET /api/costs/stats`, `GET /api/costs/daily-trend`, `GET /api/costs/by-stage`
-- Budget: `GET /api/budget`, `PUT /api/budget`
-- Settings files: `GET /api/settings/files`, `GET /api/settings/profile`, `PUT /api/settings/profile`, `PUT /api/settings/profile/structured`, `POST /api/settings/profile`
-- Resume settings: `GET /api/settings/resume`, `PUT /api/settings/resume`, `PUT /api/settings/resume/structured`, `POST /api/settings/resume`, `POST /api/settings/resume/tex`
-- Settings downloads: `GET /api/settings/resume/download`, `GET /api/settings/profile/download`
+The pipeline is a chain of workers that move rows through a SQLite database (`data/jobs.db`).
 
-## Database Tables
+```
+discovery -> gate -> tailor -> review -> apply
+   |          |        |         |         |
+fetchers   apply-     LaTeX     LaTeX     Playwright
+           decider    + pi      + pi      + Simplify
+```
 
-- Core: `job_postings`, `crawl_history`, `daily_stats`
-- Stage runs: `tailor_runs`, `review_runs`, `apply_runs`, `apply_handoffs`
-- Cost/budget: `cost_events`, `budget_settings`
+| Stage     | Producer / consumer                          | Inputs                                  | Outputs                                                |
+| --------- | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------ |
+| Discovery | `main.py`                                    | `config/companies.yaml`, fetchers       | New rows in `job_postings`, `crawl_history`            |
+| Gate      | `scripts/process_new_jobs.py`                | `NEW` postings, candidate profile       | `QUALIFIED` or `FILTERED` status; cost events          |
+| Tailor    | `scripts/process_qualified_jobs.py`          | `QUALIFIED` postings, `resume_content.yaml` | `tailor_runs` rows + tailored LaTeX/PDF artifacts   |
+| Review    | `scripts/process_reviewed_resumes.py`        | Successful `tailor_runs`                | `review_runs` rows + revised PDF                       |
+| Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows, `apply_handoffs` for human review   |
 
-## Cost Tracking Configuration
+State lives in:
 
-Cost events are forward-only and written by workers per execution attempt. Stage rates are configurable:
+- `data/jobs.db` — primary SQLite database (schema: `src/database/schema.sql`).
+- `data/tailored_resumes/<job_hash>/` — generated LaTeX, PDF, and tailoring metadata.
+- `logs/job_monitor.log` — rolling log file.
+- `config/` — user-edited YAML, mounted into containers.
 
-- `COST_RATE_GATE_USD`
-- `COST_RATE_TAILOR_USD`
-- `COST_RATE_REVIEW_USD`
-- `COST_RATE_APPLY_USD`
-- `COST_RATE_DISCOVERY_USD`
+Key directories:
 
-If unset/invalid, stage cost defaults to `0.0`.
+- `api/` — FastAPI app and dashboard fallback routes.
+- `dashboard/` — Vite + React app served at `/`.
+- `src/` — fetchers, agents, database manager, utilities.
+- `scripts/` — worker entry points and operator helpers.
+- `deploy/` — systemd units and helper scripts for Linux deployments.
 
-## Tailored Resume Download Access
-
-- By default, `GET /api/jobs/{job_hash}/resume` is restricted to local clients (`127.0.0.1`, `::1`, `localhost`).
-- To allow remote access intentionally, set `TAILORED_RESUME_DOWNLOAD_TOKEN` and send it via `x-tailored-resume-token`.
+By default `GET /api/jobs/{job_hash}/resume` is restricted to localhost. Set `TAILORED_RESUME_DOWNLOAD_TOKEN` and pass it via the `x-tailored-resume-token` header to enable remote downloads.
 
 ## Testing
 
-Deterministic suite:
+Backend (Python):
 
 ```bash
-uv run pytest -q
+uv run pytest -q                                              # deterministic, network-free
+uv run pytest -q tests/test_scraper_to_agent_integration.py   # focused integration
+uv run pytest -q --run-live-agent-e2e -m live_agent_e2e       # opt-in live model E2E
+uv run mypy                                                   # strict, project-wide
 ```
 
-Focused scraper->agent integration:
+Frontend (dashboard):
 
 ```bash
-uv run pytest -q tests/test_scraper_to_agent_integration.py
+npm --prefix dashboard run lint        # ESLint with --max-warnings 0
+npm --prefix dashboard run typecheck   # tsc --noEmit
+npm --prefix dashboard run test        # Vitest with coverage
+npm --prefix dashboard run format:check
 ```
 
-Opt-in live model E2E:
+CI runs the same commands. Run them locally before opening a PR.
 
-```bash
-uv run pytest -q --run-live-agent-e2e -m live_agent_e2e
-```
+## Deployment (Linux/systemd)
 
-Type checking (strict, backend settings surfaces):
+For long-running deployments on a Linux host without Docker, systemd units live in `deploy/`. They cover the discovery timer, all four worker loops, the apply-side Chrome service, and an alert helper. End-to-end setup, including required environment variables and `texlive-full` install, is documented in [`deploy/README.md`](deploy/README.md).
 
-```bash
-uv run mypy
-```
+## Contributing
 
-## Docker
+Bug reports, fetcher additions, dashboard polish, and documentation updates are all welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev environment, coding standards, commit message format, and PR flow.
 
-Docker is the recommended way to run this on a server. The image is split into three build targets so you only install what you need.
+## Security
 
-### Image tiers
-
-| Target  | What's included                            | Compose profile | Approx. build time |
-| ------- | ------------------------------------------ | --------------- | ------------------ |
-| `base`  | Job discovery, gate agent, API + dashboard | _(default)_     | ~3–5 min           |
-| `latex` | base + LaTeX + poppler + Node + pi CLI     | `tailor`        | +8–12 min          |
-| `full`  | latex + Chromium + Xvfb                    | `full`          | +3–5 min           |
-
-Each tier inherits from the one above it. Docker's layer cache means opting into a higher tier later only builds the delta — already-built layers are reused.
-
-### Profiles and what they run
-
-```
-docker compose up -d                   # api, discovery, gate
-docker compose --profile tailor up -d  # + tailor, review
-docker compose --profile full up -d    # + tailor, review, apply
-```
-
-### Quick start
-
-```bash
-# 1. Install Docker Engine (Ubuntu)
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # then log out and back in
-
-# 2. Clone and configure
-git clone <repo-url> && cd agentic-job-applier
-cp .env.docker.example .env     # fill in API keys
-# ensure config/ files are present (candidate_profile.yaml, resume_content.yaml, etc.)
-
-# 3. Start core pipeline
-docker compose up -d
-
-# 4. Opt into tailoring when ready (zero downtime, reuses cached base layers)
-docker compose --profile tailor up -d
-
-# 5. Opt into browser apply when ready
-docker compose --profile full up -d
-```
-
-Dashboard is available at `http://<server-ip>:8000` once `api` is healthy.
-
-### Upgrading an existing stack
-
-Adding a profile to a running stack is safe. Existing containers are left untouched; Compose only starts the new services against the shared data volume.
-
-```bash
-git pull
-docker compose build          # rebuilds only changed layers
-docker compose --profile <current-profile> up -d
-```
-
-### Useful commands
-
-```bash
-docker compose ps                      # status of all services
-docker compose logs -f workers         # tail logs for a service
-docker compose restart gate            # restart one service
-docker compose down                    # stop all (data volumes preserved)
-docker compose down -v                 # stop all and delete volumes (destructive)
-docker compose exec api bash           # shell into a running container
-./scripts/docker/start_stack.sh        # host-level stack start
-./scripts/docker/stop_stack.sh         # host-level stack stop
-./scripts/docker/restart_stack.sh      # host-level stack restart
-```
-
-When the dashboard is running, the TopBar power menu can dispatch Stop/Restart.
-When the stack is already down, use the host-level scripts above to start it.
-
-### Chrome profile (apply service only)
-
-The apply service works without a Chrome profile, but the Simplify autofill extension requires one. To import your profile:
-
-```bash
-# On your local machine
-bash scripts/docker/profile_export.sh
-
-# Copy tarball to server, then on the server:
-bash scripts/docker/profile_import.sh chrome-profile.tar.gz
-docker compose --profile full up -d
-```
-
-## Deployment (Linux/Systemd)
-
-Systemd units live in `deploy/` for discovery timer and continuous workers. See `deploy/README.md` for end-to-end setup, including:
-
-- `job-discovery.timer` + `job-discovery.service`
-- `job-agent-worker.service`
-- `job-tailor-worker.service`
-- `job-review-worker.service`
-- `job-apply-worker.service`
-- `job-apply-chrome.service`
-
-## Source Of Truth Docs
-
-- Operational/spec docs: `.aqa/spec/index.md`
-- Agent collaboration rules: `AGENTS.md`
+Do not file public GitHub issues for security vulnerabilities. The disclosure process and supported versions are in [`SECURITY.md`](SECURITY.md).
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).

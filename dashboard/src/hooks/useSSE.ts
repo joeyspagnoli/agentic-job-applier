@@ -212,8 +212,7 @@ export function useSSE(): UseSSEReturn {
           return;
         }
 
-        const message =
-          caughtError instanceof Error ? caughtError.message : "Unknown SSE error";
+        const message = caughtError instanceof Error ? caughtError.message : "Unknown SSE error";
         setError(message);
       } finally {
         setIsConnected(false);

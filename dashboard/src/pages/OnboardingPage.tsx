@@ -40,8 +40,10 @@ import {
 import knownSlugsData from "../data/greenhouse_known_slugs.json";
 
 /** Lookup table of known Greenhouse slugs, populated from the bundled JSON fixture. */
-const KNOWN_SLUGS: Record<string, string | null> =
-  knownSlugsData.companies as Record<string, string | null>;
+const KNOWN_SLUGS: Record<string, string | null> = knownSlugsData.companies as Record<
+  string,
+  string | null
+>;
 
 /** Total number of wizard steps. */
 const STEP_COUNT = 6;
@@ -103,11 +105,7 @@ const SOFTWARE_ROLE_KEYWORDS = [
 ] as const;
 
 /** Keywords in target role strings that indicate a product management domain. */
-const PM_ROLE_KEYWORDS = [
-  "product manager",
-  "product management",
-  "program manager",
-] as const;
+const PM_ROLE_KEYWORDS = ["product manager", "product management", "program manager"] as const;
 
 /** Keywords in target role strings that indicate a quantitative finance domain. */
 const QUANT_ROLE_KEYWORDS = ["quant", "quantitative"] as const;
@@ -263,17 +261,68 @@ function toYamlDoubleQuoted(value: string): string {
  * vocabulary (e.g., "fpga", "hardware", "circuit").
  */
 const TITLE_KEYWORD_STOPWORDS: ReadonlySet<string> = new Set([
-  "intern", "internship", "interns", "interns'", "coop", "co-op",
-  "new", "grad", "grads", "graduate", "junior", "jr",
-  "entry", "level", "early", "career", "rotational",
-  "engineer", "engineers", "engineering", "developer", "developers",
-  "scientist", "scientists", "specialist", "specialists",
-  "technician", "technicians", "analyst", "analysts",
-  "associate", "associates", "assistant", "assistants",
-  "design", "designer", "designers",
-  "the", "a", "an", "and", "or", "of", "in", "at", "for", "to", "with", "on",
-  "summer", "fall", "spring", "winter", "season", "year", "round",
-  "bachelor", "bachelors", "master", "masters", "phd", "mba",
+  "intern",
+  "internship",
+  "interns",
+  "interns'",
+  "coop",
+  "co-op",
+  "new",
+  "grad",
+  "grads",
+  "graduate",
+  "junior",
+  "jr",
+  "entry",
+  "level",
+  "early",
+  "career",
+  "rotational",
+  "engineer",
+  "engineers",
+  "engineering",
+  "developer",
+  "developers",
+  "scientist",
+  "scientists",
+  "specialist",
+  "specialists",
+  "technician",
+  "technicians",
+  "analyst",
+  "analysts",
+  "associate",
+  "associates",
+  "assistant",
+  "assistants",
+  "design",
+  "designer",
+  "designers",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "of",
+  "in",
+  "at",
+  "for",
+  "to",
+  "with",
+  "on",
+  "summer",
+  "fall",
+  "spring",
+  "winter",
+  "season",
+  "year",
+  "round",
+  "bachelor",
+  "bachelors",
+  "master",
+  "masters",
+  "phd",
+  "mba",
 ]);
 
 /**
@@ -465,9 +514,7 @@ export type GreenhouseSlugStatus =
  * @param slug - The guessed Greenhouse board identifier (lowercase, no spaces).
  * @returns The classified outcome of the probe.
  */
-export async function validateGreenhouseSlug(
-  slug: string,
-): Promise<GreenhouseSlugStatus> {
+export async function validateGreenhouseSlug(slug: string): Promise<GreenhouseSlugStatus> {
   try {
     const response = await fetch(
       `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/departments`,
@@ -506,9 +553,7 @@ export async function resolveGreenhouseSlug(
   name: string,
   knownSlugs: Record<string, string | null>,
 ): Promise<{ slug: string; status: GreenhouseSlugStatus }> {
-  const key = Object.keys(knownSlugs).find(
-    (k) => k.toLowerCase() === name.toLowerCase(),
-  );
+  const key = Object.keys(knownSlugs).find((k) => k.toLowerCase() === name.toLowerCase());
   if (key !== undefined) {
     const val = knownSlugs[key];
     if (val === null) return { slug: "", status: "not_on_greenhouse" };
@@ -636,10 +681,7 @@ export async function saveWatchlistCompanies(
   const current = await fetchSources();
   let updatedYaml = current.yaml_text ?? "";
   if (/greenhouse_companies:/.test(updatedYaml)) {
-    updatedYaml = updatedYaml.replace(
-      /greenhouse_companies:\n(?:[ \t][^\n]*\n)*/,
-      replaceBlock,
-    );
+    updatedYaml = updatedYaml.replace(/greenhouse_companies:\n(?:[ \t][^\n]*\n)*/, replaceBlock);
   } else {
     updatedYaml = updatedYaml + "\n" + replaceBlock;
   }
@@ -791,10 +833,7 @@ export async function seedGithubRepos(
   const current = await fetchSources();
   let updatedYaml = current.yaml_text ?? "";
   if (/github_repos:/.test(updatedYaml)) {
-    updatedYaml = updatedYaml.replace(
-      /github_repos:.*\n(?:[ \t][^\n]*\n)*/,
-      reposBlock,
-    );
+    updatedYaml = updatedYaml.replace(/github_repos:.*\n(?:[ \t][^\n]*\n)*/, reposBlock);
   } else {
     updatedYaml = updatedYaml + "\n" + reposBlock;
   }
@@ -953,7 +992,11 @@ export function OnboardingPage(): JSX.Element {
       // failures so each gets its own message in the UI below.
       const watchlistResult: WatchlistSaveResult =
         watchlist.companies.trim() !== ""
-          ? await saveWatchlistCompanies(watchlist.companies, updateSourcesYaml, fetchSourcesSettings)
+          ? await saveWatchlistCompanies(
+              watchlist.companies,
+              updateSourcesYaml,
+              fetchSourcesSettings,
+            )
           : EMPTY_WATCHLIST_RESULT;
 
       // Bug 2 fix: refetchQueries awaits the round-trip so OnboardingGate
@@ -965,7 +1008,9 @@ export function OnboardingPage(): JSX.Element {
       if (warningMessage !== null) setWarning(warningMessage);
       if (notOnGreenhouseMessage !== null) setNotOnGreenhouseWarning(notOnGreenhouseMessage);
       if (warningMessage !== null || notOnGreenhouseMessage !== null) {
-        window.setTimeout(() => { navigate("/"); }, WATCHLIST_WARNING_REDIRECT_DELAY_MS);
+        window.setTimeout(() => {
+          navigate("/");
+        }, WATCHLIST_WARNING_REDIRECT_DELAY_MS);
       } else {
         navigate("/");
       }
@@ -1075,8 +1120,18 @@ export function OnboardingPage(): JSX.Element {
               <button
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
                 style={{
-                  backgroundColor: idx === currentStep ? COLOR_PRIMARY : idx < currentStep ? COLOR_PRIMARY_FIXED : "transparent",
-                  color: idx === currentStep ? "#ffffff" : idx < currentStep ? COLOR_PRIMARY : COLOR_OUTLINE,
+                  backgroundColor:
+                    idx === currentStep
+                      ? COLOR_PRIMARY
+                      : idx < currentStep
+                        ? COLOR_PRIMARY_FIXED
+                        : "transparent",
+                  color:
+                    idx === currentStep
+                      ? "#ffffff"
+                      : idx < currentStep
+                        ? COLOR_PRIMARY
+                        : COLOR_OUTLINE,
                 }}
                 onClick={() => {
                   if (idx <= currentStep) {
@@ -1094,7 +1149,9 @@ export function OnboardingPage(): JSX.Element {
               {idx < STEP_COUNT - 1 && (
                 <div
                   className="w-6 h-px"
-                  style={{ backgroundColor: idx < currentStep ? COLOR_PRIMARY : COLOR_OUTLINE_VARIANT }}
+                  style={{
+                    backgroundColor: idx < currentStep ? COLOR_PRIMARY : COLOR_OUTLINE_VARIANT,
+                  }}
                 />
               )}
             </div>
@@ -1109,12 +1166,8 @@ export function OnboardingPage(): JSX.Element {
             borderColor: `${COLOR_OUTLINE_VARIANT}30`,
           }}
         >
-          {currentStep === 0 && (
-            <StepProfile draft={profile} onChange={setProfile} />
-          )}
-          {currentStep === 1 && (
-            <StepRoles draft={roles} onChange={setRoles} />
-          )}
+          {currentStep === 0 && <StepProfile draft={profile} onChange={setProfile} />}
+          {currentStep === 1 && <StepRoles draft={roles} onChange={setRoles} />}
           {currentStep === 2 && (
             <StepResume
               file={resumeFile}
@@ -1123,9 +1176,7 @@ export function OnboardingPage(): JSX.Element {
               onFileChange={handleResumeFile}
             />
           )}
-          {currentStep === 3 && (
-            <StepFilters draft={filters} onChange={setFilters} />
-          )}
+          {currentStep === 3 && <StepFilters draft={filters} onChange={setFilters} />}
           {currentStep === 4 && (
             <StepProvider
               draft={provider}
@@ -1135,9 +1186,7 @@ export function OnboardingPage(): JSX.Element {
               }}
             />
           )}
-          {currentStep === 5 && (
-            <StepWatchlist draft={watchlist} onChange={setWatchlist} />
-          )}
+          {currentStep === 5 && <StepWatchlist draft={watchlist} onChange={setWatchlist} />}
 
           {error && (
             <p className="mt-4 text-sm font-medium" style={{ color: COLOR_ERROR }}>
@@ -1176,7 +1225,10 @@ export function OnboardingPage(): JSX.Element {
           )}
 
           {/* Navigation buttons */}
-          <div className="flex justify-between items-center mt-8 pt-6 border-t" style={{ borderColor: `${COLOR_OUTLINE_VARIANT}30` }}>
+          <div
+            className="flex justify-between items-center mt-8 pt-6 border-t"
+            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}30` }}
+          >
             <button
               className="px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
               style={{
@@ -1254,8 +1306,17 @@ interface FieldProps {
  * @param props - {@link FieldProps}
  * @returns Labeled input element.
  */
-function Field({ label, value, onChange, placeholder, type = "text", multiline, required }: FieldProps): JSX.Element {
-  const inputClasses = "w-full px-3.5 py-2.5 rounded-xl border text-sm transition-colors focus:ring-2 focus:ring-primary/30";
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  multiline,
+  required,
+}: FieldProps): JSX.Element {
+  const inputClasses =
+    "w-full px-3.5 py-2.5 rounded-xl border text-sm transition-colors focus:ring-2 focus:ring-primary/30";
   const inputStyle = {
     borderColor: COLOR_OUTLINE_VARIANT,
     color: COLOR_ON_SURFACE,
@@ -1264,7 +1325,10 @@ function Field({ label, value, onChange, placeholder, type = "text", multiline, 
 
   return (
     <label className="block">
-      <span className="text-xs font-semibold mb-1.5 block" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+      <span
+        className="text-xs font-semibold mb-1.5 block"
+        style={{ color: COLOR_ON_SURFACE_VARIANT }}
+      >
         {label}
         {required && <span style={{ color: COLOR_ERROR }}> *</span>}
       </span>
@@ -1273,7 +1337,9 @@ function Field({ label, value, onChange, placeholder, type = "text", multiline, 
           className={inputClasses}
           style={inputStyle}
           value={value}
-          onChange={(e) => { onChange(e.target.value); }}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
           placeholder={placeholder}
           rows={4}
         />
@@ -1283,7 +1349,9 @@ function Field({ label, value, onChange, placeholder, type = "text", multiline, 
           style={inputStyle}
           type={type}
           value={value}
-          onChange={(e) => { onChange(e.target.value); }}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
           placeholder={placeholder}
         />
       )}
@@ -1297,7 +1365,13 @@ function Field({ label, value, onChange, placeholder, type = "text", multiline, 
  * @param props - Profile draft and change handler.
  * @returns Profile form fields.
  */
-function StepProfile({ draft, onChange }: { draft: ProfileDraft; onChange: (d: ProfileDraft) => void }): JSX.Element {
+function StepProfile({
+  draft,
+  onChange,
+}: {
+  draft: ProfileDraft;
+  onChange: (d: ProfileDraft) => void;
+}): JSX.Element {
   /**
    * Update a single profile field.
    *
@@ -1319,19 +1393,79 @@ function StepProfile({ draft, onChange }: { draft: ProfileDraft; onChange: (d: P
         </p>
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Full Name" value={draft.fullName} onChange={(v) => { set("fullName", v); }} placeholder="Jane Doe" required />
-        <Field label="Email" value={draft.email} onChange={(v) => { set("email", v); }} placeholder="jane@example.com" type="email" required />
+        <Field
+          label="Full Name"
+          value={draft.fullName}
+          onChange={(v) => {
+            set("fullName", v);
+          }}
+          placeholder="Jane Doe"
+          required
+        />
+        <Field
+          label="Email"
+          value={draft.email}
+          onChange={(v) => {
+            set("email", v);
+          }}
+          placeholder="jane@example.com"
+          type="email"
+          required
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Phone" value={draft.phone} onChange={(v) => { set("phone", v); }} placeholder="+1 555-0123" />
-        <Field label="City" value={draft.city} onChange={(v) => { set("city", v); }} placeholder="San Francisco" />
+        <Field
+          label="Phone"
+          value={draft.phone}
+          onChange={(v) => {
+            set("phone", v);
+          }}
+          placeholder="+1 555-0123"
+        />
+        <Field
+          label="City"
+          value={draft.city}
+          onChange={(v) => {
+            set("city", v);
+          }}
+          placeholder="San Francisco"
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="State / Region" value={draft.stateOrRegion} onChange={(v) => { set("stateOrRegion", v); }} placeholder="California" />
-        <Field label="Country Code" value={draft.countryCode} onChange={(v) => { set("countryCode", v); }} placeholder="US" />
+        <Field
+          label="State / Region"
+          value={draft.stateOrRegion}
+          onChange={(v) => {
+            set("stateOrRegion", v);
+          }}
+          placeholder="California"
+        />
+        <Field
+          label="Country Code"
+          value={draft.countryCode}
+          onChange={(v) => {
+            set("countryCode", v);
+          }}
+          placeholder="US"
+        />
       </div>
-      <Field label="LinkedIn URL" value={draft.linkedinUrl} onChange={(v) => { set("linkedinUrl", v); }} placeholder="https://linkedin.com/in/..." />
-      <Field label="Professional Summary" value={draft.summary} onChange={(v) => { set("summary", v); }} placeholder="Brief overview of your experience and goals..." multiline />
+      <Field
+        label="LinkedIn URL"
+        value={draft.linkedinUrl}
+        onChange={(v) => {
+          set("linkedinUrl", v);
+        }}
+        placeholder="https://linkedin.com/in/..."
+      />
+      <Field
+        label="Professional Summary"
+        value={draft.summary}
+        onChange={(v) => {
+          set("summary", v);
+        }}
+        placeholder="Brief overview of your experience and goals..."
+        multiline
+      />
     </div>
   );
 }
@@ -1342,7 +1476,13 @@ function StepProfile({ draft, onChange }: { draft: ProfileDraft; onChange: (d: P
  * @param props - Roles draft and change handler.
  * @returns Roles form fields.
  */
-function StepRoles({ draft, onChange }: { draft: RolesDraft; onChange: (d: RolesDraft) => void }): JSX.Element {
+function StepRoles({
+  draft,
+  onChange,
+}: {
+  draft: RolesDraft;
+  onChange: (d: RolesDraft) => void;
+}): JSX.Element {
   /**
    * Update a single roles field.
    *
@@ -1363,10 +1503,45 @@ function StepRoles({ draft, onChange }: { draft: RolesDraft; onChange: (d: Roles
           What positions are you looking for? One per line.
         </p>
       </div>
-      <Field label="Target Roles" value={draft.targetRoles} onChange={(v) => { set("targetRoles", v); }} placeholder="Software Engineer&#10;Full Stack Developer&#10;Backend Engineer" multiline required />
-      <Field label="Strongest Areas" value={draft.strongestAreas} onChange={(v) => { set("strongestAreas", v); }} placeholder="Python&#10;React&#10;System Design" multiline />
-      <Field label="Resume Tailor Notes" value={draft.experienceHighlights} onChange={(v) => { set("experienceHighlights", v); }} placeholder={"Led K8s migration reducing cold-start 8s → 800ms\nOwned on-call for 5M evals/day Python + K8s pipeline\nReact dashboard used by 200+ internal analysts\nStripe intern: fraud scoring 50K tx/day, PCI-DSS exposure"} multiline />
-      <Field label="Job Board Search Terms" value={draft.searchTerms} onChange={(v) => { set("searchTerms", v); }} placeholder="software engineer&#10;full stack developer&#10;python developer" multiline />
+      <Field
+        label="Target Roles"
+        value={draft.targetRoles}
+        onChange={(v) => {
+          set("targetRoles", v);
+        }}
+        placeholder="Software Engineer&#10;Full Stack Developer&#10;Backend Engineer"
+        multiline
+        required
+      />
+      <Field
+        label="Strongest Areas"
+        value={draft.strongestAreas}
+        onChange={(v) => {
+          set("strongestAreas", v);
+        }}
+        placeholder="Python&#10;React&#10;System Design"
+        multiline
+      />
+      <Field
+        label="Resume Tailor Notes"
+        value={draft.experienceHighlights}
+        onChange={(v) => {
+          set("experienceHighlights", v);
+        }}
+        placeholder={
+          "Led K8s migration reducing cold-start 8s → 800ms\nOwned on-call for 5M evals/day Python + K8s pipeline\nReact dashboard used by 200+ internal analysts\nStripe intern: fraud scoring 50K tx/day, PCI-DSS exposure"
+        }
+        multiline
+      />
+      <Field
+        label="Job Board Search Terms"
+        value={draft.searchTerms}
+        onChange={(v) => {
+          set("searchTerms", v);
+        }}
+        placeholder="software engineer&#10;full stack developer&#10;python developer"
+        multiline
+      />
     </div>
   );
 }
@@ -1397,7 +1572,8 @@ function StepResume({ file, uploaded, uploading, onFileChange }: StepResumeProps
           Resume
         </h2>
         <p className="text-sm mt-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-          Upload your resume as a PDF, YAML, or .tex file. You can refine the structured content later in Settings.
+          Upload your resume as a PDF, YAML, or .tex file. You can refine the structured content
+          later in Settings.
         </p>
       </div>
       <div
@@ -1451,7 +1627,13 @@ function StepResume({ file, uploaded, uploading, onFileChange }: StepResumeProps
  * @param props - Filters draft and change handler.
  * @returns Filters form fields.
  */
-function StepFilters({ draft, onChange }: { draft: FiltersDraft; onChange: (d: FiltersDraft) => void }): JSX.Element {
+function StepFilters({
+  draft,
+  onChange,
+}: {
+  draft: FiltersDraft;
+  onChange: (d: FiltersDraft) => void;
+}): JSX.Element {
   /** All available job type options. */
   const jobTypeOptions = ["Full-time", "Part-time", "Contract", "Internship"];
 
@@ -1478,12 +1660,31 @@ function StepFilters({ draft, onChange }: { draft: FiltersDraft; onChange: (d: F
         </p>
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Min Salary (USD)" value={draft.minSalary} onChange={(v) => { onChange({ ...draft, minSalary: v }); }} placeholder="80000" type="number" />
-        <Field label="Max Salary (USD)" value={draft.maxSalary} onChange={(v) => { onChange({ ...draft, maxSalary: v }); }} placeholder="200000" type="number" />
+        <Field
+          label="Min Salary (USD)"
+          value={draft.minSalary}
+          onChange={(v) => {
+            onChange({ ...draft, minSalary: v });
+          }}
+          placeholder="80000"
+          type="number"
+        />
+        <Field
+          label="Max Salary (USD)"
+          value={draft.maxSalary}
+          onChange={(v) => {
+            onChange({ ...draft, maxSalary: v });
+          }}
+          placeholder="200000"
+          type="number"
+        />
       </div>
 
       <div>
-        <span className="text-xs font-semibold mb-2 block" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+        <span
+          className="text-xs font-semibold mb-2 block"
+          style={{ color: COLOR_ON_SURFACE_VARIANT }}
+        >
           Job Types
         </span>
         <div className="flex flex-wrap gap-2">
@@ -1494,9 +1695,13 @@ function StepFilters({ draft, onChange }: { draft: FiltersDraft; onChange: (d: F
               style={{
                 backgroundColor: draft.jobTypes.includes(jt) ? COLOR_PRIMARY_FIXED : "transparent",
                 color: draft.jobTypes.includes(jt) ? COLOR_PRIMARY : COLOR_ON_SURFACE_VARIANT,
-                borderColor: draft.jobTypes.includes(jt) ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
+                borderColor: draft.jobTypes.includes(jt)
+                  ? `${COLOR_PRIMARY}40`
+                  : COLOR_OUTLINE_VARIANT,
               }}
-              onClick={() => { toggleJobType(jt); }}
+              onClick={() => {
+                toggleJobType(jt);
+              }}
             >
               {jt}
             </button>
@@ -1508,7 +1713,9 @@ function StepFilters({ draft, onChange }: { draft: FiltersDraft; onChange: (d: F
         <input
           type="checkbox"
           checked={draft.requireRemote}
-          onChange={(e) => { onChange({ ...draft, requireRemote: e.target.checked }); }}
+          onChange={(e) => {
+            onChange({ ...draft, requireRemote: e.target.checked });
+          }}
           className="w-4 h-4 rounded accent-primary"
         />
         <span className="text-sm font-medium" style={{ color: COLOR_ON_SURFACE }}>
@@ -1519,14 +1726,18 @@ function StepFilters({ draft, onChange }: { draft: FiltersDraft; onChange: (d: F
       <Field
         label="Exclude Title Patterns (one per line)"
         value={draft.excludeTitlePatterns}
-        onChange={(v) => { onChange({ ...draft, excludeTitlePatterns: v }); }}
+        onChange={(v) => {
+          onChange({ ...draft, excludeTitlePatterns: v });
+        }}
         placeholder="intern&#10;junior&#10;director"
         multiline
       />
       <Field
         label="Exclude Companies (one per line)"
         value={draft.excludeCompanies}
-        onChange={(v) => { onChange({ ...draft, excludeCompanies: v }); }}
+        onChange={(v) => {
+          onChange({ ...draft, excludeCompanies: v });
+        }}
         placeholder="Acme Corp&#10;Initech"
         multiline
       />
@@ -1579,7 +1790,9 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
             color: draft.mode === "codex" ? COLOR_PRIMARY : COLOR_ON_SURFACE_VARIANT,
             borderColor: draft.mode === "codex" ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
           }}
-          onClick={() => { onChange({ ...draft, mode: "codex" }); }}
+          onClick={() => {
+            onChange({ ...draft, mode: "codex" });
+          }}
         >
           <span className="material-symbols-outlined text-lg align-middle mr-1">cloud</span>
           Codex (Subscription)
@@ -1591,7 +1804,9 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
             color: draft.mode === "byok" ? COLOR_PRIMARY : COLOR_ON_SURFACE_VARIANT,
             borderColor: draft.mode === "byok" ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
           }}
-          onClick={() => { onChange({ ...draft, mode: "byok" }); }}
+          onClick={() => {
+            onChange({ ...draft, mode: "byok" });
+          }}
         >
           <span className="material-symbols-outlined text-lg align-middle mr-1">key</span>
           Bring Your Own Key
@@ -1601,12 +1816,16 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
       {draft.mode === "codex" && (
         <div
           className="rounded-xl p-5 border"
-          style={{ borderColor: `${COLOR_OUTLINE_VARIANT}40`, backgroundColor: COLOR_SURFACE_CONTAINER_LOW }}
+          style={{
+            borderColor: `${COLOR_OUTLINE_VARIANT}40`,
+            backgroundColor: COLOR_SURFACE_CONTAINER_LOW,
+          }}
         >
           {draft.codexStatus === "idle" && (
             <>
               <p className="text-sm mb-3" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-                Sign in with your Codex/OpenAI subscription. A browser window will open for authentication.
+                Sign in with your Codex/OpenAI subscription. A browser window will open for
+                authentication.
               </p>
               <button
                 className="px-5 py-2 rounded-xl text-sm font-bold text-white transition-all scale-98-on-click"
@@ -1653,7 +1872,9 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
           )}
           {draft.codexStatus === "completed" && (
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-lg" style={{ color: COLOR_SUCCESS }}>check_circle</span>
+              <span className="material-symbols-outlined text-lg" style={{ color: COLOR_SUCCESS }}>
+                check_circle
+              </span>
               <span className="text-sm font-semibold" style={{ color: COLOR_SUCCESS }}>
                 Codex authentication complete
               </span>
@@ -1679,7 +1900,10 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
       {draft.mode === "byok" && (
         <div className="space-y-4">
           <div>
-            <span className="text-xs font-semibold mb-2 block" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+            <span
+              className="text-xs font-semibold mb-2 block"
+              style={{ color: COLOR_ON_SURFACE_VARIANT }}
+            >
               Provider
             </span>
             <div className="flex flex-wrap gap-2">
@@ -1688,11 +1912,16 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
                   key={p.value}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
                   style={{
-                    backgroundColor: draft.providerType === p.value ? COLOR_PRIMARY_FIXED : "transparent",
-                    color: draft.providerType === p.value ? COLOR_PRIMARY : COLOR_ON_SURFACE_VARIANT,
-                    borderColor: draft.providerType === p.value ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
+                    backgroundColor:
+                      draft.providerType === p.value ? COLOR_PRIMARY_FIXED : "transparent",
+                    color:
+                      draft.providerType === p.value ? COLOR_PRIMARY : COLOR_ON_SURFACE_VARIANT,
+                    borderColor:
+                      draft.providerType === p.value ? `${COLOR_PRIMARY}40` : COLOR_OUTLINE_VARIANT,
                   }}
-                  onClick={() => { onChange({ ...draft, providerType: p.value }); }}
+                  onClick={() => {
+                    onChange({ ...draft, providerType: p.value });
+                  }}
                 >
                   {p.label}
                 </button>
@@ -1702,7 +1931,9 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
           <Field
             label="API Key"
             value={draft.apiKey}
-            onChange={(v) => { onChange({ ...draft, apiKey: v }); }}
+            onChange={(v) => {
+              onChange({ ...draft, apiKey: v });
+            }}
             placeholder="sk-..."
             type="password"
           />
@@ -1718,13 +1949,22 @@ function StepProvider({ draft, onChange, onStartCodex }: StepProviderProps): JSX
  * @param props - Watchlist draft and change handler.
  * @returns Watchlist form.
  */
-function StepWatchlist({ draft, onChange }: { draft: WatchlistDraft; onChange: (d: WatchlistDraft) => void }): JSX.Element {
+function StepWatchlist({
+  draft,
+  onChange,
+}: {
+  draft: WatchlistDraft;
+  onChange: (d: WatchlistDraft) => void;
+}): JSX.Element {
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-bold" style={{ color: COLOR_ON_SURFACE }}>
           Company Watchlist
-          <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: COLOR_PRIMARY_FIXED, color: COLOR_PRIMARY }}>
+          <span
+            className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: COLOR_PRIMARY_FIXED, color: COLOR_PRIMARY }}
+          >
             Optional
           </span>
         </h2>
@@ -1735,7 +1975,9 @@ function StepWatchlist({ draft, onChange }: { draft: WatchlistDraft; onChange: (
       <Field
         label="Companies (one per line)"
         value={draft.companies}
-        onChange={(v) => { onChange({ ...draft, companies: v }); }}
+        onChange={(v) => {
+          onChange({ ...draft, companies: v });
+        }}
         placeholder="Stripe&#10;Notion&#10;Linear&#10;Vercel"
         multiline
       />

@@ -301,14 +301,7 @@ describe("extractDomainKeywords", () => {
     const keywords = extractDomainKeywords(
       "Electrical Engineering Intern\nHardware Engineering Intern\nFPGA Engineer Intern\nPCB Design Intern\nEmbedded Systems Intern",
     );
-    expect(keywords).toEqual([
-      "electrical",
-      "hardware",
-      "fpga",
-      "pcb",
-      "embedded",
-      "systems",
-    ]);
+    expect(keywords).toEqual(["electrical", "hardware", "fpga", "pcb", "embedded", "systems"]);
   });
 
   it("strips entry-level cues, role suffixes, articles, and degree words", () => {
@@ -355,11 +348,8 @@ describe("deriveRequireTitlePatterns", () => {
     // Python `re` accepts the `(?i)` inline flag; JS RegExp does not, so
     // strip it and supply the `i` flag explicitly when verifying behavior
     // from the test runner. The wire format we emit is what Python sees.
-    const compiled = patterns.map(
-      (p) => new RegExp(p.replace(/^\(\?i\)/, ""), "i"),
-    );
-    const matches = (title: string): boolean =>
-      compiled.some((re) => re.test(title));
+    const compiled = patterns.map((p) => new RegExp(p.replace(/^\(\?i\)/, ""), "i"));
+    const matches = (title: string): boolean => compiled.some((re) => re.test(title));
 
     // Should match — domain + entry-level, in either order.
     expect(matches("Electrical Engineering Intern")).toBe(true);
@@ -397,9 +387,7 @@ describe("deriveRequireTitlePatterns", () => {
   });
 
   it("returns an empty array when no entry-level signals are present", () => {
-    expect(deriveRequireTitlePatterns("Staff Engineer\nPrincipal Engineer")).toEqual(
-      [],
-    );
+    expect(deriveRequireTitlePatterns("Staff Engineer\nPrincipal Engineer")).toEqual([]);
   });
 
   it("returns an empty array for an empty roles string", () => {
@@ -841,7 +829,7 @@ describe("saveWatchlistCompanies", () => {
     vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({
-      yaml_text: "greenhouse_companies:\n  Existing:\n    greenhouse_id: \"existing\"\n",
+      yaml_text: 'greenhouse_companies:\n  Existing:\n    greenhouse_id: "existing"\n',
     });
 
     // Act
@@ -874,7 +862,7 @@ describe("saveWatchlistCompanies", () => {
     vi.spyOn(globalThis, "fetch");
     const updateSources = vi.fn().mockResolvedValue(undefined);
     const fetchSources = vi.fn().mockResolvedValue({
-      yaml_text: "greenhouse_companies:\n  OldStale:\n    greenhouse_id: \"old\"\n",
+      yaml_text: 'greenhouse_companies:\n  OldStale:\n    greenhouse_id: "old"\n',
     });
 
     // Act
@@ -907,17 +895,11 @@ describe("saveWatchlistCompanies", () => {
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" });
 
     // Act
-    const result = await saveWatchlistCompanies(
-      "Acme Corp\nAcmeCorp",
-      updateSources,
-      fetchSources,
-    );
+    const result = await saveWatchlistCompanies("Acme Corp\nAcmeCorp", updateSources, fetchSources);
 
     // Assert — both names land in unverified; both appear in YAML under
     // distinct mapping keys.
-    expect(result.unverified).toEqual(
-      expect.arrayContaining(["Acme Corp", "AcmeCorp"]),
-    );
+    expect(result.unverified).toEqual(expect.arrayContaining(["Acme Corp", "AcmeCorp"]));
     const writtenYaml = updateSources.mock.calls[0]?.[0] as string;
     expect(writtenYaml).toContain("  Acme Corp:");
     expect(writtenYaml).toContain("  AcmeCorp:");
@@ -928,8 +910,8 @@ describe("saveWatchlistCompanies", () => {
     vi.spyOn(globalThis, "fetch");
     const existingYaml =
       "greenhouse_companies:\n" +
-      "  Stripe:\n    greenhouse_id: \"stripe\"\n    priority: 3\n" +
-      "  OldCo:\n    greenhouse_id: \"oldco\"\n    priority: 3\n";
+      '  Stripe:\n    greenhouse_id: "stripe"\n    priority: 3\n' +
+      '  OldCo:\n    greenhouse_id: "oldco"\n    priority: 3\n';
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
     const updateSources = vi.fn().mockResolvedValue(undefined);
 
@@ -1353,7 +1335,7 @@ describe("seedGithubRepos", () => {
   it("replaces an existing block-list github_repos entry", async () => {
     // Arrange
     const existingYaml =
-      "indeed:\n  enabled: true\ngithub_repos:\n  - owner: OldOwner\n    repo: OldRepo\n    enabled: false\n    categories:\n      - \"Software\"\n";
+      'indeed:\n  enabled: true\ngithub_repos:\n  - owner: OldOwner\n    repo: OldRepo\n    enabled: false\n    categories:\n      - "Software"\n';
     const fetchSources = vi.fn().mockResolvedValue({ yaml_text: existingYaml });
     const updateSources = vi.fn().mockResolvedValue(undefined);
 
@@ -1595,22 +1577,18 @@ describe("detectSimplifyCategories — keyword and ordering coverage", () => {
     expect(result).toContain("Software");
   });
 
-  it.each([
-    ["Product Manager Intern"],
-    ["Product Management Associate"],
-    ["Program Manager"],
-  ])("classifies %s as PM", (role) => {
-    // Arrange / Act
-    const result = detectSimplifyCategories([role]);
+  it.each([["Product Manager Intern"], ["Product Management Associate"], ["Program Manager"]])(
+    "classifies %s as PM",
+    (role) => {
+      // Arrange / Act
+      const result = detectSimplifyCategories([role]);
 
-    // Assert
-    expect(result).toContain("PM");
-  });
+      // Assert
+      expect(result).toContain("PM");
+    },
+  );
 
-  it.each([
-    ["Quant Researcher"],
-    ["Quantitative Analyst"],
-  ])("classifies %s as Quant", (role) => {
+  it.each([["Quant Researcher"], ["Quantitative Analyst"]])("classifies %s as Quant", (role) => {
     // Arrange / Act
     const result = detectSimplifyCategories([role]);
 

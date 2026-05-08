@@ -34,8 +34,7 @@ import userEvent from "@testing-library/user-event";
 const navigateMock = vi.fn();
 
 vi.mock("react-router-dom", async () => {
-  const actual =
-    await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
     useNavigate: (): typeof navigateMock => navigateMock,
@@ -54,9 +53,7 @@ vi.mock("@/lib/api/client", () => ({
   uploadResume: vi.fn().mockResolvedValue(undefined),
   uploadResumePdf: vi.fn().mockResolvedValue(undefined),
   updateFiltersYaml: vi.fn().mockResolvedValue(undefined),
-  fetchSourcesSettings: vi
-    .fn()
-    .mockResolvedValue({ yaml_text: "greenhouse_companies:\n" }),
+  fetchSourcesSettings: vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" }),
   updateSourcesYaml: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -112,9 +109,7 @@ function renderOnboarding(queryClient: QueryClient): QueryClient {
  *
  * @param user - The `userEvent` instance bound to the rendered tree.
  */
-async function advanceWizardToFinishStep(
-  user: ReturnType<typeof userEvent.setup>,
-): Promise<void> {
+async function advanceWizardToFinishStep(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   const fullNameField = screen.getByPlaceholderText("Jane Doe");
   await user.type(fullNameField, "Jane Tester");
 
@@ -123,9 +118,7 @@ async function advanceWizardToFinishStep(
 
   await user.click(screen.getByRole("button", { name: "Continue" }));
 
-  const targetRolesField = await screen.findByPlaceholderText(
-    /Software Engineer/,
-  );
+  const targetRolesField = await screen.findByPlaceholderText(/Software Engineer/);
   await user.type(targetRolesField, "Software Engineer");
 
   await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -157,9 +150,7 @@ describe("OnboardingPage handleFinish navigation order (Bug 2)", () => {
     });
 
     const queryClient = buildTestQueryClient();
-    const refetchSpy = vi
-      .spyOn(queryClient, "refetchQueries")
-      .mockReturnValue(refetchPromise);
+    const refetchSpy = vi.spyOn(queryClient, "refetchQueries").mockReturnValue(refetchPromise);
 
     renderOnboarding(queryClient);
     const user = userEvent.setup();
@@ -294,9 +285,7 @@ describe("OnboardingPage watchlist banners — dismissible UI", () => {
         screen.getByText(/Could not verify Greenhouse IDs for: Bogus Inc/),
       ).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/NVIDIA don't appear to use Greenhouse/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/NVIDIA don't appear to use Greenhouse/)).toBeInTheDocument();
 
     // Two dismiss buttons must coexist — one per banner.
     expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(2);
