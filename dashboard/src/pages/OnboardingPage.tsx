@@ -46,7 +46,6 @@ import type {
   RolesDraft,
   WatchlistDraft,
 } from "@/lib/onboarding/types";
-import { useCodexAuth } from "@/lib/onboarding/use-codex-auth";
 import { buildWatchlistWarning } from "@/lib/onboarding/watchlist";
 import { NavigationButtons } from "./onboarding/NavigationButtons";
 import { ProgressIndicator } from "./onboarding/ProgressIndicator";
@@ -87,8 +86,6 @@ export function OnboardingPage(): JSX.Element {
       setResumeUploaded(true);
     },
   });
-
-  const { start: startCodexAuthFlow } = useCodexAuth({ setProvider });
 
   const canAdvance = useCallback((): boolean => {
     if (currentStep === 0) {
@@ -198,15 +195,7 @@ export function OnboardingPage(): JSX.Element {
             />
           )}
           {currentStep === 3 && <StepFilters draft={filters} onChange={setFilters} />}
-          {currentStep === 4 && (
-            <StepProvider
-              draft={provider}
-              onChange={setProvider}
-              onStartCodex={() => {
-                void startCodexAuthFlow();
-              }}
-            />
-          )}
+          {currentStep === 4 && <StepProvider draft={provider} onChange={setProvider} />}
           {currentStep === 5 && <StepWatchlist draft={watchlist} onChange={setWatchlist} />}
 
           {error && (

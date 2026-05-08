@@ -11,7 +11,9 @@
  *    contact info, target roles, and education before any source-config
  *    is touched. If this call fails, no destructive YAML rewrites have
  *    happened yet.
- * 2. BYOK API key is persisted only when present.
+ * 2. The OpenAI API key is persisted to `POST /api/settings/provider` only
+ *    when the user actually typed something (empty input is skipped so
+ *    finishing without a key still succeeds).
  * 3. `filters.yaml` is rewritten with the new domain-aware filter set.
  * 4. `sources.yaml` `github_repos:` block is seeded for the candidate's
  *    detected category (Software / Hardware / etc.).
@@ -25,11 +27,7 @@
  * the dismissible warning banners; everything else is best-effort.
  */
 
-import {
-  updateAiProviderSettings,
-  updateFiltersYaml,
-  updateProfileStructured,
-} from "@/lib/api/client";
+import { updateFiltersYaml, updateProfileStructured } from "@/lib/api/client";
 import { EMPTY_WATCHLIST_RESULT } from "./defaults";
 import { buildStructuredProfilePayload } from "./profile-payload";
 import type {
@@ -86,12 +84,8 @@ export async function finishOnboarding(args: FinishOnboardingArgs): Promise<Watc
 
   await updateProfileStructured(buildStructuredProfilePayload({ profile, roles, filters }));
 
-  if (provider.mode === "byok" && provider.apiKey.trim() !== "") {
-    await updateAiProviderSettings({
-      mode: "byok",
-      provider_type: provider.providerType,
-      api_key: provider.apiKey,
-    });
+  if (provider.apiKey.trim() !== "") {
+    await postOpenAiProviderKey(provider.apiKey);
   }
 
   // Bug 5 fix: pass roles so strongestAreas populate soft_filters.positive_keywords.
@@ -111,4 +105,27 @@ export async function finishOnboarding(args: FinishOnboardingArgs): Promise<Watc
   await refetchOnboardingStatus();
 
   return watchlistResult;
+}
+
+/**
+ * POST the user's OpenAI API key to the new provider-config endpoint.
+ *
+ * @remarks
+ * Inlined here (rather than in `lib/api/client.ts`) because the OSS launch
+ * collapses provider config into a single contract — `{ provider_type:
+ * "openai", api_key }` — and `client.ts` is owned by a sibling agent during
+ * the parallel refactor. Throws if the server rejects the payload so
+ * `handleFinish` can surface the error in the wizard.
+ *
+ * @param apiKey - Raw API key string from the wizard input.
+ */
+async function postOpenAiProviderKey(apiKey: string): Promise<void> {
+  const response = await fetch("/api/settings/provider", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider_type: "openai", api_key: apiKey }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to save OpenAI API key (HTTP ${String(response.status)}).`);
+  }
 }

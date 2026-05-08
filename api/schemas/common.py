@@ -82,16 +82,6 @@ class ServiceTierUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ProviderConfigRequest(BaseModel):
-    """Payload for configuring the active AI provider."""
-
-    mode: str = Field(description="'codex' or 'byok'")
-    provider_type: str = Field(default="openai", description="openai, anthropic, gemini, openrouter")
-    api_key: str | None = Field(default=None, description="API key for BYOK mode")
-    base_url: str | None = Field(default=None, description="Custom endpoint URL")
-    default_model: str | None = Field(default=None, description="Default model override")
-
-
 class JobImportRequest(BaseModel):
     """Request body for manual job import."""
 
