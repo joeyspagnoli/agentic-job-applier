@@ -17,16 +17,20 @@ from src.utils.deduplicator import Deduplicator
 class _StaticFetcher:
     """Return deterministic postings for source-accounting tests."""
 
-    def __init__(self, company_name: str, _identifier: str) -> None:
+    def __init__(self, company_name: str, _identifier: str, **_kwargs: object) -> None:
         """Store constructor args for compatibility with real fetchers.
 
         Purpose:
             Keep fake fetcher signatures drop-in compatible with orchestrator
-            source loops.
+            source loops, including fetchers (e.g., WorkdayFetcher) that pass
+            extra keyword arguments such as ``fetch_descriptions`` or
+            ``search_text``.
         Args:
             self: Fake fetcher instance.
             company_name: Company label from orchestrator config.
             _identifier: Board URL or identifier from config.
+            **_kwargs: Ignored extra keyword arguments forwarded by the
+                production fetcher signatures.
         Output:
             Returns `None`.
         """

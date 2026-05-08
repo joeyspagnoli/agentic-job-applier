@@ -184,7 +184,7 @@ profile:
   experience_highlights:
     - "Built backend APIs"
   hard_filters:
-    - "US roles only"
+    - "US-based roles"
   preferences:
     - "Prefer internships"
 search_defaults:

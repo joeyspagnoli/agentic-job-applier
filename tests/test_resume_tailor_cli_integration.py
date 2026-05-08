@@ -210,7 +210,10 @@ def test_resume_tailor_tools_command_chain_supports_snapshot_and_recovery(
     snapshot_yaml_path = workspace_dir / "resume.snapshot.yaml"
     saved_payload_path = workspace_dir / "save_payload.json"
 
-    shutil.copy2(Path("config/resume_content.yaml").resolve(), working_yaml_path)
+    shutil.copy2(
+        REPO_ROOT / "tests" / "fixtures" / "resume_content_populated.yaml",
+        working_yaml_path,
+    )
 
     fake_bin_dir = workspace_dir / "bin"
     fake_bin_dir.mkdir()
