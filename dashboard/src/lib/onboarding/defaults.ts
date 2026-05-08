@@ -70,17 +70,10 @@ export function defaultFiltersDraft(): FiltersDraft {
 /**
  * Build the default provider draft.
  *
- * @returns Fresh provider draft.
+ * @returns Fresh provider draft with an empty OpenAI API key field.
  */
 export function defaultProviderDraft(): ProviderDraft {
-  return {
-    mode: "byok",
-    providerType: "openai",
-    apiKey: "",
-    codexStatus: "idle",
-    codexUrl: null,
-    codexCode: null,
-  };
+  return { apiKey: "" };
 }
 
 /**

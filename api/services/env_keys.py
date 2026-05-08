@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 import os
+from typing import Final
 
 from api.config import ALLOWED_API_KEY_NAMES
 from api.config import SETTINGS_ENV_PATH
+
+# Placeholder values that older .env files used as default sentinels. They
+# must be treated as "unconfigured" by status checks so the settings UI does
+# not falsely report a key as set.
+ENV_KEY_PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
+    {
+        "",
+        "your_openai_api_key_here",
+        "your_anthropic_key_here",
+        "your_google_api_key_here",
+    }
+)
 
 
 def _read_env_pairs() -> list[tuple[str, str]]:
@@ -54,11 +67,7 @@ def _read_env_key_statuses() -> dict[str, bool]:
     for line, key in _read_env_pairs():
         if key in ALLOWED_API_KEY_NAMES:
             value = line.split("=", 1)[1].strip() if "=" in line else ""
-            status[key] = value not in (
-                "",
-                "your_google_api_key_here",
-                "your_anthropic_key_here",
-            )
+            status[key] = value not in ENV_KEY_PLACEHOLDER_VALUES
     return status
 
 

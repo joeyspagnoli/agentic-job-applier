@@ -91,12 +91,15 @@ PERSONAL_CONTACT_PATTERN = re.compile(
     flags=re.DOTALL,
 )
 
-# Valid API key names that the settings UI may read/write.
+# Valid API key names that the settings UI may read/write. The current API
+# only writes OPENAI_API_KEY (see issue #35), but the wider set is kept here
+# so future BYOK work can reuse the same .env helper without churn.
 ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
     {
         "OPENAI_API_KEY",
         "GOOGLE_API_KEY",
         "ANTHROPIC_API_KEY",
+        "OPENROUTER_BASE_URL",
     }
 )
 

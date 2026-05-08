@@ -43,13 +43,6 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("@/lib/api/client", () => ({
   updateProfileStructured: vi.fn().mockResolvedValue(undefined),
-  updateAiProviderSettings: vi.fn().mockResolvedValue(undefined),
-  startCodexAuth: vi.fn().mockResolvedValue({
-    status: "running",
-    verification_url: null,
-    device_code: null,
-  }),
-  fetchCodexAuthStatus: vi.fn().mockResolvedValue({ status: "running" }),
   uploadResume: vi.fn().mockResolvedValue(undefined),
   uploadResumePdf: vi.fn().mockResolvedValue(undefined),
   updateFiltersYaml: vi.fn().mockResolvedValue(undefined),

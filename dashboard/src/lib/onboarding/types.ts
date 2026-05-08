@@ -11,8 +11,6 @@
  * import-agnostic of the React components that render them.
  */
 
-import type { AiProviderMode, AiProviderType } from "@/lib/api/client";
-
 /** Draft state for step 1: basic profile info. */
 export interface ProfileDraft {
   fullName: string;
@@ -45,14 +43,17 @@ export interface FiltersDraft {
   excludeCompanies: string;
 }
 
-/** Draft state for step 5: AI provider. */
+/**
+ * Draft state for step 5: AI provider.
+ *
+ * @remarks
+ * The OSS launch ships with OpenAI BYOK as the only supported provider, so
+ * this slice is just the API key the user typed. Mode/providerType/Codex
+ * fields were removed when those code paths were stripped from the wizard.
+ */
 export interface ProviderDraft {
-  mode: AiProviderMode;
-  providerType: AiProviderType;
+  /** OpenAI API key the user pasted into the wizard. May be empty. */
   apiKey: string;
-  codexStatus: "idle" | "starting" | "running" | "completed" | "failed";
-  codexUrl: string | null;
-  codexCode: string | null;
 }
 
 /** Draft state for step 6: company watchlist. */
