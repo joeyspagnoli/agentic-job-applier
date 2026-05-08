@@ -23,6 +23,7 @@ from src.orchestrator.domains import DOMAIN_TO_INDUSTRIES
 from src.orchestrator.domains import apply_domain_filter_to_config
 from src.orchestrator.domains import company_matches_domains
 from src.orchestrator.domains import filter_companies_by_domain
+from src.orchestrator.domains import filter_list_section_by_domain
 from src.orchestrator.domains import industries_for_domains
 from src.orchestrator.domains import infer_domains_from_target_roles
 from src.orchestrator.domains import resolve_user_domains
@@ -290,6 +291,61 @@ class TestFilterCompaniesByDomain:
         assert section == snapshot
 
 
+class TestFilterListSectionByDomain:
+    """Per-entry filtering for list-shaped sections like `github_repos`."""
+
+    def test_entry_with_matching_domain_kept(self) -> None:
+        entries: list[object] = [
+            {"owner": "civeng", "repo": "x", "domains": ["civil_construction"]},
+            {"owner": "tech", "repo": "y", "domains": ["software_tech"]},
+        ]
+
+        kept = filter_list_section_by_domain(entries, {DOMAIN_CIVIL_CONSTRUCTION})
+
+        assert len(kept) == 1
+        assert kept[0] == entries[0]
+
+    def test_entry_without_domains_kept_as_catchall(self) -> None:
+        entries: list[object] = [
+            {"owner": "neutral", "repo": "z"},
+            {"owner": "tech", "repo": "y", "domains": ["software_tech"]},
+        ]
+
+        kept = filter_list_section_by_domain(entries, {DOMAIN_CIVIL_CONSTRUCTION})
+
+        # only the untagged entry survives
+        assert len(kept) == 1
+        assert kept[0] == entries[0]
+
+    def test_empty_user_domains_returns_all(self) -> None:
+        entries: list[object] = [
+            {"owner": "tech", "repo": "y", "domains": ["software_tech"]},
+        ]
+
+        kept = filter_list_section_by_domain(entries, set())
+
+        assert kept == entries
+
+    def test_multi_domain_entry_matches_any_user_domain(self) -> None:
+        entries: list[object] = [
+            {
+                "owner": "mixed",
+                "repo": "x",
+                "domains": ["software_tech", DOMAIN_CIVIL_CONSTRUCTION],
+            },
+        ]
+
+        kept_civil = filter_list_section_by_domain(
+            entries, {DOMAIN_CIVIL_CONSTRUCTION}
+        )
+        kept_tech = filter_list_section_by_domain(entries, {DOMAIN_SOFTWARE_TECH})
+        kept_other = filter_list_section_by_domain(entries, {DOMAIN_HEALTHCARE})
+
+        assert kept_civil == entries
+        assert kept_tech == entries
+        assert kept_other == []
+
+
 class TestApplyDomainFilterToConfig:
     """Top-level apply that handles every watchlist section at once."""
 
@@ -306,17 +362,32 @@ class TestApplyDomainFilterToConfig:
                 "Merck": {"industry": "pharma_biotech"},
             },
             "linkedin": {"enabled": True, "search_terms": ["intern"]},
+            "github_repos": [
+                {"owner": "tech", "repo": "x", "domains": ["software_tech"]},
+                {"owner": "neutral", "repo": "y"},
+            ],
         }
 
         filtered = apply_domain_filter_to_config(
             config, {DOMAIN_CIVIL_CONSTRUCTION}
         )
 
+        greenhouse_section = filtered["greenhouse_companies"]
+        workday_section = filtered["workday_companies"]
+        github_section = filtered["github_repos"]
+        assert isinstance(greenhouse_section, dict)
+        assert isinstance(workday_section, dict)
+        assert isinstance(github_section, list)
+        # tech-tagged repo dropped, neutral one preserved
+        assert len(github_section) == 1
+        first_entry = github_section[0]
+        assert isinstance(first_entry, dict)
+        assert first_entry["owner"] == "neutral"
         # untagged greenhouse entry preserved
-        assert "Stripe" in filtered["greenhouse_companies"]  # type: ignore[index]
+        assert "Stripe" in greenhouse_section
         # civil-tagged kept, pharma dropped
-        assert "AECOM" in filtered["workday_companies"]  # type: ignore[index]
-        assert "Pfizer" not in filtered["workday_companies"]  # type: ignore[index]
+        assert "AECOM" in workday_section
+        assert "Pfizer" not in workday_section
         # entire pharma-only Taleo section becomes empty
         assert filtered["taleo_companies"] == {}
         # search-term-driven section untouched
