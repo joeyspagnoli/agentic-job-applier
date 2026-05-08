@@ -4,8 +4,11 @@
 Purpose:
     Provide an autonomous apply worker that claims reviewed jobs, opens
     them in Chrome via CDP, triggers Simplify autofill, uploads the
-    tailored resume, and captures diagnostics.  In v1 dry-run mode, all
-    runs stop before submit and land as NEEDS_REVIEW.
+    tailored resume, and captures diagnostics.  Auto-submit is hard-
+    disabled for this release: the worker always runs in dry-run mode,
+    so every successful flow stops before submit and lands as
+    NEEDS_REVIEW with an `apply_handoffs` row for the user to review
+    and submit manually.  See SECURITY.md for the policy.
 
 Run once (default):
   uv run python -m scripts.process_apply_jobs
@@ -50,9 +53,12 @@ DEFAULT_APPLY_MAX_RETRIES = 2
 DEFAULT_APPLY_RETRY_BACKOFF_SECONDS = 1800  # 30 min between retries
 DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER = 2
 DEFAULT_APPLY_OUTPUT_DIR = "data/apply_runs"
-DEFAULT_APPLY_DRY_RUN = True
 SQLITE_UTC_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_REVIEW_HANDOFF_OUTCOME = ApplyOutcome.NEEDS_REVIEW.value
+AUTO_SUBMIT_DISABLED_MESSAGE = (
+    "Auto-submit is disabled in this release. "
+    "Forms will be filled but not submitted."
+)
 
 _JOB_HASH_RE = re.compile(r"^[a-f0-9]{32,64}$")
 
@@ -118,25 +124,6 @@ def _load_int_env(name: str, default_value: int) -> int:
         return default_value
 
     return parsed_value
-
-
-def _load_bool_env(name: str, default_value: bool) -> bool:
-    """Read a boolean from environment and fall back safely.
-
-    Purpose:
-        Parse common boolean representations from environment variables.
-    Args:
-        name: Environment variable name to read.
-        default_value: Fallback boolean when parsing fails.
-    Output:
-        Returns parsed boolean value.
-    """
-
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default_value
-
-    return raw_value.lower() in ("true", "1", "yes")
 
 
 def _calculate_retry_delay_seconds(
@@ -729,18 +716,6 @@ async def main() -> None:
             f"Falls back to CHROME_CDP_URL env or {DEFAULT_CDP_URL}"
         ),
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=None,
-        help="Skip the submit step (default for v1)",
-    )
-    parser.add_argument(
-        "--no-dry-run",
-        action="store_true",
-        default=False,
-        help="Enable auto-submit when confidence is high",
-    )
     args = parser.parse_args()
 
     should_loop = args.loop and not args.once
@@ -763,13 +738,9 @@ async def main() -> None:
     )
     cdp_url = args.cdp_url or os.getenv("CHROME_CDP_URL", DEFAULT_CDP_URL)
 
-    # Resolve dry_run: CLI flags > env var > default
-    if args.no_dry_run:
-        dry_run = False
-    elif args.dry_run is not None:
-        dry_run = True
-    else:
-        dry_run = _load_bool_env("APPLY_DRY_RUN", DEFAULT_APPLY_DRY_RUN)
+    # auto-submit disabled in this release; see SECURITY.md for the policy
+    dry_run = True
+    logger.info(AUTO_SUBMIT_DISABLED_MESSAGE)
 
     # Synchronous preflight checks
     try:

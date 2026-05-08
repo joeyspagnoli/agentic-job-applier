@@ -1,6 +1,8 @@
 # Agentic Job Applier
 
-A self-hosted, AI-driven job discovery and application pipeline. It crawls a long list of ATSes, aggregators, and remote-only boards (full list below), decides which postings are worth applying to, generates a tailored LaTeX resume per job, runs a second-pass review, and (optionally) drives a real browser to file the application. State lives in a local SQLite database, and a FastAPI + React dashboard exposes everything that happens at runtime.
+> ⚠️ **Alpha software.** Auto-submit is intentionally **disabled** in this release. The apply worker fills forms in a real browser but stops before submitting — you review the filled form and click Submit yourself. See [Status & Safety](#status--safety) before running.
+
+A self-hosted, AI-driven job discovery and application pipeline. It crawls a long list of ATSes, aggregators, and remote-only boards (full list below), decides which postings are worth applying to, generates a tailored LaTeX resume per job, runs a second-pass review, and drives a real browser to fill the application form (you submit it yourself). State lives in a local SQLite database, and a FastAPI + React dashboard exposes everything that happens at runtime.
 
 ### Supported sources
 
@@ -16,6 +18,32 @@ A self-hosted, AI-driven job discovery and application pipeline. It crawls a lon
 
 <!-- screenshots TBD -->
 
+## Status & Safety
+
+This project is **alpha software**. The discovery, gate, tailor, review, and dashboard pieces work end-to-end. The auto-apply piece intentionally **does not** auto-submit — see below.
+
+### What works
+- Discovery across the sources listed above.
+- Gate agent qualifies or filters each posting against your profile.
+- Tailor agent generates a job-specific LaTeX resume + PDF.
+- Review agent does a second-pass verdict on the tailored resume.
+- Dashboard pipeline timeline updates as each job moves through.
+- Apply worker opens a real browser, navigates to the posting, and triggers Simplify autofill on the form.
+
+### What does NOT work, on purpose
+- **Auto-submit is hard-disabled in code.** The apply worker fills the form and stops before clicking Submit. There is no env var, CLI flag, or config option that enables auto-submit in this release. The worker creates a `PENDING_REVIEW` handoff visible in the dashboard's Human Review queue. You review the filled form in the browser, click Submit yourself, and mark the application complete in the dashboard.
+- **Multi-provider BYOK.** Onboarding accepts only an OpenAI API key. The provider abstraction at `src/providers/factory.py` is ready for Anthropic, Gemini, OpenRouter, and Codex, but the tailor and review workers are still hardcoded to OpenAI — see [#35](https://github.com/joeyspagnoli/agentic-job-applier/issues/35).
+
+### Recommended human-in-the-loop flow
+
+1. Set `OPENAI_API_KEY` in `.env`.
+2. `docker compose --profile full up -d`.
+3. Open the dashboard, complete onboarding.
+4. Wait for jobs to flow through to **PENDING_REVIEW** (Human Review queue).
+5. For each pending review: open the job in your browser (the apply worker has already filled the form via Simplify autofill in your local Chrome profile), verify the application looks right, click Submit yourself, then click "Mark Complete" in the dashboard.
+
+Treat the AI's output as a draft. Read the tailored resume before letting it represent you. **Do not write a wrapper that auto-submits forms.** If you do, you own the consequences. The disclosure process for security-relevant changes is in [`SECURITY.md`](SECURITY.md).
+
 ## Quickstart (Docker)
 
 Docker is the recommended way to run the project. The image is split into three build targets so you only install what you need.
@@ -24,7 +52,7 @@ Docker is the recommended way to run the project. The image is split into three 
 git clone https://github.com/joeyspagnoli/agentic-job-applier.git
 cd agentic-job-applier
 cp .env.example .env
-# Open .env and fill in at least OPENAI_API_KEY and GOOGLE_API_KEY.
+# Open .env and set OPENAI_API_KEY.
 docker compose up -d
 ```
 
@@ -54,7 +82,7 @@ The dashboard refuses to load until `config/candidate_profile.yaml`, `config/res
 | 2    | Target Roles       | Target titles, strongest areas, experience highlights for the resume tailor, and job-board search terms.          |
 | 3    | Resume             | Upload a `.pdf`, `.tex`, `.yaml`, or `.yml` resume. Parsed into the structured `config/resume_content.yaml`.       |
 | 4    | Filters            | Salary range, job types, remote/hybrid requirement, title exclusion patterns, company blocklist. Writes `config/filters.yaml`. |
-| 5    | AI Provider        | Pick Codex (subscription, device-code login) or Bring Your Own Key (OpenAI, Anthropic, Gemini, OpenRouter).        |
+| 5    | AI Provider        | Enter your OpenAI API key. Multi-provider BYOK (Anthropic, Gemini, OpenRouter, Codex) is tracked in [#35](https://github.com/joeyspagnoli/agentic-job-applier/issues/35). |
 | 6    | Watchlist          | Optional list of companies to track explicitly. Resolved against known Greenhouse slugs and written to `config/companies.yaml`. |
 
 After the final step the dashboard becomes available. Re-run any step later from **Settings** in the sidebar; raw YAML is editable there too.
@@ -107,16 +135,14 @@ docker compose --profile full up -d
 
 `.env.example` is the canonical list of every environment variable the pipeline reads. Copy it to `.env` and fill in the keys you need. The most important ones:
 
-| Variable                       | Required for                       | Notes                                                     |
-| ------------------------------ | ---------------------------------- | --------------------------------------------------------- |
-| `OPENAI_API_KEY`               | Gate worker / apply-decider        | At least one model key is required to start the pipeline. |
-| `GOOGLE_API_KEY`               | Resume tailor and review workers   | Used through the `pi` CLI in the `latex` image.           |
-| `ANTHROPIC_API_KEY`            | Optional Claude-powered tailoring  | Leave blank to skip.                                      |
-| `NTFY_TOPIC`                   | Push alerts on terminal failures   | Blank disables alerts.                                    |
-| `RUN_INTERVAL_MINUTES`         | Discovery cadence                  | Defaults to 30.                                           |
-| `API_PORT`                     | Host port for the dashboard        | Defaults to 8000.                                         |
-| `CDP_PORT`                     | Chrome remote-debug port           | Apply service only. Defaults to 9222.                     |
-| `TAILORED_RESUME_DOWNLOAD_TOKEN` | Remote download of tailored PDFs | Leave blank to keep the endpoint local-only.              |
+| Variable                         | Required for                                | Notes                                                     |
+| -------------------------------- | ------------------------------------------- | --------------------------------------------------------- |
+| `OPENAI_API_KEY`                 | Gate, tailor, review                        | Required. Workers idle gracefully if unset.               |
+| `NTFY_TOPIC`                     | Push alerts on terminal failures            | Blank disables alerts.                                    |
+| `RUN_INTERVAL_MINUTES`           | Discovery cadence                           | Defaults to 30.                                           |
+| `API_PORT`                       | Host port for the dashboard                 | Defaults to 8000.                                         |
+| `CDP_PORT`                       | Chrome remote-debug port                    | Apply service only. Defaults to 9222.                     |
+| `TAILORED_RESUME_DOWNLOAD_TOKEN` | Remote download of tailored PDFs            | Leave blank to keep the endpoint local-only.              |
 
 User-facing YAML files live under `config/` and are persisted via the Docker `./config:/app/config` bind mount:
 
@@ -187,7 +213,7 @@ fetchers   apply-     LaTeX     LaTeX     Playwright
 | Gate      | `scripts/process_new_jobs.py`                | `NEW` postings, candidate profile       | `QUALIFIED` or `FILTERED` status; cost events          |
 | Tailor    | `scripts/process_qualified_jobs.py`          | `QUALIFIED` postings, `resume_content.yaml` | `tailor_runs` rows + tailored LaTeX/PDF artifacts   |
 | Review    | `scripts/process_reviewed_resumes.py`        | Successful `tailor_runs`                | `review_runs` rows + revised PDF                       |
-| Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows, `apply_handoffs` for human review   |
+| Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows, `apply_handoffs` at `PENDING_REVIEW` (forms filled, never auto-submitted in this release) |
 
 State lives in:
 

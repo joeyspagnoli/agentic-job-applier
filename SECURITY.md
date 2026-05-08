@@ -37,3 +37,15 @@ Out of scope:
 ## Disclosure
 
 This is a self-hosted personal project, not a service. There is no production deployment to coordinate around, so disclosure happens as soon as a fix is merged to `main`.
+
+## Auto-submit policy
+
+Auto-submitting job applications on a user's behalf is **intentionally disabled in code**. The apply worker (`scripts/process_apply_jobs.py`) hardcodes `dry_run = True` at the call site; no env var, CLI flag, or config option flips it back on. The worker fills forms in a real browser and stops before clicking Submit, leaving an `apply_handoffs` row at `PENDING_REVIEW` for the operator to finalize.
+
+This is a deliberate safety boundary, not a feature gap. Pull requests that re-enable auto-submit must, at a minimum:
+
+1. Explain the threat model in the PR description (account bans, employer-side trust, accidental wrong-job submissions).
+2. Add a positive opt-in stronger than a single env var (e.g., a per-job confirmation, a daily rate cap, an audit log signed by the operator).
+3. Update this section with the new policy.
+
+Until those bars are met, please review and submit applications yourself.
