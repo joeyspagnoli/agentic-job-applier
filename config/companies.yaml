@@ -1291,6 +1291,12 @@ github_repos:
     enabled: true
     categories:
       - "Software"
+    # Curated list is overwhelmingly software/tech internships. Tag
+    # accordingly so non-software users (civil, healthcare, etc.) do not
+    # receive thousands of irrelevant listings. Multi-tag if a future
+    # repo lists across domains. See #35.
+    domains:
+      - software_tech
 
 
 # ── Direct LinkedIn scraping (guest API, no auth) ───────────────────
