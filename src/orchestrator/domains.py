@@ -269,10 +269,10 @@ def filter_companies_by_domain(
     return filtered
 
 
-# Sections of `companies.yaml` that are watchlist-style (one entry per
-# company, each crawled wholesale). These are the ones the domain filter
-# applies to. Search-term-driven sections like `linkedin`, `job_boards`,
-# `github_repos`, and `watched_pages` are intentionally excluded — their
+# Mapping-shaped sections of `companies.yaml` that are watchlist-style
+# (one entry per company, each crawled wholesale). The domain filter
+# applies to these. Search-term-driven sections like `linkedin`,
+# `job_boards`, and `watched_pages` are intentionally excluded — their
 # results are already domain-relevant by construction.
 WATCHLIST_SECTIONS: Final[tuple[str, ...]] = (
     "greenhouse_companies",
@@ -282,6 +282,48 @@ WATCHLIST_SECTIONS: Final[tuple[str, ...]] = (
     "lever_companies",
     "ashby_companies",
 )
+
+# List-shaped sections (one entry per repo / page rather than a name
+# keying a config dict) that still merit per-entry domain filtering.
+# Each entry's optional `domains: [...]` field is the gate.
+LIST_WATCHLIST_SECTIONS: Final[tuple[str, ...]] = ("github_repos",)
+
+
+def filter_list_section_by_domain(
+    entries: list[object],
+    user_domains: set[str],
+) -> list[object]:
+    """Drop list-section entries whose declared domains do not overlap.
+
+    Purpose:
+        Apply the same domain gate to list-shaped watchlist sections
+        (e.g. `github_repos`) where each entry self-declares one or more
+        broad user-facing domains rather than a granular industry.
+    Args:
+        entries: Section value from `companies.yaml` (a list of dicts).
+        user_domains: Broad domains the user picked. Empty = no filter.
+    Output:
+        Returns a new list containing entries whose `domains` field
+        overlaps `user_domains`. Entries without a `domains` field
+        always pass (catch-all consistent with company-mapping sections).
+    """
+
+    if not user_domains:
+        return list(entries)
+
+    kept: list[object] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            kept.append(entry)
+            continue
+        declared_raw = entry.get("domains")
+        if not isinstance(declared_raw, list) or not declared_raw:
+            kept.append(entry)
+            continue
+        declared = {str(d) for d in declared_raw if isinstance(d, str)}
+        if declared & user_domains:
+            kept.append(entry)
+    return kept
 
 
 def apply_domain_filter_to_config(
@@ -311,6 +353,12 @@ def apply_domain_filter_to_config(
         section_value = companies_config.get(section)
         if isinstance(section_value, dict):
             filtered_config[section] = filter_companies_by_domain(
+                section_value, user_domains
+            )
+    for section in LIST_WATCHLIST_SECTIONS:
+        section_value = companies_config.get(section)
+        if isinstance(section_value, list):
+            filtered_config[section] = filter_list_section_by_domain(
                 section_value, user_domains
             )
     return filtered_config
