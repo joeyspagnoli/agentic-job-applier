@@ -8,7 +8,9 @@ Purpose:
 
 from __future__ import annotations
 
+import asyncio
 import re
+import sys
 import tempfile
 from collections.abc import Awaitable
 from datetime import datetime
@@ -1276,3 +1278,203 @@ async def test_direct_upload_strategy_logs_selector_exceptions(
 
     assert uploaded is False
     assert len(warning_messages) == len(resume_upload._FILE_INPUT_SELECTORS)
+
+
+@pytest.mark.asyncio
+async def test_main_always_runs_with_dry_run_true_regardless_of_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify the apply worker hard-disables auto-submit at the call site.
+
+    Purpose:
+        Lock in the OSS-launch safety contract that `dry_run=True` is always
+        forwarded to `_apply_once`, even when the legacy `APPLY_DRY_RUN`
+        environment variable is set to a falsy value.
+    Args:
+        monkeypatch: Fixture used to inject deterministic preflight, DB, and
+            apply-once stubs while controlling environment state.
+        tmp_path: Temporary directory used as the apply output base dir.
+    Output:
+        Returns `None`; test passes when `dry_run=True` is captured exactly once.
+    """
+
+    # Arrange: legacy env var explicitly tries to enable auto-submit.
+    monkeypatch.setenv("APPLY_DRY_RUN", "false")
+    monkeypatch.setattr(sys, "argv", ["process_apply_jobs", "--once"])
+
+    captured_kwargs: list[dict[str, object]] = []
+
+    async def fake_apply_once(**kwargs: object) -> int:
+        """Capture orchestration kwargs so test can assert dry_run value.
+
+        Purpose:
+            Avoid side effects from the real apply loop while preserving the
+            keyword interface used by `_apply_once`.
+        Args:
+            **kwargs: Forwarded keyword payload from `main`.
+        Output:
+            Returns `1` to signal one job was processed.
+        """
+
+        captured_kwargs.append(dict(kwargs))
+        return 1
+
+    async def fake_check_chrome_preflight(_: str) -> None:
+        """Bypass network-dependent Chrome preflight in unit tests.
+
+        Purpose:
+            Keep the test deterministic without launching a real Chrome.
+        Args:
+            _: Ignored CDP URL argument.
+        Output:
+            Returns `None`.
+        """
+
+        return None
+
+    def fake_check_preflight(_: str) -> None:
+        """Bypass dependency preflight in unit tests.
+
+        Purpose:
+            Avoid playwright/display checks in this orchestration-focused test.
+        Args:
+            _: Ignored CDP URL argument.
+        Output:
+            Returns `None`.
+        """
+
+        return None
+
+    class FakeDB:
+        """Minimal async-context DB stub for `main` orchestration tests."""
+
+        async def __aenter__(self) -> "FakeDB":
+            """Return self to support async-with usage in the worker.
+
+            Purpose:
+                Match the production `DatabaseManager` async-context shape.
+            Args:
+                None.
+            Output:
+                Returns this fake DB instance.
+            """
+
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Accept context-exit calls without side effects.
+
+            Purpose:
+                Match the production async-context shape.
+            Args:
+                *_: Ignored exception triple.
+            Output:
+                Returns `None`.
+            """
+
+            return None
+
+        async def create_tables(self) -> None:
+            """Accept schema bootstrap call without side effects."""
+
+            return None
+
+        async def migrate_review_schema(self) -> None:
+            """Accept review-schema migration call without side effects."""
+
+            return None
+
+        async def migrate_apply_schema(self) -> None:
+            """Accept apply-schema migration call without side effects."""
+
+            return None
+
+        async def migrate_cost_schema(self) -> None:
+            """Accept cost-schema migration call without side effects."""
+
+            return None
+
+        async def mark_stale_apply_runs_failed(self, *, lease_seconds: int) -> int:
+            """Return zero stale rows for orchestration tests.
+
+            Purpose:
+                Keep startup logging deterministic while exercising `main`.
+            Args:
+                lease_seconds: Lease threshold from worker config (ignored).
+            Output:
+                Returns `0`.
+            """
+
+            _ = lease_seconds
+            return 0
+
+    monkeypatch.setattr(process_apply_jobs, "_apply_once", fake_apply_once)
+    monkeypatch.setattr(
+        process_apply_jobs,
+        "_check_chrome_preflight",
+        fake_check_chrome_preflight,
+    )
+    monkeypatch.setattr(process_apply_jobs, "_check_preflight", fake_check_preflight)
+    monkeypatch.setattr(
+        process_apply_jobs,
+        "DatabaseManager",
+        lambda *_args, **_kwargs: FakeDB(),
+    )
+    monkeypatch.setattr(
+        process_apply_jobs,
+        "resolve_database_path",
+        lambda: tmp_path / "jobs.db",
+    )
+    monkeypatch.setattr(
+        process_apply_jobs,
+        "resolve_repo_root",
+        lambda: tmp_path,
+    )
+
+    # Act
+    await process_apply_jobs.main()
+
+    # Assert: dry_run was forwarded as True exactly once, despite env override.
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0]["dry_run"] is True
+
+
+def test_main_argparse_rejects_no_dry_run_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `--no-dry-run` is no longer a recognized CLI option.
+
+    Purpose:
+        Lock in removal of the auto-submit override flag so future regressions
+        cannot reintroduce a CLI path that bypasses the dry-run guard.
+    Args:
+        monkeypatch: Fixture used to set deterministic argv.
+    Output:
+        Returns `None`; test passes when argparse exits with non-zero status.
+    """
+
+    # Arrange
+    monkeypatch.setattr(sys, "argv", ["process_apply_jobs", "--no-dry-run"])
+
+    # Act / Assert
+    with pytest.raises(SystemExit) as exc_info:
+        asyncio.run(process_apply_jobs.main())
+
+    assert exc_info.value.code != 0
+
+
+def test_load_bool_env_helper_is_removed() -> None:
+    """Verify the orphaned `_load_bool_env` helper was deleted.
+
+    Purpose:
+        Guard against reintroducing the env-var-driven dry-run override path
+        by ensuring the helper that parsed `APPLY_DRY_RUN` no longer exists.
+    Args:
+        None.
+    Output:
+        Returns `None`; test passes when the attribute is absent.
+    """
+
+    assert not hasattr(process_apply_jobs, "_load_bool_env")
+    assert not hasattr(process_apply_jobs, "DEFAULT_APPLY_DRY_RUN")
