@@ -93,6 +93,22 @@ greenhouse_companies:
     greenhouse_id: "cohere"
     priority: 2
 
+  # ── Automotive EV (verified 2026-05-07 via agent sweep) ──────────────────
+  Rivian Automotive:
+    greenhouse_id: "rivian"
+    priority: 2
+  Lucid Motors:
+    greenhouse_id: "lucidmotors"
+    priority: 2
+
+  # ── Supply chain software (verified 2026-05-07 via agent sweep) ────────────
+  Kinaxis:
+    greenhouse_id: "kinaxis"
+    priority: 3
+  E2open:
+    greenhouse_id: "e2openllc"
+    priority: 3
+
 
 workday_companies:
   # ── Semiconductors / hardware (verified 2026-05-07) ───────────────────────
@@ -401,6 +417,312 @@ workday_companies:
     workday_url: "https://aero.wd5.myworkdayjobs.com/External"
     industry: government_contractors
 
+  # ── Real estate (verified 2026-05-07 via agent sweep) ─────────────────────
+  CBRE:
+    workday_url: "https://cbre.wd1.myworkdayjobs.com/en-US/External"  # VERIFY
+    industry: real_estate
+    priority: 2
+  JLL:
+    workday_url: "https://jll.wd1.myworkdayjobs.com/en-US/jllcareers"
+    industry: real_estate
+    priority: 2
+  "Cushman & Wakefield":
+    workday_url: "https://cw.wd1.myworkdayjobs.com/en-US/External"
+    industry: real_estate
+    priority: 2
+  Colliers International:
+    workday_url: "https://colliers.wd3.myworkdayjobs.com/en-US/Colliers-External-Career-Site"
+    industry: real_estate
+    priority: 2
+  Prologis:
+    workday_url: "https://prologis.wd5.myworkdayjobs.com/en-US/Prologis_External_Careers"
+    industry: real_estate
+    priority: 3
+  Simon Property Group:
+    workday_url: "https://simon.wd1.myworkdayjobs.com/en-US/Simon"
+    industry: real_estate
+    priority: 3
+  AvalonBay Communities:
+    workday_url: "https://avalonbay.wd5.myworkdayjobs.com/en-US/AVBExternal"
+    industry: real_estate
+    priority: 3
+  Essex Property Trust:
+    workday_url: "https://essex.wd5.myworkdayjobs.com/essexcareers"
+    industry: real_estate
+    priority: 3
+  CoStar Group:
+    workday_url: "https://costar.wd1.myworkdayjobs.com/en-US/CoStarCareers"
+    industry: real_estate
+    priority: 2
+  Zillow Group:
+    workday_url: "https://zillow.wd5.myworkdayjobs.com/en-US/Zillow_Group_External"
+    industry: real_estate
+    priority: 2
+  Greystar Real Estate Partners:
+    workday_url: "https://greystar.wd1.myworkdayjobs.com/en-US/External"
+    industry: real_estate
+    priority: 2
+  Brookfield Asset Management:
+    workday_url: "https://brookfield.wd5.myworkdayjobs.com/en-US/brookfield"
+    industry: real_estate
+    priority: 3
+  Redfin:
+    workday_url: "https://redfin.wd1.myworkdayjobs.com/en-US/redfin_careers"
+    industry: real_estate
+    priority: 3
+  Invitation Homes:
+    workday_url: "https://invitationhomes.wd1.myworkdayjobs.com/en-US/INVH"
+    industry: real_estate
+    priority: 3
+  SBA Communications:
+    workday_url: "https://sbasite.wd5.myworkdayjobs.com/en-US/SBA_Communications_Careers"
+    industry: real_estate
+    priority: 3
+
+  # ── Insurance (verified 2026-05-07 via agent sweep) ────────────────────────
+  Allstate Insurance:
+    workday_url: "https://allstate.wd5.myworkdayjobs.com/en-US/allstate_careers"
+    industry: insurance
+    priority: 2
+
+  # ── CPG / consumer goods (verified 2026-05-07 via agent sweep) ────────────
+  "Procter & Gamble":
+    workday_url: "https://pg.wd5.myworkdayjobs.com/en-US/1000"
+    industry: consumer_goods
+    priority: 2
+  Kimberly-Clark:
+    workday_url: "https://kimberlyclark.wd1.myworkdayjobs.com/en-US/GLOBAL"
+    industry: consumer_goods
+    priority: 2
+  "Church & Dwight":
+    workday_url: "https://churchdwight.wd1.myworkdayjobs.com/chdcareers"
+    industry: consumer_goods
+    priority: 2
+  Coca-Cola:
+    workday_url: "https://coke.wd1.myworkdayjobs.com/en-US/coca-cola-careers"
+    industry: consumer_goods
+    priority: 2
+  Constellation Brands:
+    workday_url: "https://cbrands.wd5.myworkdayjobs.com/en-US/CBI_External_Careers"
+    industry: consumer_goods
+    priority: 3
+  Kraft Heinz:
+    workday_url: "https://heinz.wd1.myworkdayjobs.com/en-US/KraftHeinz_Careers"
+    industry: consumer_goods
+    priority: 2
+  Mondelez International:
+    workday_url: "https://mdlz.wd3.myworkdayjobs.com/en-US/External"
+    industry: consumer_goods
+    priority: 2
+  Campbell Soup Company:
+    workday_url: "https://campbellsoup.wd5.myworkdayjobs.com/en-US/ExternalCareers_GlobalSite"
+    industry: consumer_goods
+    priority: 3
+  Unilever USA:
+    workday_url: "https://unilever.wd3.myworkdayjobs.com/en-US/Unilever_Experienced_Professionals"
+    industry: consumer_goods
+    priority: 3
+  "SC Johnson & Son":
+    workday_url: "https://scj.wd5.myworkdayjobs.com/en-US/External_Career_Site"
+    industry: consumer_goods
+    priority: 3
+  VF Corporation:
+    workday_url: "https://vfc.wd5.myworkdayjobs.com/vfc_careers"
+    industry: consumer_goods
+    priority: 2
+  Nike:
+    workday_url: "https://nike.wd5.myworkdayjobs.com/en-US/nike_careers"  # VERIFY
+    industry: consumer_goods
+    priority: 2
+  Under Armour:
+    workday_url: "https://underarmour.wd5.myworkdayjobs.com/en-US/underarmour_careers"  # VERIFY
+    industry: consumer_goods
+    priority: 2
+  Tyson Foods:
+    workday_url: "https://tysonfoods.wd5.myworkdayjobs.com/en-US/TSN"
+    industry: consumer_goods
+    priority: 2
+  Ingredion:
+    workday_url: "https://ingredion.wd1.myworkdayjobs.com/en-US/IngredionCareers"
+    industry: consumer_goods
+    priority: 3
+  Conagra Brands:
+    workday_url: "https://conagrabrands.wd1.myworkdayjobs.com/en-US/Careers_US"
+    industry: consumer_goods
+    priority: 3
+
+  # ── Chemical / specialty materials (verified 2026-05-07 via agent sweep) ───
+  DuPont de Nemours:
+    workday_url: "https://dupont.wd5.myworkdayjobs.com/Jobs"
+    industry: chemical
+    priority: 2
+  "Air Products & Chemicals":
+    workday_url: "https://airproducts.wd5.myworkdayjobs.com/en-US/AP0001"
+    industry: chemical
+    priority: 2
+  Cabot Corporation:
+    workday_url: "https://cabotcorp.wd12.myworkdayjobs.com/Careers"
+    industry: chemical
+    priority: 3
+  Albemarle Corporation:
+    workday_url: "https://albemarle.wd5.myworkdayjobs.com/External"
+    industry: chemical
+    priority: 2
+  Ashland Global Holdings:
+    workday_url: "https://ashland.wd12.myworkdayjobs.com/AshlandCareers1"  # VERIFY
+    industry: chemical
+    priority: 3
+  Huntsman Corporation:
+    workday_url: "https://huntsman.wd1.myworkdayjobs.com/en-US/Huntsman"
+    industry: chemical
+    priority: 3
+  Axalta Coating Systems:
+    workday_url: "https://axalta.wd1.myworkdayjobs.com/en-US/Axalta"
+    industry: chemical
+    priority: 3
+  "H.B. Fuller Company":
+    workday_url: "https://hbfuller.wd1.myworkdayjobs.com/en-US/Careers"
+    industry: chemical
+    priority: 3
+
+  # ── Life sciences tools & medical devices (verified 2026-05-07 via agent sweep) ─
+  Thermo Fisher Scientific:
+    workday_url: "https://thermofisher.wd5.myworkdayjobs.com/en-US/ThermoFisherCareers"
+    industry: life_sciences
+    priority: 2
+  Danaher Corporation:
+    workday_url: "https://danaher.wd1.myworkdayjobs.com/DanaherJobs"
+    industry: life_sciences
+    priority: 2
+  Agilent Technologies:
+    workday_url: "https://agilent.wd5.myworkdayjobs.com/en-US/Agilent_Careers"
+    industry: life_sciences
+    priority: 2
+  Illumina:
+    workday_url: "https://illumina.wd1.myworkdayjobs.com/en-US/illumina-careers"
+    industry: life_sciences
+    priority: 2
+  IDEXX Laboratories:
+    workday_url: "https://idexx.wd1.myworkdayjobs.com/IDEXX"
+    industry: life_sciences
+    priority: 3
+  Revvity:
+    workday_url: "https://revvity.wd1.myworkdayjobs.com/en-US/External"
+    industry: life_sciences
+    priority: 3
+  Stryker Corporation:
+    workday_url: "https://stryker.wd1.myworkdayjobs.com/en-US/StrykerCareers"
+    industry: medical_devices
+    priority: 2
+  Integra LifeSciences:
+    workday_url: "https://integralife.wd1.myworkdayjobs.com/Careers"
+    industry: medical_devices
+    priority: 3
+  Haemonetics Corporation:
+    workday_url: "https://haemonetics.wd5.myworkdayjobs.com/HAE"
+    industry: medical_devices
+    priority: 3
+  Becton Dickinson:
+    workday_url: "https://bdx.wd1.myworkdayjobs.com/EXTERNAL_CAREER_SITE_USA"
+    industry: medical_devices
+    priority: 2
+  Insulet Corporation:
+    workday_url: "https://insulet.wd5.myworkdayjobs.com/insuletcareers"
+    industry: medical_devices
+    priority: 3
+  Labcorp:
+    workday_url: "https://labcorp.wd1.myworkdayjobs.com/en-US/External"
+    industry: life_sciences
+    priority: 3
+  IQVIA Holdings:
+    workday_url: "https://iqvia.wd1.myworkdayjobs.com/IQVIA"
+    industry: life_sciences
+    priority: 3
+  Syneos Health:
+    workday_url: "https://syneoshealth.wd12.myworkdayjobs.com/Syneos_Health_External_Site"
+    industry: life_sciences
+    priority: 3
+
+  # ── Semiconductor (additional — verified 2026-05-07) ───────────────────────
+  Qualcomm:
+    workday_url: "https://qualcomm.wd12.myworkdayjobs.com/en-US/External"
+    industry: semiconductor
+    priority: 2
+
+  # ── Telecom / media (verified 2026-05-07 via agent sweep) ──────────────────
+  "AT&T":
+    workday_url: "https://att.wd1.myworkdayjobs.com/en-US/ATTGeneral"
+    industry: telecom
+    priority: 2
+  Verizon Communications:
+    workday_url: "https://verizon.wd12.myworkdayjobs.com/verizon-careers"
+    industry: telecom
+    priority: 2
+  Comcast:
+    workday_url: "https://comcast.wd5.myworkdayjobs.com/Comcast_Careers"
+    industry: telecom
+    priority: 2
+  Walt Disney Company:
+    workday_url: "https://disney.wd5.myworkdayjobs.com/disneycareer"
+    industry: media
+    priority: 2
+
+  # ── AEC / civil engineering (verified 2026-05-07 via agent sweep) ──────────
+  Gensler:
+    workday_url: "https://gensler.wd1.myworkdayjobs.com/en-US/genslercareers"
+    industry: civil_engineering
+    priority: 3
+  ICF International:
+    workday_url: "https://icf.wd5.myworkdayjobs.com/ICFExternal_Career_Site"
+    industry: civil_engineering
+    priority: 3
+  HNTB Corporation:
+    workday_url: "https://hntb.wd5.myworkdayjobs.com/en-US/HNTB_Careers"
+    industry: civil_engineering
+    priority: 3
+
+  # ── Supply chain / logistics (verified 2026-05-07 via agent sweep) ──────────
+  UPS:
+    workday_url: "https://hcmportal.wd5.myworkdayjobs.com/en-US/Search"
+    industry: logistics
+    priority: 2
+  FedEx Corporation:
+    workday_url: "https://fedex.wd1.myworkdayjobs.com/en-US/FXE-EU_External"  # VERIFY: may be EU portal
+    industry: logistics
+    priority: 2
+  "C.H. Robinson Worldwide":
+    workday_url: "https://chrobinson.wd5.myworkdayjobs.com/CHRobinson"
+    industry: logistics
+    priority: 2
+  "J.B. Hunt Transport Services":
+    workday_url: "https://jbhunt.wd501.myworkdayjobs.com/Careers"
+    industry: logistics
+    priority: 3
+  Ryder System:
+    workday_url: "https://ryder.wd5.myworkdayjobs.com/en-US/RyderCareers"
+    industry: logistics
+    priority: 3
+  Werner Enterprises:
+    workday_url: "https://werner.wd1.myworkdayjobs.com/en-US/Werner"
+    industry: logistics
+    priority: 3
+  Sysco Corporation:
+    workday_url: "https://sysco.wd5.myworkdayjobs.com/syscocareers"
+    industry: logistics
+    priority: 2
+  US Foods:
+    workday_url: "https://usfoods.wd1.myworkdayjobs.com/usfoodscareersExternal"
+    industry: logistics
+    priority: 3
+  Manhattan Associates:
+    workday_url: "https://manh.wd5.myworkdayjobs.com/External"
+    industry: logistics
+    priority: 2
+  Blue Yonder:
+    workday_url: "https://jda.wd5.myworkdayjobs.com/JDA_Careers"
+    industry: logistics
+    priority: 2
+
 
 # ── iCIMS companies (verified 2026-05-05 via 5-agent parallel sweep) ────────
 # Subdomain is stored verbatim; fetcher prepends https://.
@@ -492,6 +814,62 @@ icims_companies:
     icims_subdomain: "uscareers-nyu.icims.com"
     industry: higher_ed
     priority: 4
+
+  # ── CPG / beverages (verified 2026-05-07 via agent sweep) ──────────────────
+  PepsiCo:
+    icims_subdomain: "uscareers-pepsico.icims.com"
+    industry: consumer_goods
+    priority: 2
+  Keurig Dr Pepper:
+    icims_subdomain: "uscareers-keurigdrpepper.icims.com"
+    industry: consumer_goods
+    priority: 3
+
+  # ── Real estate (verified 2026-05-07) ──────────────────────────────────────
+  Hines Interests:
+    icims_subdomain: "careers-hines.icims.com"
+    industry: real_estate
+    priority: 3
+
+  # ── Chemical / materials (verified 2026-05-07) ─────────────────────────────
+  Celanese Corporation:
+    icims_subdomain: "career-celanese.icims.com"
+    industry: chemical
+    priority: 3
+
+  # ── Life sciences (verified 2026-05-07) ────────────────────────────────────
+  Waters Corporation:
+    icims_subdomain: "uscareers-waters.icims.com"
+    industry: life_sciences
+    priority: 3
+
+  # ── Semiconductor (verified 2026-05-07) ────────────────────────────────────
+  Lattice Semiconductor:
+    icims_subdomain: "careers-latticesemi.icims.com"
+    industry: semiconductor
+    priority: 2
+
+  # ── AEC / construction (verified 2026-05-07 via agent sweep) ───────────────
+  Turner Construction:
+    icims_subdomain: "careers-wforce.icims.com"
+    industry: civil_engineering
+    priority: 2
+  Skanska USA:
+    icims_subdomain: "careers-skanska.icims.com"
+    industry: civil_engineering
+    priority: 2
+  Gilbane Building Company:
+    icims_subdomain: "careers-gilbaneco.icims.com"
+    industry: civil_engineering
+    priority: 3
+  Suffolk Construction:
+    icims_subdomain: "careers-suffolkconstruction.icims.com"
+    industry: civil_engineering
+    priority: 3
+  Woolpert:
+    icims_subdomain: "careers-woolpert.icims.com"
+    industry: civil_engineering
+    priority: 3
 
 
 # ── Taleo Enterprise ATS companies (verified 2026-05-05) ────────────────────
@@ -751,6 +1129,24 @@ taleo_companies:
     career_section: ngc_coll
     portal_id: null
 
+  # ── AEC / civil engineering (verified 2026-05-07 via agent sweep) ──────────
+  Stantec USA:
+    tenant_id: stantec
+    career_section: ex
+    portal_id: null
+  Tetra Tech:
+    tenant_id: tetratech
+    career_section: "2"
+    portal_id: null
+  HDR Engineering:
+    tenant_id: hdr
+    career_section: ex
+    portal_id: null
+  Michael Baker International:
+    tenant_id: mbakerintl
+    career_section: mb_external
+    portal_id: null
+
 
 job_boards:
   Indeed:
@@ -780,11 +1176,11 @@ job_boards:
 
 
 # ── Lever ATS companies (free public API, no auth) ──────────────────
-lever_companies: {}
-  # Example:
-  # Netflix:
-  #   lever_id: "netflix"
-  #   priority: 1
+lever_companies:
+  # ── Supply chain software (verified 2026-05-07 via agent sweep) ────────────
+  Coupa Software:
+    lever_id: "coupa"
+    priority: 3
 
 
 # ── Ashby ATS companies (free public API, no auth) ──────────────────
@@ -803,7 +1199,7 @@ github_repos:
     json_path: .github/scripts/listings.json
     enabled: true
     categories:
-      - "Hardware"
+      - "Software"
 
 
 # ── Direct LinkedIn scraping (guest API, no auth) ───────────────────
