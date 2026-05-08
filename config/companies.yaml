@@ -5,108 +5,134 @@ greenhouse_companies:
   # Top Priority - High-profile tech companies
   Stripe:
     greenhouse_id: "stripe"
+    industry: software_tech
     priority: 1
 
   Plaid:
     greenhouse_id: "plaid"
+    industry: software_tech
     priority: 1
 
   Cloudflare:
     greenhouse_id: "cloudflare"
+    industry: software_tech
     priority: 1
 
   # Priority 2 - Strong tech companies
   Databricks:
     greenhouse_id: "databricks"
+    industry: software_tech
     priority: 2
 
   Snowflake:
     greenhouse_id: "snowflakecomputing"
+    industry: software_tech
     priority: 2
 
   Datadog:
     greenhouse_id: "datadog"
+    industry: software_tech
     priority: 2
 
   MongoDB:
     greenhouse_id: "mongodb"
+    industry: software_tech
     priority: 2
 
   Confluent:
     greenhouse_id: "confluent"
+    industry: software_tech
     priority: 2
 
   # Priority 3 - Solid companies
   HashiCorp:
     greenhouse_id: "hashicorp"
+    industry: software_tech
     priority: 3
 
   Vercel:
     greenhouse_id: "vercel"
+    industry: software_tech
     priority: 3
 
   Figma:
     greenhouse_id: "figma"
+    industry: software_tech
     priority: 3
 
   Notion:
     greenhouse_id: "notion"
+    industry: software_tech
     priority: 3
 
   Linear:
     greenhouse_id: "linear"
+    industry: software_tech
     priority: 3
 
   Ramp:
     greenhouse_id: "ramp"
+    industry: software_tech
     priority: 3
 
   Retool:
     greenhouse_id: "retool"
+    industry: software_tech
     priority: 3
 
   Supabase:
     greenhouse_id: "supabase"
+    industry: software_tech
     priority: 3
 
   Palantir:
     greenhouse_id: "palantir"
+    industry: software_tech
     priority: 3
 
   Rippling:
     greenhouse_id: "rippling"
+    industry: software_tech
     priority: 3
 
   Scale AI:
     greenhouse_id: "scaleai"
+    industry: software_tech
     priority: 2
 
   Anthropic:
     greenhouse_id: "anthropic"
+    industry: software_tech
     priority: 1
 
   OpenAI:
     greenhouse_id: "openai"
+    industry: software_tech
     priority: 1
 
   Cohere:
     greenhouse_id: "cohere"
+    industry: software_tech
     priority: 2
 
   # ── Automotive EV (verified 2026-05-07 via agent sweep) ──────────────────
   Rivian Automotive:
     greenhouse_id: "rivian"
+    industry: software_tech
     priority: 2
   Lucid Motors:
     greenhouse_id: "lucidmotors"
+    industry: software_tech
     priority: 2
 
   # ── Supply chain software (verified 2026-05-07 via agent sweep) ────────────
   Kinaxis:
     greenhouse_id: "kinaxis"
+    industry: software_tech
     priority: 3
   E2open:
     greenhouse_id: "e2openllc"
+    industry: software_tech
     priority: 3
 
 
@@ -884,268 +910,332 @@ taleo_companies:
     tenant_id: jnjc
     career_section: iam
     portal_id: null
+    industry: medical_devices
   Abbott Laboratories:
     tenant_id: abbott
     career_section: "2"
     portal_id: null
+    industry: medical_devices
   Medtronic:
     tenant_id: medtronic
     career_section: "2"
     portal_id: null
+    industry: medical_devices
   Baxter International:
     tenant_id: baxter
     career_section: "2"
     portal_id: null
+    industry: medical_devices
   Edwards Lifesciences:
     tenant_id: edwards
     career_section: edwards_external_cs
     portal_id: null
+    industry: medical_devices
   HCA Healthcare (Taleo):
     tenant_id: hca
     career_section: 0hca
     portal_id: null
+    industry: healthcare
   Tenet Healthcare:
     tenant_id: tenet
     career_section: 10100mb
     portal_id: null
+    industry: healthcare
   Merck (Taleo):
     tenant_id: merck
     career_section: internal_msd_10880
     portal_id: null
+    industry: pharma_biotech
   AbbVie:
     tenant_id: abbvie
     career_section: "5"
     portal_id: null
+    industry: pharma_biotech
   "Bristol Myers Squibb":
     tenant_id: bms
     career_section: "ejs+external+career+site+w2fprofile+ques+v20090518"
     portal_id: null
+    industry: pharma_biotech
 
   # ── Financial / Insurance (verified 2026-05-05) ───────────────────────────
   Morgan Stanley (Taleo):
     tenant_id: ms
     career_section: "2"
     portal_id: null
+    industry: finance_banking
   Citigroup (Taleo):
     tenant_id: citi
     career_section: "2"
     portal_id: null
+    industry: finance_banking
   US Bancorp:
     tenant_id: usbank
     career_section: "10000"
     portal_id: null
+    industry: finance_banking
   "Prudential Financial":
     tenant_id: pru
     career_section: pru_campus_core
     portal_id: null
+    industry: insurance
   "Aetna (CVS Health)":
     tenant_id: acthealth
     career_section: external
     portal_id: null
+    industry: healthcare
   Cigna (Taleo):
     tenant_id: cigna
     career_section: cg_external
     portal_id: null
+    industry: healthcare
   Humana (Taleo):
     tenant_id: humana
     career_section: externalus
     portal_id: null
+    industry: healthcare
   "Anthem (Elevance Health)":
     tenant_id: antheminc
     career_section: "10021"
     portal_id: null
+    industry: healthcare
   Hartford Financial:
     tenant_id: thehartford
     career_section: "2"
     portal_id: null
+    industry: insurance
   "JPMorgan Chase (Taleo)":
     tenant_id: jpmchase
     career_section: "10140"
     portal_id: null
+    industry: finance_banking
 
   # ── Manufacturing / Industrial (verified 2026-05-05) ──────────────────────
   Emerson Electric (Taleo):
     tenant_id: emerson
     career_section: ex
     portal_id: null
+    industry: manufacturing_automotive
   Eaton Corporation:
     tenant_id: eaton
     career_section: ex
     portal_id: null
+    industry: manufacturing_automotive
   Textron:
     tenant_id: textron
     career_section: textron
     portal_id: null
+    industry: government_contractors
   Rexnord:
     tenant_id: rexnord
     career_section: "2"
     portal_id: null
+    industry: manufacturing_automotive
   Curtiss-Wright:
     tenant_id: cwt
     career_section: ex
     portal_id: null
+    industry: government_contractors
   TransDigm Group:
     tenant_id: tgh
     career_section: ex
     portal_id: null
+    industry: government_contractors
   Heico Corporation:
     tenant_id: hccs
     career_section: "6"
     portal_id: null
+    industry: government_contractors
   "Moog Inc (External)":
     tenant_id: moogrecruit
     career_section: ex
     portal_id: null
+    industry: government_contractors
   "Moog Inc (Internal)":
     tenant_id: moogrecruit
     career_section: in
     portal_id: null
+    industry: government_contractors
 
   # ── Energy / Chemicals (verified 2026-05-05) ──────────────────────────────
   ConocoPhillips (Taleo):
     tenant_id: cop
     career_section: "10000"
     portal_id: null
+    industry: energy
   Dow Chemical:
     tenant_id: dow
     career_section: "2"
     portal_id: null
+    industry: chemical
   BASF US:
     tenant_id: basf
     career_section: "2"
     portal_id: null
+    industry: chemical
   "Linde (via Praxair)":
     tenant_id: praxair
     career_section: "2"
     portal_id: null
+    industry: energy
   DCP Midstream:
     tenant_id: dcpmidstream
     career_section: ex
     portal_id: null
+    industry: energy
   Baker Hughes:
     tenant_id: bakerhughes
     career_section: bhiexternal
     portal_id: null
+    industry: energy
   BP US:
     tenant_id: bt
     career_section: external
     portal_id: null
+    industry: energy
 
   # ── Retail / Tech / Telecom / Government (verified 2026-05-05) ───────────
   "AT&T (Main)":
     tenant_id: att
     career_section: "10161"
     portal_id: null
+    industry: telecom
   "AT&T (Secondary)":
     tenant_id: att
     career_section: "10168"
     portal_id: null
+    industry: telecom
   T-Mobile:
     tenant_id: tmm
     career_section: "10020"
     portal_id: null
+    industry: telecom
   Charter Communications:
     tenant_id: charter
     career_section: charter_external_career_site
     portal_id: null
+    industry: telecom
   Oracle (Taleo):
     tenant_id: oracle
     career_section: "2"
     portal_id: null
+    industry: software_tech
   "Leidos (External)":
     tenant_id: leidos
     career_section: 1leidos_ext
     portal_id: null
+    industry: government_contractors
   "Leidos (Security)":
     tenant_id: leidos
     career_section: 3leidos_sec
     portal_id: null
+    industry: government_contractors
   SAIC:
     tenant_id: saicjobs
     career_section: ex
     portal_id: null
+    industry: government_contractors
   "SAIC (Security)":
     tenant_id: saicjobs
     career_section: 3saic_sec
     portal_id: null
+    industry: government_contractors
   "CACI International (Taleo)":
     tenant_id: caci
     career_section: "2"
     portal_id: null
+    industry: government_contractors
   DXC Technology:
     tenant_id: dxc
     career_section: "2"
     portal_id: null
+    industry: software_tech
   Target HQ:
     tenant_id: target
     career_section: tgt_hq
     portal_id: null
+    industry: retail_hq
   "Target (Graduate)":
     tenant_id: target
     career_section: tgt_hq_grad
     portal_id: null
+    industry: retail_hq
   Cintas:
     tenant_id: cintas
     career_section: "10000"
     portal_id: null
+    industry: manufacturing_automotive
   "ADT Security (External)":
     tenant_id: adt
     career_section: external
     portal_id: null
+    industry: consumer_goods
   "ADT Security (Mobile)":
     tenant_id: adt
     career_section: exmobile
     portal_id: null
+    industry: consumer_goods
   Jacobs Engineering:
     tenant_id: jacobs
     career_section: ex
     portal_id: null
+    industry: civil_engineering
   KBR (Taleo):
     tenant_id: kbr
     career_section: "6"
     portal_id: null
+    industry: government_contractors
   Parsons Corporation (Taleo):
     tenant_id: parsons
     career_section: TCN
     portal_id: null
+    industry: civil_engineering
   "Burns & McDonnell (External)":
     tenant_id: burnsmcdonn
     career_section: external
     portal_id: null
+    industry: civil_engineering
   "Burns & McDonnell (Campus)":
     tenant_id: burnsmcdonn
     career_section: campus
     portal_id: null
+    industry: civil_engineering
   "Booz Allen Hamilton (Taleo)":
     tenant_id: bah
     career_section: "10020"
     portal_id: null
+    industry: government_contractors
   "Northrop Grumman (Professional)":
     tenant_id: ngc
     career_section: ngc_pro
     portal_id: null
+    industry: government_contractors
   "Northrop Grumman (Campus)":
     tenant_id: ngc
     career_section: ngc_coll
     portal_id: null
+    industry: government_contractors
 
   # ── AEC / civil engineering (verified 2026-05-07 via agent sweep) ──────────
   Stantec USA:
     tenant_id: stantec
     career_section: ex
     portal_id: null
+    industry: civil_engineering
   Tetra Tech:
     tenant_id: tetratech
     career_section: "2"
     portal_id: null
+    industry: civil_engineering
   HDR Engineering:
     tenant_id: hdr
     career_section: ex
     portal_id: null
+    industry: civil_engineering
   Michael Baker International:
     tenant_id: mbakerintl
     career_section: mb_external
     portal_id: null
+    industry: civil_engineering
 
 
 job_boards:
@@ -1180,6 +1270,7 @@ lever_companies:
   # ── Supply chain software (verified 2026-05-07 via agent sweep) ────────────
   Coupa Software:
     lever_id: "coupa"
+    industry: software_tech
     priority: 3
 
 
