@@ -1,0 +1,234 @@
+/**
+ * @packageDocumentation
+ *
+ * Pure helpers that turn onboarding draft slices into YAML strings.
+ *
+ * @remarks
+ * Every function in this module is pure — no fetch, no DOM, no React. The
+ * helpers cover three concerns:
+ *
+ * - escaping user input safely into YAML scalars and mapping keys;
+ * - deriving title/domain regexes from the candidate's free-form target
+ *   roles;
+ * - assembling the `filters.yaml` and `github_repos:` blocks consumed by
+ *   the backend.
+ */
+
+import {
+  HARDWARE_ROLE_KEYWORDS,
+  PM_ROLE_KEYWORDS,
+  QUANT_ROLE_KEYWORDS,
+  SOFTWARE_ROLE_KEYWORDS,
+} from "./role-keywords";
+import { deriveRequireTitlePatterns, extractDomainKeywords } from "./title-patterns";
+import type { FiltersDraft, RolesDraft } from "./types";
+
+// Re-export so older imports continue to work via this module path.
+export {
+  HARDWARE_ROLE_KEYWORDS,
+  PM_ROLE_KEYWORDS,
+  QUANT_ROLE_KEYWORDS,
+  SOFTWARE_ROLE_KEYWORDS,
+  deriveRequireTitlePatterns,
+  extractDomainKeywords,
+};
+
+/**
+ * Escape a string so it is safe to embed inside a YAML double-quoted scalar.
+ *
+ * @remarks
+ * YAML double-quoted scalars treat `\` as an escape introducer and `"` as the
+ * scalar terminator. Both characters must be backslash-escaped before
+ * interpolation, otherwise a value like `Acme "Quoted" Co` would emit
+ * `"Acme "Quoted" Co"` and break the YAML parser. See
+ * https://yaml.org/spec/1.2.2/#73-flow-scalar-styles for the full grammar.
+ *
+ * @param value - The raw user-supplied string to escape.
+ * @returns The escaped string, ready to be wrapped in `"..."`.
+ */
+export function escapeYamlDoubleQuoted(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * Wrap a value in a double-quoted YAML scalar with all unsafe characters escaped.
+ *
+ * @param value - The raw value to embed.
+ * @returns A complete YAML scalar token (including the surrounding quotes).
+ */
+export function toYamlDoubleQuoted(value: string): string {
+  return `"${escapeYamlDoubleQuoted(value)}"`;
+}
+
+/**
+ * Render a company name as a YAML mapping key safe for the
+ * `greenhouse_companies` block.
+ *
+ * @remarks
+ * Plain (unquoted) YAML keys may contain letters, digits, spaces, hyphens,
+ * dots, ampersands, and parentheses without ambiguity. Anything outside
+ * that set — colons, hashes, brackets, quotes — gets the full
+ * double-quoted treatment so the file remains parseable.
+ *
+ * @param name - The display name typed by the user.
+ * @returns The name formatted as a YAML mapping key.
+ */
+export function escapeYamlMappingKey(name: string): string {
+  const isPlainKeySafe = /^[A-Za-z0-9][A-Za-z0-9 .&()_-]*$/.test(name);
+  if (isPlainKeySafe) {
+    return name;
+  }
+  return toYamlDoubleQuoted(name);
+}
+
+/**
+ * Split multiline text into a trimmed string array, filtering out blanks.
+ *
+ * @param text - Raw multiline text.
+ * @returns Array of non-empty trimmed lines.
+ */
+export function splitLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+/**
+ * Serialize the onboarding filters draft and domain keywords to a filters.yaml string.
+ *
+ * @remarks
+ * Writes both `hard_filters` (title/company/salary exclusions) and `soft_filters`
+ * (domain-specific auto-qualification and generic negative signals). The
+ * `positive_keywords` under `soft_filters` come from the user's `strongestAreas`
+ * so that jobs mentioning any of those skills are auto-qualified without needing
+ * the gate agent. The `require_title_patterns` come from {@link deriveRequireTitlePatterns}
+ * so role-irrelevant postings (e.g., senior or director-level jobs for an intern
+ * candidate) are rejected before they enter the database. All user-supplied
+ * strings pass through {@link escapeYamlDoubleQuoted} so that quote and backslash
+ * characters in company names or title patterns cannot produce malformed YAML.
+ *
+ * @param draft - The filters draft state from the onboarding wizard.
+ * @param roles - The roles draft; `strongestAreas` becomes `soft_filters.positive_keywords`
+ *   and `targetRoles` drives `hard_filters.require_title_patterns`.
+ * @returns YAML string ready to write to filters.yaml.
+ */
+export function buildFiltersYaml(draft: FiltersDraft, roles: RolesDraft): string {
+  const minSalary = parseInt(draft.minSalary, 10) || 0;
+  const maxSalary = parseInt(draft.maxSalary, 10) || 0;
+  const excludeTitles = draft.excludeTitlePatterns
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((pattern) => `(?i)${pattern}`);
+  const excludeCompanies = draft.excludeCompanies
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const domainKeywords = splitLines(roles.strongestAreas);
+  const requireTitlePatterns = deriveRequireTitlePatterns(roles.targetRoles);
+
+  const lines: string[] = [
+    "hard_filters:",
+    `  min_salary_usd: ${minSalary}`,
+    `  max_salary_usd: ${maxSalary}`,
+    `  require_remote: ${draft.requireRemote}`,
+    "  exclude_companies:",
+    ...excludeCompanies.map((company) => `    - ${toYamlDoubleQuoted(company)}`),
+    "  exclude_title_patterns:",
+    ...excludeTitles.map((pattern) => `    - ${toYamlDoubleQuoted(pattern)}`),
+    "  exclude_job_types: []",
+    requireTitlePatterns.length === 0
+      ? "  require_title_patterns: []"
+      : "  require_title_patterns:",
+    ...requireTitlePatterns.map((pattern) => `    - ${toYamlDoubleQuoted(pattern)}`),
+    "  exclude_locations: []",
+    "  max_days_old: 30",
+    "soft_filters:",
+    "  positive_keywords:",
+    ...domainKeywords.map((keyword) => `    - ${toYamlDoubleQuoted(keyword)}`),
+    "  negative_keywords:",
+    '    - "clearance required"',
+    '    - "security clearance"',
+    '    - "5+ years"',
+    '    - "7+ years"',
+    '    - "help desk"',
+    '    - "it support"',
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Detect which SimplifyJobs categories apply to the user's target roles.
+ *
+ * @remarks
+ * Performs a case-insensitive keyword scan across all role strings. When no
+ * known keywords match (e.g. mechanical, civil, biomedical), an empty array is
+ * returned so the caller omits the `categories:` field entirely, letting all
+ * SimplifyJobs listings through rather than returning zero results.
+ *
+ * @param targetRoles - Role strings entered by the user (one per element).
+ * @returns A subset of `["Software", "Hardware", "PM", "Quant"]` that matches
+ *   the detected domain, or `[]` when the domain is unrecognised.
+ *
+ * @example
+ * ```ts
+ * detectSimplifyCategories(["Electrical Engineering Intern"]);
+ * // → ["Hardware"]
+ *
+ * detectSimplifyCategories(["Software Engineering Intern", "ML Engineer"]);
+ * // → ["Software"]
+ *
+ * detectSimplifyCategories(["Mechanical Engineering Intern"]);
+ * // → []  (all categories pass through)
+ * ```
+ */
+export function detectSimplifyCategories(targetRoles: string[]): string[] {
+  const combined = targetRoles.join(" ").toLowerCase();
+  const hasKeyword = (keywords: readonly string[]): boolean =>
+    keywords.some((kw) => combined.includes(kw));
+
+  const detected: string[] = [];
+  if (hasKeyword(SOFTWARE_ROLE_KEYWORDS)) detected.push("Software");
+  if (hasKeyword(HARDWARE_ROLE_KEYWORDS)) detected.push("Hardware");
+  if (hasKeyword(PM_ROLE_KEYWORDS)) detected.push("PM");
+  if (hasKeyword(QUANT_ROLE_KEYWORDS)) detected.push("Quant");
+  return detected;
+}
+
+/**
+ * Build the `github_repos:` YAML block for the SimplifyJobs internship source.
+ *
+ * @remarks
+ * When `categories` is empty, the `categories:` field is omitted entirely so
+ * that the GitHubRepoFetcher receives `null` (no filter) and returns
+ * all listings. When `categories` is non-empty, only matching listings pass.
+ *
+ * @param categories - SimplifyJobs category strings to include, or `[]` for all.
+ * @returns A YAML string fragment starting with `github_repos:\n`.
+ *
+ * @example
+ * ```ts
+ * buildGithubReposBlock([]);
+ * // → "github_repos:\n  - owner: SimplifyJobs\n    ..."  (no categories line)
+ *
+ * buildGithubReposBlock(["Hardware"]);
+ * // → "github_repos:\n  - owner: SimplifyJobs\n    ...\n    categories:\n      - \"Hardware\"\n"
+ * ```
+ */
+export function buildGithubReposBlock(categories: string[]): string {
+  const categoriesYaml =
+    categories.length === 0
+      ? ""
+      : `    categories:\n${categories.map((c) => `      - "${c}"`).join("\n")}\n`;
+  return (
+    `github_repos:\n` +
+    `  - owner: SimplifyJobs\n` +
+    `    repo: Summer2026-Internships\n` +
+    `    branch: dev\n` +
+    `    json_path: .github/scripts/listings.json\n` +
+    `    enabled: true\n` +
+    categoriesYaml
+  );
+}
