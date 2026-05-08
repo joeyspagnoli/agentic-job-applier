@@ -264,6 +264,7 @@ async def test_main_loop_continues_after_process_cycle_exception(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "jobs.db"
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
         monkeypatch.setattr(process_new_jobs, "load_dotenv", lambda: None)
         monkeypatch.setattr(
             argparse.ArgumentParser,
@@ -336,6 +337,7 @@ async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatc
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "jobs.db"
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
         monkeypatch.setattr(process_new_jobs, "load_dotenv", lambda: None)
         monkeypatch.setattr(
             argparse.ArgumentParser,

@@ -81,7 +81,11 @@ def test_renderer_skips_disabled_listings(tmp_path: Path) -> None:
         Returns `None`; test passes when disabled title is absent from output.
     """
 
-    source_yaml_path = Path("config/resume_content.yaml").resolve()
+    source_yaml_path = (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "resume_content_populated.yaml"
+    )
     working_yaml_path = tmp_path / "resume_content.yaml"
     working_tex_path = tmp_path / "resume.tex"
 
@@ -114,7 +118,11 @@ def test_locked_section_snapshot_rejects_education_mutation(tmp_path: Path) -> N
         Returns `None`; test passes when lock check raises ValueError.
     """
 
-    source_yaml_path = Path("config/resume_content.yaml").resolve()
+    source_yaml_path = (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "resume_content_populated.yaml"
+    )
     working_yaml_path = tmp_path / "resume_content.yaml"
 
     baseline_resume = load_resume_yaml(source_yaml_path)
