@@ -13,6 +13,7 @@ import type { JSX } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { CommandBar, useCommandBar } from "@/components/CommandBar";
+import { MissingKeyBanner } from "@/components/MissingKeyBanner";
 import { OnboardingGate } from "@/components/OnboardingGate";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { FailuresPage } from "@/pages/FailuresPage";
@@ -33,6 +34,7 @@ export default function App(): JSX.Element {
   return (
     <BrowserRouter>
       <CommandBar open={open} onClose={() => setOpen(false)} />
+      <MissingKeyBanner />
       <Routes>
         <Route path="onboarding" element={<OnboardingPage />} />
         <Route

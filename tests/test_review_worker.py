@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
@@ -331,3 +332,102 @@ async def test_mark_stale_review_runs_failed_recovers_claimability(
     reclaimed = await db.claim_next_review_job(max_retries=2)
     assert reclaimed is not None
     assert reclaimed["tailor_run_id"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Test: missing OPENAI_API_KEY in one-shot mode logs warning and returns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_one_shot_returns_cleanly_when_openai_api_key_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify review main() exits cleanly when OPENAI_API_KEY is missing.
+
+    Purpose:
+        Mirror the gate worker's idle pattern: when the API key is unset and
+        no `--loop` flag is present, main() must log a review-specific warning
+        and return without raising or invoking the CLI parser.
+    """
+
+    import scripts.process_reviewed_resumes as mod
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(mod, "load_dotenv", lambda: None)
+    monkeypatch.setattr(mod.sys, "argv", ["process_reviewed_resumes"])
+
+    parser_mock = MagicMock()
+    parser_mock.side_effect = AssertionError(
+        "ArgumentParser must not run when OPENAI_API_KEY is missing"
+    )
+    monkeypatch.setattr(mod.argparse, "ArgumentParser", parser_mock)
+
+    captured_messages: list[str] = []
+    sink_id = mod.logger.add(
+        lambda msg: captured_messages.append(str(msg)), level="WARNING"
+    )
+
+    try:
+        result = await mod.main()
+    finally:
+        mod.logger.remove(sink_id)
+
+    assert result is None
+    assert any("review worker is disabled" in msg for msg in captured_messages)
+
+
+# ---------------------------------------------------------------------------
+# Test: missing OPENAI_API_KEY in --loop mode sleeps instead of crashing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_loop_sleeps_when_openai_api_key_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify review main() in --loop mode idles when OPENAI_API_KEY is missing.
+
+    Purpose:
+        Confirm the worker enters the idle sleep loop (sleep(3600)) and never
+        reaches DB or CLI parsing, so successful tailor runs sit unreviewed
+        instead of crashing through retries to TERMINAL_FAILED.
+    """
+
+    import scripts.process_reviewed_resumes as mod
+
+    class _StopLoop(Exception):
+        """Sentinel raised from fake sleep to break the infinite idle loop."""
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        """Record sleep duration and raise sentinel to break the idle loop."""
+
+        sleep_calls.append(seconds)
+        raise _StopLoop
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(mod, "load_dotenv", lambda: None)
+    monkeypatch.setattr(mod.sys, "argv", ["process_reviewed_resumes", "--loop"])
+    monkeypatch.setattr(mod.asyncio, "sleep", fake_sleep)
+
+    parser_mock = MagicMock()
+    parser_mock.side_effect = AssertionError(
+        "ArgumentParser must not run when OPENAI_API_KEY is missing"
+    )
+    monkeypatch.setattr(mod.argparse, "ArgumentParser", parser_mock)
+
+    captured_messages: list[str] = []
+    sink_id = mod.logger.add(
+        lambda msg: captured_messages.append(str(msg)), level="WARNING"
+    )
+
+    try:
+        with pytest.raises(_StopLoop):
+            await mod.main()
+    finally:
+        mod.logger.remove(sink_id)
+
+    assert sleep_calls == [3600]
+    assert any("review worker is disabled" in msg for msg in captured_messages)

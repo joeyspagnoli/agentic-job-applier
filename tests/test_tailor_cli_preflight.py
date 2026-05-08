@@ -240,3 +240,102 @@ def test_invalid_tailor_max_retries_falls_back_to_default() -> None:
         result = _load_int_env("TAILOR_MAX_RETRIES", default_value=2)
 
     assert result == 2
+
+
+# ---------------------------------------------------------------------------
+# Test: missing OPENAI_API_KEY in one-shot mode logs warning and returns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_one_shot_returns_cleanly_when_openai_api_key_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify tailor main() exits cleanly when OPENAI_API_KEY is missing.
+
+    Purpose:
+        Mirror the gate worker's idle pattern: when the API key is unset and
+        no `--loop` flag is present, main() must log a tailor-specific
+        warning and return without raising or invoking the CLI parser.
+    """
+
+    import scripts.process_qualified_jobs as mod
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(mod, "load_dotenv", lambda: None)
+    monkeypatch.setattr(mod.sys, "argv", ["process_qualified_jobs"])
+
+    parser_mock = MagicMock()
+    parser_mock.side_effect = AssertionError(
+        "ArgumentParser must not run when OPENAI_API_KEY is missing"
+    )
+    monkeypatch.setattr(mod.argparse, "ArgumentParser", parser_mock)
+
+    captured_messages: list[str] = []
+    sink_id = mod.logger.add(
+        lambda msg: captured_messages.append(str(msg)), level="WARNING"
+    )
+
+    try:
+        result = await mod.main()
+    finally:
+        mod.logger.remove(sink_id)
+
+    assert result is None
+    assert any("tailor worker is disabled" in msg for msg in captured_messages)
+
+
+# ---------------------------------------------------------------------------
+# Test: missing OPENAI_API_KEY in --loop mode sleeps instead of crashing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_loop_sleeps_when_openai_api_key_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify tailor main() in --loop mode idles when OPENAI_API_KEY is missing.
+
+    Purpose:
+        Confirm the worker enters the idle sleep loop (sleep(3600)) and never
+        reaches DB or CLI parsing, so claimed jobs cannot be driven into
+        TERMINAL_FAILED by repeated subprocess crashes.
+    """
+
+    import scripts.process_qualified_jobs as mod
+
+    class _StopLoop(Exception):
+        """Sentinel raised from fake sleep to break the infinite idle loop."""
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        """Record sleep duration and raise sentinel to break the idle loop."""
+
+        sleep_calls.append(seconds)
+        raise _StopLoop
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(mod, "load_dotenv", lambda: None)
+    monkeypatch.setattr(mod.sys, "argv", ["process_qualified_jobs", "--loop"])
+    monkeypatch.setattr(mod.asyncio, "sleep", fake_sleep)
+
+    parser_mock = MagicMock()
+    parser_mock.side_effect = AssertionError(
+        "ArgumentParser must not run when OPENAI_API_KEY is missing"
+    )
+    monkeypatch.setattr(mod.argparse, "ArgumentParser", parser_mock)
+
+    captured_messages: list[str] = []
+    sink_id = mod.logger.add(
+        lambda msg: captured_messages.append(str(msg)), level="WARNING"
+    )
+
+    try:
+        with pytest.raises(_StopLoop):
+            await mod.main()
+    finally:
+        mod.logger.remove(sink_id)
+
+    assert sleep_calls == [3600]
+    assert any("tailor worker is disabled" in msg for msg in captured_messages)
