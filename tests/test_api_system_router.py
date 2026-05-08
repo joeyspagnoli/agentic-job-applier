@@ -103,3 +103,39 @@ def test_system_health_treats_blank_openai_key_as_unset(
     assert response.status_code == 200
     payload = response.json()
     assert payload["openai_key_configured"] is False
+
+
+@pytest.mark.parametrize(
+    "placeholder_value",
+    [
+        "your_openai_api_key_here",
+        "your_anthropic_key_here",
+        "your_google_api_key_here",
+    ],
+)
+def test_system_health_treats_placeholder_openai_key_as_unset(
+    health_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    placeholder_value: str,
+) -> None:
+    """Verify .env.example placeholder strings are treated as missing.
+
+    Purpose:
+        Users who copy `.env.example` to `.env` without editing leave a
+        sentinel value in the env var. The banner must still fire so they
+        know they have not actually configured anything yet.
+    Args:
+        health_client: Test client fixture for the FastAPI app.
+        monkeypatch: Fixture used to set the env var to a placeholder.
+        placeholder_value: One of the known sentinel strings.
+    Output:
+        Returns `None`; assertion failure surfaces a contract regression.
+    """
+
+    monkeypatch.setenv("OPENAI_API_KEY", placeholder_value)
+
+    response = health_client.get("/api/system/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["openai_key_configured"] is False
