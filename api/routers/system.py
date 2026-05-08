@@ -1,8 +1,12 @@
-"""System lifecycle router (stop, restart, fetch-jobs)."""
+"""System lifecycle router (stop, restart, fetch-jobs, health)."""
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter
+from pydantic import BaseModel
+from pydantic import Field
 
 from api.config import SYSTEM_ACTION_FETCH_JOBS
 from api.config import SYSTEM_ACTION_RESTART
@@ -11,6 +15,68 @@ from api.config import SYSTEM_ACTION_STOP
 from api.errors import _raise_api_error
 
 router = APIRouter(prefix="/api/system", tags=["system"])
+
+
+class SystemHealthResponse(BaseModel):
+    """Response payload for `GET /api/system/health`.
+
+    Purpose:
+        Surface lightweight runtime configuration signals that the dashboard
+        can use to render banners and disable broken actions when the
+        environment is mis-configured.
+    """
+
+    ok: bool = Field(
+        default=True,
+        description="True when the API process is running and able to answer.",
+    )
+    openai_key_configured: bool = Field(
+        ...,
+        description=(
+            "True when the `OPENAI_API_KEY` environment variable is non-empty. "
+            "When false, the gate, tailor, and review workers idle and the "
+            "dashboard renders a missing-key banner."
+        ),
+    )
+
+
+def _is_openai_key_configured() -> bool:
+    """Return True when `OPENAI_API_KEY` is set and non-empty.
+
+    Purpose:
+        Centralize the "is the key set" check so the health endpoint, tests,
+        and any future caller use one consistent definition (non-empty after
+        whitespace stripping).
+    Args:
+        None.
+    Output:
+        Returns True when the env var is present and contains non-whitespace
+        characters; False otherwise.
+    """
+
+    raw_value = os.environ.get("OPENAI_API_KEY", "")
+    return raw_value.strip() != ""
+
+
+@router.get("/health", response_model=SystemHealthResponse)
+async def system_health() -> SystemHealthResponse:
+    """Report runtime configuration signals used by the dashboard.
+
+    Purpose:
+        Provide a single endpoint the dashboard polls to detect missing
+        provider keys so it can render warning banners without coupling
+        to the secrets-write API.
+    Args:
+        None.
+    Output:
+        Returns a `SystemHealthResponse` with `openai_key_configured` set
+        based on the live `OPENAI_API_KEY` environment variable.
+    """
+
+    return SystemHealthResponse(
+        ok=True,
+        openai_key_configured=_is_openai_key_configured(),
+    )
 
 
 @router.post("/stop")

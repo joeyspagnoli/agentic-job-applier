@@ -272,6 +272,29 @@ export async function retryFailure(failureId: string): Promise<RetryFailureDto> 
   });
 }
 
+/** Response shape for `GET /api/system/health`. */
+export interface SystemHealthDto {
+  /** True when the API process is running. */
+  readonly ok: boolean;
+  /**
+   * True when `OPENAI_API_KEY` is set and non-empty in the API process env.
+   *
+   * @remarks
+   * When `false`, the gate, tailor, and review workers idle and the
+   * dashboard renders the {@link MissingKeyBanner}.
+   */
+  readonly openai_key_configured: boolean;
+}
+
+/**
+ * Fetch runtime configuration health used to drive dashboard banners.
+ *
+ * @returns System health DTO including `openai_key_configured`.
+ */
+export async function fetchSystemHealth(): Promise<SystemHealthDto> {
+  return getJson<SystemHealthDto>("/api/system/health");
+}
+
 /**
  * Dispatch a non-destructive stack stop action.
  *

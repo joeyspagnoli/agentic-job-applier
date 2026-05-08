@@ -21,6 +21,7 @@ import asyncio
 import os
 import re
 import shutil
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -599,7 +600,10 @@ async def main() -> None:
     Purpose:
         Provide the script entrypoint that loads environment variables,
         runs preflight checks, prepares the database, and decides whether
-        to run once or poll continuously.
+        to run once or poll continuously.  When `OPENAI_API_KEY` is unset,
+        log a worker-specific warning and idle (sleep forever in `--loop`,
+        otherwise return cleanly) so claimed jobs are not driven to
+        TERMINAL_FAILED by repeated subprocess crashes.
     Args:
         None.
     Output:
@@ -607,6 +611,17 @@ async def main() -> None:
     """
 
     load_dotenv()
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        logger.warning(
+            "OPENAI_API_KEY is not set — tailor worker is disabled. "
+            "Jobs will sit at QUALIFIED until OPENAI_API_KEY is set. "
+            "Set OPENAI_API_KEY to enable the tailor worker."
+        )
+        if "--loop" in sys.argv:
+            while True:
+                await asyncio.sleep(3600)
+        return
 
     parser = argparse.ArgumentParser(
         description="Process QUALIFIED jobs through the resume tailor pipeline",

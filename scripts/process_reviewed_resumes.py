@@ -19,6 +19,7 @@ import asyncio
 import os
 import re
 import shutil
+import sys
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -699,7 +700,10 @@ async def main() -> None:
 
     Purpose:
         Provide script entrypoint that performs preflight, base-artifact setup,
-        DB preparation, and one-shot/loop execution.
+        DB preparation, and one-shot/loop execution.  When `OPENAI_API_KEY` is
+        unset, log a worker-specific warning and idle (sleep forever in
+        `--loop`, otherwise return cleanly) so successful tailor runs sit
+        unreviewed instead of crashing through retries to TERMINAL_FAILED.
     Args:
         None.
     Output:
@@ -707,6 +711,17 @@ async def main() -> None:
     """
 
     load_dotenv()
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        logger.warning(
+            "OPENAI_API_KEY is not set — review worker is disabled. "
+            "Successful tailor runs will sit unreviewed until OPENAI_API_KEY "
+            "is set. Set OPENAI_API_KEY to enable the review worker."
+        )
+        if "--loop" in sys.argv:
+            while True:
+                await asyncio.sleep(3600)
+        return
 
     parser = argparse.ArgumentParser(
         description="Process tailored resumes through the review pipeline",
