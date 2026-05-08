@@ -106,7 +106,10 @@ class AnthropicProvider:
             create_kwargs["system"] = system_text
 
         try:
-            response = await client.messages.create(**create_kwargs)  # type: ignore[arg-type]
+            # Unpacking a heterogeneous dict[str, object] does not match
+            # the overload-based typing of anthropic's create method.  The
+            # values are validated upstream by ``LLMRequest``.
+            response = await client.messages.create(**create_kwargs)  # type: ignore[call-overload]
         except anthropic.AuthenticationError as exc:
             raise ProviderAuthError(
                 f"Anthropic authentication failed: {exc}",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -43,7 +44,7 @@ def _make_workday(
     )
 
 
-def _load_fixture(name: str) -> dict:
+def _load_fixture(name: str) -> dict[str, Any]:
     """Load a JSON fixture from the shared fixtures directory.
 
     Purpose:
@@ -55,7 +56,8 @@ def _load_fixture(name: str) -> dict:
     """
 
     path = FIXTURE_DIR / name
-    return json.loads(path.read_text())
+    data: dict[str, Any] = json.loads(path.read_text())
+    return data
 
 
 # ---------------------------------------------------------------------------

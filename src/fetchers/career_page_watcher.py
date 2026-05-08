@@ -26,7 +26,7 @@ try:
 except ImportError:
     _BS4_AVAILABLE = False
     if TYPE_CHECKING:
-        from bs4 import BeautifulSoup  # type: ignore[assignment]
+        from bs4 import BeautifulSoup
 
 
 class CareerPageWatcher(BaseFetcher):

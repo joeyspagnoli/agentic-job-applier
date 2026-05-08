@@ -17,8 +17,9 @@ import asyncio
 import random
 import re
 
-from curl_cffi.requests import AsyncSession
+from curl_cffi.requests import AsyncSession, Response
 from curl_cffi.requests import errors as curl_errors
+from curl_cffi.requests.session import ProxySpec
 from loguru import logger
 
 from src.fetchers.base_fetcher import BaseFetcher
@@ -138,7 +139,7 @@ class LinkedInFetcher(BaseFetcher):
         self.max_pages = max_pages
         self.proxy_url = proxy_url
         self.fetch_descriptions = fetch_descriptions
-        self._session: AsyncSession | None = None
+        self._session: AsyncSession[Response] | None = None
         super().__init__(
             config={
                 "search_term": search_term,
@@ -164,7 +165,9 @@ class LinkedInFetcher(BaseFetcher):
         Returns:
             The fetcher instance with an active HTTP session.
         """
-        proxies = {"all": self.proxy_url} if self.proxy_url else None
+        proxies: ProxySpec | None = (
+            {"all": self.proxy_url} if self.proxy_url else None
+        )
         self._session = AsyncSession(
             impersonate="chrome120",
             proxies=proxies,

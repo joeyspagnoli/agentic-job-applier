@@ -8,7 +8,7 @@ Docs: https://www.themuse.com/developers/api/v2
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from loguru import logger
@@ -163,7 +163,9 @@ class TheMuseFetcher(BaseFetcher):
 
         # Extract levels.
         levels = item.get("levels", [])
-        job_type = None
+        job_type: (
+            Literal["Full-time", "Part-time", "Contract", "Internship"] | None
+        ) = None
         if isinstance(levels, list) and levels:
             first_level = levels[0]
             if isinstance(first_level, dict):

@@ -4,7 +4,7 @@ import asyncio
 import re
 from collections.abc import Mapping
 from types import TracebackType
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -272,7 +272,7 @@ class WorkdayFetcher(BaseFetcher):
         )
         return postings
 
-    async def _list_page(self, offset: int) -> dict | None:
+    async def _list_page(self, offset: int) -> dict[str, Any] | None:
         """Fetch a single CXS listing page, retrying ``/jobs/search`` on 404.
 
         Purpose:
@@ -313,7 +313,9 @@ class WorkdayFetcher(BaseFetcher):
             return None
         return page
 
-    async def _post_jobs(self, path: str, body: dict) -> dict | str | None:
+    async def _post_jobs(
+        self, path: str, body: dict[str, Any]
+    ) -> dict[str, Any] | str | None:
         """POST a CXS listing request and translate the HTTP response.
 
         Purpose:
@@ -393,7 +395,7 @@ class WorkdayFetcher(BaseFetcher):
             f"Unexpected HTTP {status} from Workday {self.company_name}"
         )
 
-    async def _fetch_detail(self, external_path: str) -> dict | None:
+    async def _fetch_detail(self, external_path: str) -> dict[str, Any] | None:
         """Fetch the per-job detail payload, returning ``None`` on minor errors.
 
         Purpose:

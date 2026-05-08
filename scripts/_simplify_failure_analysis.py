@@ -14,6 +14,7 @@ import re
 from collections import Counter
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOOP_ROOT = REPO_ROOT / ".research" / "simplify-loop"
@@ -63,7 +64,7 @@ def _category_for_label(label: str | None) -> str:
     return "other"
 
 
-def _load_iter(iter_num: int) -> dict | None:
+def _load_iter(iter_num: int) -> dict[str, Any] | None:
     """Load result.json + unresolved_fields.json for one iteration.
 
     Output:
@@ -80,7 +81,7 @@ def _load_iter(iter_num: int) -> dict | None:
         return None
 
     unresolved_path = iter_path / "unresolved_fields.json"
-    unresolved: list[dict] = []
+    unresolved: list[dict[str, Any]] = []
     if unresolved_path.exists():
         try:
             unresolved = json.loads(unresolved_path.read_text(encoding="utf-8"))
@@ -124,7 +125,7 @@ def _ats_from_url(url: str) -> str:
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for iter_path in sorted(ITER_DIR.iterdir()):
         if not iter_path.is_dir():
             continue
@@ -268,7 +269,7 @@ def main() -> int:
     print(f"\nIterations parsed: {len(rows)}")
     print(f"Passing: {len(pass_rows)}")
     print(f"Per-ATS: {dict(ats_stats)}")
-    print(f"\nTop categories of unresolved fields:")
+    print("\nTop categories of unresolved fields:")
     for cat, count in category_counts.most_common(10):
         print(f"  {cat}: {count} (required: {category_required[cat]})")
 

@@ -259,29 +259,33 @@ async def test_main_one_shot_returns_cleanly_when_openai_api_key_missing(
         warning and return without raising or invoking the CLI parser.
     """
 
+    import argparse
+    import sys
+
+    from loguru import logger
+
     import scripts.process_qualified_jobs as mod
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(mod, "load_dotenv", lambda: None)
-    monkeypatch.setattr(mod.sys, "argv", ["process_qualified_jobs"])
+    monkeypatch.setattr(sys, "argv", ["process_qualified_jobs"])
 
     parser_mock = MagicMock()
     parser_mock.side_effect = AssertionError(
         "ArgumentParser must not run when OPENAI_API_KEY is missing"
     )
-    monkeypatch.setattr(mod.argparse, "ArgumentParser", parser_mock)
+    monkeypatch.setattr(argparse, "ArgumentParser", parser_mock)
 
     captured_messages: list[str] = []
-    sink_id = mod.logger.add(
+    sink_id = logger.add(
         lambda msg: captured_messages.append(str(msg)), level="WARNING"
     )
 
     try:
-        result = await mod.main()
+        await mod.main()
     finally:
-        mod.logger.remove(sink_id)
+        logger.remove(sink_id)
 
-    assert result is None
     assert any("tailor worker is disabled" in msg for msg in captured_messages)
 
 
@@ -302,6 +306,12 @@ async def test_main_loop_sleeps_when_openai_api_key_missing(
         TERMINAL_FAILED by repeated subprocess crashes.
     """
 
+    import argparse
+    import asyncio
+    import sys
+
+    from loguru import logger
+
     import scripts.process_qualified_jobs as mod
 
     class _StopLoop(Exception):
@@ -317,17 +327,17 @@ async def test_main_loop_sleeps_when_openai_api_key_missing(
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(mod, "load_dotenv", lambda: None)
-    monkeypatch.setattr(mod.sys, "argv", ["process_qualified_jobs", "--loop"])
-    monkeypatch.setattr(mod.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(sys, "argv", ["process_qualified_jobs", "--loop"])
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
     parser_mock = MagicMock()
     parser_mock.side_effect = AssertionError(
         "ArgumentParser must not run when OPENAI_API_KEY is missing"
     )
-    monkeypatch.setattr(mod.argparse, "ArgumentParser", parser_mock)
+    monkeypatch.setattr(argparse, "ArgumentParser", parser_mock)
 
     captured_messages: list[str] = []
-    sink_id = mod.logger.add(
+    sink_id = logger.add(
         lambda msg: captured_messages.append(str(msg)), level="WARNING"
     )
 
@@ -335,7 +345,7 @@ async def test_main_loop_sleeps_when_openai_api_key_missing(
         with pytest.raises(_StopLoop):
             await mod.main()
     finally:
-        mod.logger.remove(sink_id)
+        logger.remove(sink_id)
 
     assert sleep_calls == [3600]
     assert any("tailor worker is disabled" in msg for msg in captured_messages)
