@@ -525,7 +525,7 @@ class TaleoFetcher(BaseFetcher):
 
         raw_jobs = data.get("requisitionList") or []
         paging = data.get("pagingData") or {}
-        return raw_jobs, paging  # type: ignore[return-value]
+        return raw_jobs, paging
 
     async def _process_page(
         self,

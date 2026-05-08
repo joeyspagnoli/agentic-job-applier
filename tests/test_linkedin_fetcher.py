@@ -266,8 +266,8 @@ async def test_fetch_jobs_stops_on_empty_second_page() -> None:
         None; asserts only page-1 jobs are present.
     """
     fetcher = _make_fetcher(max_pages=3)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=[
             _make_mock_response(200, _MINIMAL_CARD_HTML),
             _make_mock_response(200, ""),
@@ -294,8 +294,8 @@ async def test_fetch_jobs_returns_all_jobs_on_success() -> None:
         None; asserts total job count equals two pages of one job each.
     """
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         return_value=_make_mock_response(200, _MINIMAL_CARD_HTML)
     )
 
@@ -318,8 +318,8 @@ async def test_fetch_jobs_returns_early_on_429_after_all_backoffs() -> None:
         None; asserts an empty list is returned after three 429 responses.
     """
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(return_value=_make_mock_response(429))  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(return_value=_make_mock_response(429))
 
     sleep_calls: list[float] = []
 
@@ -346,11 +346,11 @@ async def test_fetch_jobs_handles_network_error() -> None:
     Returns:
         None; asserts an empty list is returned.
     """
-    from curl_cffi.requests import errors as curl_errors  # type: ignore[import-untyped]
+    from curl_cffi.requests import errors as curl_errors
 
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=curl_errors.RequestsError("connection refused")
     )
 
@@ -387,8 +387,8 @@ async def test_pagination_uses_actual_page_size_not_constant() -> None:
         return _make_mock_response(200, "")
 
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = fake_get  # type: ignore[assignment,union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = fake_get
 
     with patch("src.fetchers.linkedin_fetcher.asyncio.sleep", new_callable=AsyncMock):
         await fetcher.fetch_jobs()
@@ -410,8 +410,8 @@ async def test_fetch_jobs_retries_once_on_429_then_succeeds() -> None:
         None; asserts one job is returned and one sleep was called.
     """
     fetcher = _make_fetcher(max_pages=1)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=[
             _make_mock_response(429),
             _make_mock_response(200, _MINIMAL_CARD_HTML),
@@ -719,8 +719,8 @@ def test_get_source_name_truncates_slug_to_give_at_most_39_chars() -> None:
 @pytest.mark.asyncio
 async def test_fetch_jobs_sleeps_exactly_once_between_two_successful_pages() -> None:
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         return_value=_make_mock_response(200, _MINIMAL_CARD_HTML)
     )
     sleep_calls: list[float] = []
@@ -739,8 +739,8 @@ async def test_fetch_jobs_sleeps_exactly_once_between_two_successful_pages() -> 
 @pytest.mark.asyncio
 async def test_fetch_jobs_does_not_sleep_after_last_page() -> None:
     fetcher = _make_fetcher(max_pages=1)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         return_value=_make_mock_response(200, _MINIMAL_CARD_HTML)
     )
     sleep_calls: list[float] = []
@@ -758,8 +758,8 @@ async def test_fetch_jobs_does_not_sleep_after_last_page() -> None:
 @pytest.mark.asyncio
 async def test_fetch_jobs_breaks_loop_on_non_200_non_429_status() -> None:
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(return_value=_make_mock_response(503))  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(return_value=_make_mock_response(503))
 
     jobs = await fetcher.fetch_jobs()
 
@@ -769,8 +769,8 @@ async def test_fetch_jobs_breaks_loop_on_non_200_non_429_status() -> None:
 @pytest.mark.asyncio
 async def test_fetch_jobs_returns_first_page_jobs_when_second_page_is_503() -> None:
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=[
             _make_mock_response(200, _MINIMAL_CARD_HTML),
             _make_mock_response(503),
@@ -786,8 +786,8 @@ async def test_fetch_jobs_returns_first_page_jobs_when_second_page_is_503() -> N
 @pytest.mark.asyncio
 async def test_fetch_jobs_two_leading_429s_then_success_returns_job_and_correct_sleeps() -> None:
     fetcher = _make_fetcher(max_pages=1)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=[
             _make_mock_response(429),
             _make_mock_response(429),
@@ -811,8 +811,8 @@ async def test_fetch_jobs_exhaustion_never_sleeps_for_300s() -> None:
     # The third _BACKOFF_SECONDS entry (300) is never slept — the code returns
     # immediately on the third 429 without waiting, contrary to the handoff spec.
     fetcher = _make_fetcher(max_pages=1)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(return_value=_make_mock_response(429))  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(return_value=_make_mock_response(429))
     sleep_calls: list[float] = []
 
     async def capture_sleep(seconds: float) -> None:
@@ -1048,14 +1048,14 @@ async def test_aexit_sets_session_to_none_after_context_exit() -> None:
 @pytest.mark.asyncio
 async def test_fetch_jobs_calls_session_get_with_correct_linkedin_guest_url() -> None:
     fetcher = _make_fetcher(max_pages=1)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         return_value=_make_mock_response(200, _MINIMAL_CARD_HTML)
     )
 
     await fetcher.fetch_jobs()
 
-    actual_url = fetcher._session.get.call_args.args[0]  # type: ignore[union-attr]
+    actual_url = fetcher._session.get.call_args.args[0]
     assert actual_url == "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 
 
@@ -1067,8 +1067,8 @@ async def test_fetch_jobs_calls_session_get_with_correct_linkedin_guest_url() ->
 @pytest.mark.asyncio
 async def test_fetch_jobs_inter_page_delay_calls_random_uniform_with_correct_bounds() -> None:
     fetcher = _make_fetcher(max_pages=2)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         return_value=_make_mock_response(200, _MINIMAL_CARD_HTML)
     )
 
@@ -1087,8 +1087,8 @@ async def test_fetch_jobs_inter_page_delay_calls_random_uniform_with_correct_bou
 @pytest.mark.asyncio
 async def test_fetch_jobs_non_200_middle_page_stops_further_requests() -> None:
     fetcher = _make_fetcher(max_pages=3)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=[
             _make_mock_response(200, _MINIMAL_CARD_HTML),
             _make_mock_response(503),
@@ -1100,7 +1100,7 @@ async def test_fetch_jobs_non_200_middle_page_stops_further_requests() -> None:
         jobs = await fetcher.fetch_jobs()
 
     assert len(jobs) == 1
-    assert fetcher._session.get.call_count == 2  # type: ignore[union-attr]
+    assert fetcher._session.get.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1111,8 +1111,8 @@ async def test_fetch_jobs_non_200_middle_page_stops_further_requests() -> None:
 @pytest.mark.asyncio
 async def test_fetch_jobs_start_offset_accumulates_correctly_across_three_pages() -> None:
     fetcher = _make_fetcher(max_pages=3)
-    fetcher._session = MagicMock()  # type: ignore[assignment]
-    fetcher._session.get = AsyncMock(  # type: ignore[union-attr]
+    fetcher._session = MagicMock()
+    fetcher._session.get = AsyncMock(
         side_effect=[
             _make_mock_response(200, _MINIMAL_CARD_HTML * 7),
             _make_mock_response(200, _MINIMAL_CARD_HTML * 3),
@@ -1124,7 +1124,7 @@ async def test_fetch_jobs_start_offset_accumulates_correctly_across_three_pages(
         jobs = await fetcher.fetch_jobs()
 
     assert len(jobs) == 12
-    call_list = fetcher._session.get.call_args_list  # type: ignore[union-attr]
+    call_list = fetcher._session.get.call_args_list
     assert call_list[0].kwargs["params"]["start"] == "0"
     assert call_list[1].kwargs["params"]["start"] == "7"
     assert call_list[2].kwargs["params"]["start"] == "10"

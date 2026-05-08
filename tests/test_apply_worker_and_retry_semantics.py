@@ -128,9 +128,6 @@ class FakeBrowserPage:
             self.simplify_poll_args = arg
             return self.simplify_detected
 
-        if script == browser._JS_WAIT_FOR_STABILITY:
-            return True
-
         raise RuntimeError("Unexpected evaluate script")
 
 

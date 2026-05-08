@@ -7,7 +7,7 @@ app_id and app_key from https://developer.adzuna.com/overview.
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from loguru import logger
@@ -159,7 +159,7 @@ class AdzunaFetcher(BaseFetcher):
         # Adzuna provides salary_min and salary_max as annual amounts.
         salary_min = None
         salary_max = None
-        salary_source = "not_listed"
+        salary_source: Literal["direct", "parsed", "not_listed"] = "not_listed"
         raw_min = item.get("salary_min")
         raw_max = item.get("salary_max")
         if raw_min is not None:

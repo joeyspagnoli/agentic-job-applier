@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -56,7 +57,7 @@ def _make_taleo(
     )
 
 
-def _load_fixture_json(name: str) -> dict:
+def _load_fixture_json(name: str) -> dict[str, Any]:
     """Load a JSON fixture from the shared fixtures directory.
 
     Purpose:
@@ -66,7 +67,8 @@ def _load_fixture_json(name: str) -> dict:
     Output:
         Returns the parsed JSON object.
     """
-    return json.loads((FIXTURE_DIR / name).read_text())
+    data: dict[str, Any] = json.loads((FIXTURE_DIR / name).read_text())
+    return data
 
 
 def _load_fixture_text(name: str) -> str:
@@ -170,7 +172,7 @@ def test_parse_job_maps_column_fields() -> None:
     """Verify ``column[0]/[3]/[5]`` map to title, location, and posted_date."""
 
     fetcher = _make_taleo(company_name="WIPO", tenant_id="wipo", career_section="wp_2")
-    raw = {
+    raw: dict[str, object] = {
         "contestNo": "99999",
         "column": [
             "Software Engineer",
@@ -197,7 +199,7 @@ def test_parse_job_handles_short_column_array() -> None:
     """Verify bounds-safe column access when the array is shorter than expected."""
 
     fetcher = _make_taleo()
-    raw: dict = {"contestNo": "55555", "column": ["Only Title"]}
+    raw: dict[str, object] = {"contestNo": "55555", "column": ["Only Title"]}
 
     posting = fetcher._parse_job(raw, contest_no="55555")
 
@@ -210,7 +212,7 @@ def test_parse_job_falls_back_title_when_column_empty() -> None:
     """Verify ``Unknown Title`` is used when column[0] is absent."""
 
     fetcher = _make_taleo()
-    raw: dict = {"contestNo": "00000", "column": []}
+    raw: dict[str, object] = {"contestNo": "00000", "column": []}
 
     posting = fetcher._parse_job(raw, contest_no="00000")
 

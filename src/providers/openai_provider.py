@@ -119,7 +119,10 @@ class OpenAIProvider:
             create_kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            response = await client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
+            # Unpacking a heterogeneous dict[str, object] does not match
+            # the overload-based typing of openai's create method.  The
+            # values are validated upstream by ``LLMRequest``.
+            response = await client.chat.completions.create(**create_kwargs)  # type: ignore[call-overload]
         except openai.AuthenticationError as exc:
             raise ProviderAuthError(
                 f"OpenAI authentication failed: {exc}",

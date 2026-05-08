@@ -14,7 +14,6 @@ import re
 from enum import Enum
 
 import httpx
-from loguru import logger
 
 LIVENESS_TIMEOUT_SECONDS = 10.0
 

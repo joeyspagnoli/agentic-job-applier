@@ -22,10 +22,11 @@ import sys
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 from loguru import logger
-from playwright.async_api import async_playwright
+from playwright.async_api import Page, async_playwright
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOOP_ROOT = REPO_ROOT / ".research" / "simplify-loop"
@@ -68,11 +69,12 @@ def _next_iter_num() -> int:
     return last + 1
 
 
-def _load_state() -> dict:
-    return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+def _load_state() -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    return data
 
 
-def _save_state(state: dict) -> None:
+def _save_state(state: dict[str, Any]) -> None:
     tmp = STATE_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     tmp.replace(STATE_FILE)
@@ -146,10 +148,13 @@ def _free_port() -> int:
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+        port: int = sock.getsockname()[1]
+        return port
 
 
-def _launch_chrome_with_profile(cdp_port: int, initial_url: str) -> subprocess.Popen:
+def _launch_chrome_with_profile(
+    cdp_port: int, initial_url: str
+) -> subprocess.Popen[bytes]:
     """Spawn real Chrome with the cloned profile + Simplify side-loaded.
 
     Verified launch strategy (see findings.md): Simplify must be loaded via
@@ -223,7 +228,9 @@ async def _wait_for_cdp(cdp_port: int, timeout_s: float = 20.0) -> bool:
     return False
 
 
-async def _bare_cdp_wait_for_simplify(cdp_port: int, timeout_s: float) -> dict:
+async def _bare_cdp_wait_for_simplify(
+    cdp_port: int, timeout_s: float
+) -> dict[str, Any]:
     """Poll Chrome's tab via raw CDP for the Simplify shadow roots.
 
     Purpose:
@@ -256,7 +263,7 @@ async def _bare_cdp_wait_for_simplify(cdp_port: int, timeout_s: float) -> dict:
     })"""
 
     deadline = asyncio.get_event_loop().time() + timeout_s
-    last_state: dict = {"shadow_host_count": 0, "autofill_present": False}
+    last_state: dict[str, Any] = {"shadow_host_count": 0, "autofill_present": False}
 
     while asyncio.get_event_loop().time() < deadline:
         try:
@@ -353,7 +360,9 @@ async def _bare_cdp_reload_page(cdp_port: int) -> bool:
         return False
 
 
-async def _bare_cdp_capture_active_tab(cdp_port: int, save_dir: Path) -> dict:
+async def _bare_cdp_capture_active_tab(
+    cdp_port: int, save_dir: Path
+) -> dict[str, Any]:
     """Walk Chrome's tabs via raw CDP and snapshot the most relevant http(s) tab.
 
     Purpose:
@@ -372,7 +381,7 @@ async def _bare_cdp_capture_active_tab(cdp_port: int, save_dir: Path) -> dict:
     import base64
     import websockets
 
-    out: dict = {"tabs_seen": [], "captured_url": None}
+    out: dict[str, Any] = {"tabs_seen": [], "captured_url": None}
     try:
         tabs = (
             await httpx.AsyncClient().get(
@@ -401,7 +410,9 @@ async def _bare_cdp_capture_active_tab(cdp_port: int, save_dir: Path) -> dict:
         async with websockets.connect(
             target["webSocketDebuggerUrl"], max_size=20 * 1024 * 1024
         ) as ws:
-            async def call(method: str, params: dict | None = None) -> dict:
+            async def call(
+                method: str, params: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
                 cid = getattr(call, "cid", 0) + 1
                 call.cid = cid  # type: ignore[attr-defined]
                 await ws.send(
@@ -410,7 +421,7 @@ async def _bare_cdp_capture_active_tab(cdp_port: int, save_dir: Path) -> dict:
                     )
                 )
                 while True:
-                    msg = json.loads(await ws.recv())
+                    msg: dict[str, Any] = json.loads(await ws.recv())
                     if msg.get("id") == cid:
                         return msg
 
@@ -468,7 +479,7 @@ async def _bare_cdp_capture_active_tab(cdp_port: int, save_dir: Path) -> dict:
     return out
 
 
-async def _capture_shadow_dom(page) -> str:
+async def _capture_shadow_dom(page: Page) -> str:
     """Extract concatenated innerHTML of every Simplify shadow root.
 
     Simplify v2.4.x creates multiple `simplify-jobs-shadow-root` divs. We
@@ -495,12 +506,13 @@ async def _capture_shadow_dom(page) -> str:
     }
     """
     try:
-        return await page.evaluate(js)
+        result: str = await page.evaluate(js)
+        return result
     except Exception as exc:  # noqa: BLE001
         return f"__EVAL_ERROR__:{exc}"
 
 
-async def _scan_simplify_state(page) -> dict:
+async def _scan_simplify_state(page: Page) -> dict[str, Any]:
     """Probe the page for Simplify activation across all shadow roots."""
 
     js = """
@@ -549,12 +561,13 @@ async def _scan_simplify_state(page) -> dict:
     }
     """
     try:
-        return await page.evaluate(js)
+        scan_result: dict[str, Any] = await page.evaluate(js)
+        return scan_result
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
 
 
-async def run_one(target_url: str, iter_num: int) -> dict:
+async def run_one(target_url: str, iter_num: int) -> dict[str, Any]:
     """Drive one apply attempt and dump artifacts.
 
     Args:
@@ -568,7 +581,7 @@ async def run_one(target_url: str, iter_num: int) -> dict:
     iter_dir.mkdir(parents=True, exist_ok=True)
 
     started_at = datetime.now(tz=timezone.utc).isoformat()
-    result: dict = {
+    result: dict[str, Any] = {
         "iteration": iter_num,
         "target_url": target_url,
         "started_at": started_at,
@@ -697,7 +710,7 @@ async def run_one(target_url: str, iter_num: int) -> dict:
             # Wait for Simplify to inject. Verified: full UI takes ~15s on
             # Greenhouse. We poll every 2s and stop early once the Autofill
             # button shows up in the shadow root.
-            scan: dict = {}
+            scan: dict[str, Any] = {}
             elapsed_ms = 0
             while elapsed_ms < SIMPLIFY_RENDER_WAIT_S * 1000:
                 await page.wait_for_timeout(2_000)
@@ -817,7 +830,7 @@ async def run_one(target_url: str, iter_num: int) -> dict:
     return result
 
 
-def _summarize_for_runlog(result: dict) -> str:
+def _summarize_for_runlog(result: dict[str, Any]) -> str:
     """Render a compact markdown summary of one iteration."""
 
     iter_num = result["iteration"]

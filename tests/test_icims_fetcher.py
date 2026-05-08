@@ -248,7 +248,9 @@ def test_parse_page_raw_data_contains_ats_id() -> None:
     jobs = fetcher._parse_page(html_text)
 
     assert all("ats_id" in j.raw_data for j in jobs)
-    assert all(j.raw_data["ats_id"].isdigit() for j in jobs)  # type: ignore[union-attr]
+    for job in jobs:
+        ats_id = job.raw_data["ats_id"]
+        assert isinstance(ats_id, str) and ats_id.isdigit()
 
 
 def test_parse_page_raw_data_contains_base_url() -> None:
