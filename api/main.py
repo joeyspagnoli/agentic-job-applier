@@ -23,7 +23,6 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal
-from typing import NoReturn
 from typing import cast
 
 from fastapi import Body
@@ -37,12 +36,7 @@ from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import Field
 from pydantic import ValidationError
-from pydantic import field_validator
-from pydantic import model_validator
 import yaml
 
 from scripts.migrate_resume_tex_to_yaml import ResumeMigrationError
@@ -55,459 +49,67 @@ from src.database.db_manager import DatabaseManager
 from src.utils.paths import resolve_database_path
 from src.utils.paths import resolve_repo_root
 
-DEFAULT_PAGE_SIZE = 20
-MAX_PAGE_SIZE = 100
-DEFAULT_POLLING_SECONDS = 30
-SYSTEM_ACTION_STOP = "stop"
-SYSTEM_ACTION_RESTART = "restart"
-SYSTEM_ACTION_FETCH_JOBS = "fetch_jobs"
-SYSTEM_ACTION_STATUS_ACCEPTED = "accepted"
+from api.config import ALLOWED_API_KEY_NAMES
+from api.config import ALLOWED_SERVICE_TIERS
+from api.config import COUNTRY_CODE_PATTERN
+from api.config import DASHBOARD_ASSETS_DIR
+from api.config import DASHBOARD_DIST_DIR
+from api.config import DASHBOARD_INDEX_FILE
+from api.config import DEFAULT_PAGE_SIZE
+from api.config import DEFAULT_POLLING_SECONDS
+from api.config import JOB_HASH_PATTERN
+from api.config import LOCAL_TAILORED_RESUME_CLIENT_HOSTS
+from api.config import MAX_PAGE_SIZE
+from api.config import PERSONAL_CONTACT_PATTERN
+from api.config import PERSONAL_NAME_PATTERN
+from api.config import REQUIRED_TEX_SECTION_HEADINGS
+from api.config import SETTINGS_BACKUPS_DIR
+from api.config import SETTINGS_BACKUP_FILE_LIMIT
+from api.config import SETTINGS_BACKUP_TIMESTAMP_FORMAT
+from api.config import SETTINGS_COMPANIES_PATH
+from api.config import SETTINGS_ENV_PATH
+from api.config import SETTINGS_FILTERS_PATH
+from api.config import SETTINGS_PROFILE_PATH
+from api.config import SETTINGS_RESUME_PATH
+from api.config import SETTINGS_RESUME_TEX_PATH
+from api.config import SYSTEM_ACTION_FETCH_JOBS
+from api.config import SYSTEM_ACTION_RESTART
+from api.config import SYSTEM_ACTION_STATUS_ACCEPTED
+from api.config import SYSTEM_ACTION_STOP
+from api.config import SYSTEM_FETCH_JOBS_SCRIPT_PATH
+from api.config import SYSTEM_RESTART_SCRIPT_PATH
+from api.config import SYSTEM_STOP_SCRIPT_PATH
+from api.config import TAILORED_RESUME_DIR
+from api.config import TAILORED_RESUME_FILENAME
+from api.config import TAILORED_RESUME_TOKEN_ENV_KEY
+from api.config import TAILORED_RESUME_TOKEN_HEADER
+from api.config import TEX_SECTION_HEADER_PATTERN
+from api.config import TEX_SECTION_HEADING_ALIASES
+from api.config import WORK_AUTH_STATUS_NO
+from api.config import WORK_AUTH_STATUS_UNKNOWN
+from api.config import WORK_AUTH_STATUS_YES
+from api.errors import _error_response
+from api.errors import _http_exception_handler as _http_exception_handler_impl
+from api.errors import _raise_api_error
+from api.schemas.candidate import CandidateContactSectionPayload
+from api.schemas.candidate import CandidateEducationEntryPayload
+from api.schemas.candidate import CandidateProfileDocumentPayload
+from api.schemas.candidate import CandidateProfileSectionPayload
+from api.schemas.candidate import CandidateSearchDefaultsPayload
+from api.schemas.candidate import CandidateWorkAuthorizationSectionPayload
+from api.schemas.candidate import ProfileStructuredUpdateRequest
+from api.schemas.candidate import ResumeStructuredUpdateRequest
+from api.schemas.candidate import _normalize_optional_country_code
+from api.schemas.common import ApiKeyUpsertRequest
+from api.schemas.common import BudgetUpdateRequest
+from api.schemas.common import JobImportRequest
+from api.schemas.common import ProviderConfigRequest
+from api.schemas.common import ReviewerActionRequest
+from api.schemas.common import ServiceTierUpdateRequest
+from api.schemas.common import YamlPayload
+from api.schemas.common import YamlTextUpdateRequest
 
-DASHBOARD_DIST_DIR = resolve_repo_root() / "dashboard" / "dist"
-DASHBOARD_ASSETS_DIR = DASHBOARD_DIST_DIR / "assets"
-DASHBOARD_INDEX_FILE = DASHBOARD_DIST_DIR / "index.html"
-
-SETTINGS_RESUME_PATH = resolve_repo_root() / "config" / "resume_content.yaml"
-SETTINGS_PROFILE_PATH = resolve_repo_root() / "config" / "candidate_profile.yaml"
-SETTINGS_RESUME_TEX_PATH = resolve_repo_root() / "config" / "resume_base.tex"
-SETTINGS_FILTERS_PATH = resolve_repo_root() / "config" / "filters.yaml"
-SETTINGS_COMPANIES_PATH = resolve_repo_root() / "config" / "companies.yaml"
-SETTINGS_BACKUPS_DIR = resolve_repo_root() / "config" / "backups"
-SETTINGS_ENV_PATH = resolve_repo_root() / ".env"
-SYSTEM_STOP_SCRIPT_PATH = resolve_repo_root() / "scripts" / "docker" / "stop_stack.sh"
-SYSTEM_RESTART_SCRIPT_PATH = (
-    resolve_repo_root() / "scripts" / "docker" / "restart_stack.sh"
-)
-SYSTEM_FETCH_JOBS_SCRIPT_PATH = (
-    resolve_repo_root() / "scripts" / "docker" / "restart_discovery.sh"
-)
-TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
-TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
-TAILORED_RESUME_TOKEN_ENV_KEY = "TAILORED_RESUME_DOWNLOAD_TOKEN"
-TAILORED_RESUME_TOKEN_HEADER = "x-tailored-resume-token"
-LOCAL_TAILORED_RESUME_CLIENT_HOSTS = frozenset(
-    {
-        "127.0.0.1",
-        "::1",
-        "localhost",
-        "testclient",
-    }
-)
-JOB_HASH_PATTERN = re.compile(r"^[a-f0-9]{32,64}$")
-SETTINGS_BACKUP_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
-SETTINGS_BACKUP_FILE_LIMIT = 10
-WORK_AUTH_STATUS_YES: Literal["yes"] = "yes"
-WORK_AUTH_STATUS_NO: Literal["no"] = "no"
-WORK_AUTH_STATUS_UNKNOWN: Literal["unknown"] = "unknown"
-COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
-
-TEX_SECTION_HEADER_PATTERN = re.compile(r"\\section\{\\textbf\{(?P<heading>[^}]+)\}\}")
-TEX_SECTION_HEADING_ALIASES: dict[str, str] = {
-    "work experience": "Experience",
-    "professional experience": "Experience",
-    "employment": "Experience",
-    "internships": "Experience",
-    "project experience": "Projects",
-    "selected projects": "Projects",
-    "technical projects": "Projects",
-    "skills": "Skills and Achievements",
-    "technical skills": "Skills and Achievements",
-    "skills and technologies": "Skills and Achievements",
-    "education & coursework": "Education",
-    "academic background": "Education",
-}
-REQUIRED_TEX_SECTION_HEADINGS: tuple[str, ...] = (
-    "Education",
-    "Experience",
-    "Projects",
-    "Skills and Achievements",
-)
-PERSONAL_NAME_PATTERN = re.compile(r"\\bfseries\s+([^}]+)\}\\\\")
-PERSONAL_CONTACT_PATTERN = re.compile(
-    r"\{\\normalsize\s*(.+?)\}\s*\\end\{center\}",
-    flags=re.DOTALL,
-)
 logger = logging.getLogger(__name__)
-
-
-class ReviewerActionRequest(BaseModel):
-    """Request payload for human-review action endpoints.
-
-    Attributes:
-        reviewer_notes: Optional note to persist with the reviewer action.
-    """
-
-    reviewer_notes: str | None = Field(
-        default=None,
-        description="Optional note to persist with this reviewer action.",
-    )
-
-
-class BudgetUpdateRequest(BaseModel):
-    """Request payload for monthly budget updates.
-
-    Attributes:
-        monthly_budget_usd: New non-negative budget in USD.
-    """
-
-    monthly_budget_usd: float = Field(
-        ge=0,
-        description="New monthly budget limit in USD.",
-    )
-
-
-class YamlTextUpdateRequest(BaseModel):
-    """Request payload for raw YAML text save operations.
-
-    Attributes:
-        yaml_text: UTF-8 YAML content to validate and persist.
-    """
-
-    yaml_text: str = Field(
-        min_length=1,
-        description="UTF-8 YAML content to validate and persist.",
-    )
-
-
-# Valid API key names that the settings UI may read/write.
-ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
-    {
-        "OPENAI_API_KEY",
-        "GOOGLE_API_KEY",
-        "ANTHROPIC_API_KEY",
-    }
-)
-
-# Valid service tier identifiers.
-ALLOWED_SERVICE_TIERS: frozenset[str] = frozenset({"base", "latex", "full"})
-
-
-class ApiKeyUpsertRequest(BaseModel):
-    """Request payload for adding or replacing one API key secret.
-
-    Attributes:
-        value: Raw secret value supplied by the user.
-    """
-
-    value: str = Field(min_length=1, description="Secret value for the API key.")
-    model_config = ConfigDict(extra="forbid")
-
-
-class ServiceTierUpdateRequest(BaseModel):
-    """Request payload for updating the active service tier.
-
-    Attributes:
-        tier: One of 'base', 'latex', or 'full'.
-    """
-
-    tier: str = Field(description="Active service tier identifier.")
-    model_config = ConfigDict(extra="forbid")
-
-
-def _normalize_optional_country_code(value: str) -> str:
-    """Normalize one optional ISO alpha-2 country code string.
-
-    Purpose:
-        Keep country-code payload values deterministic by uppercasing valid
-        alpha-2 values and rejecting malformed non-empty strings.
-    Args:
-        value: Raw country code value from request payload.
-    Output:
-        Returns an uppercase alpha-2 code, or an empty string.
-    Raises:
-        ValueError: When a non-empty value is not a valid alpha-2 code.
-    """
-
-    normalized_value = value.strip().upper()
-    if normalized_value == "":
-        return ""
-    if not COUNTRY_CODE_PATTERN.fullmatch(normalized_value):
-        raise ValueError("Country code must be a valid ISO alpha-2 code.")
-    return normalized_value
-
-
-class CandidateContactSectionPayload(BaseModel):
-    """Structured candidate contact details used by guided settings forms.
-
-    Attributes:
-        full_name: Candidate full legal/preferred name.
-        email: Primary email used for applications.
-        phone: Primary phone number used for applications.
-        city: Home city used for location defaults.
-        state_or_region: Home state or region for location defaults.
-        country_code: ISO alpha-2 home country code.
-        country_label: Human-readable home country label.
-        linkedin_url: LinkedIn profile URL.
-        github_url: GitHub profile URL.
-        portfolio_url: Portfolio or personal website URL.
-    """
-
-    full_name: str = ""
-    email: str = ""
-    phone: str = ""
-    city: str = ""
-    state_or_region: str = ""
-    country_code: str = ""
-    country_label: str = ""
-    linkedin_url: str = ""
-    github_url: str = ""
-    portfolio_url: str = ""
-
-    @field_validator("country_code")
-    @classmethod
-    def validate_country_code(cls, value: str) -> str:
-        """Validate and normalize the optional contact country code.
-
-        Purpose:
-            Enforce ISO alpha-2 format so downstream ATS mappings can rely on
-            a stable country-code representation.
-        Args:
-            value: Raw country code value for contact settings.
-        Output:
-            Returns a normalized country code string.
-        Raises:
-            ValueError: When the submitted code is not empty and not alpha-2.
-        """
-
-        return _normalize_optional_country_code(value)
-
-
-class CandidateWorkAuthorizationSectionPayload(BaseModel):
-    """Structured work-authorization details for guided settings forms.
-
-    Attributes:
-        citizenship_country_code: ISO alpha-2 citizenship country code.
-        citizenship_country_label: Human-readable citizenship country label.
-        authorized_to_work_us: Whether candidate can work in the U.S.
-        requires_sponsorship_now_or_future: Sponsorship requirement status.
-    """
-
-    citizenship_country_code: str = ""
-    citizenship_country_label: str = ""
-    authorized_to_work_us: Literal["yes", "no", "unknown"] = WORK_AUTH_STATUS_UNKNOWN
-    requires_sponsorship_now_or_future: Literal[
-        "yes",
-        "no",
-        "unknown",
-    ] = WORK_AUTH_STATUS_UNKNOWN
-
-    @field_validator("citizenship_country_code")
-    @classmethod
-    def validate_citizenship_country_code(cls, value: str) -> str:
-        """Validate and normalize the optional citizenship country code.
-
-        Purpose:
-            Keep work-authorization country values aligned with ISO alpha-2
-            formatting expected by downstream apply payload mapping.
-        Args:
-            value: Raw citizenship country code string.
-        Output:
-            Returns a normalized alpha-2 code string.
-        Raises:
-            ValueError: When the submitted code is not empty and not alpha-2.
-        """
-
-        return _normalize_optional_country_code(value)
-
-
-class CandidateEducationEntryPayload(BaseModel):
-    """Structured education row payload for guided settings forms.
-
-    Attributes:
-        id: Stable client-generated row identifier.
-        school: Institution name.
-        degree_level: Degree level label (for example BS or MS).
-        degree_name: Degree title text.
-        field_of_study: Primary major or concentration.
-        start_month: Education start month value.
-        start_year: Education start year value.
-        end_month: Education end month value.
-        end_year: Education end year value.
-        is_current: Whether this education entry is still in progress.
-        gpa: Optional GPA text.
-        location: Optional education location text.
-        highlights: Optional bullet-style highlights.
-    """
-
-    id: str = Field(
-        min_length=1,
-        description="Stable client-generated identifier for one education row.",
-    )
-    school: str = ""
-    degree_level: str = ""
-    degree_name: str = ""
-    field_of_study: str = ""
-    start_month: str = ""
-    start_year: str = ""
-    end_month: str = ""
-    end_year: str = ""
-    is_current: bool = False
-    gpa: str = ""
-    location: str = ""
-    highlights: list[str] = Field(default_factory=list)
-
-
-class CandidateProfileSectionPayload(BaseModel):
-    """Structured candidate profile subsection used by guided settings forms.
-
-    Attributes:
-        summary: Short candidate summary used in gate prompt context.
-        contact: Structured candidate contact details.
-        work_authorization: Structured work-authorization details.
-        education_summary: High-level education summary line.
-        education_entries: Structured list of education rows.
-        target_roles: Preferred role titles for matching.
-        strongest_areas: Primary technical strengths.
-        experience_highlights: Experience highlights for prompt grounding.
-        hard_filters: Hard exclusions that should trigger skip behavior.
-        preferences: Positive preferences used for gate ranking.
-    """
-
-    summary: str = ""
-    contact: CandidateContactSectionPayload = Field(
-        default_factory=CandidateContactSectionPayload
-    )
-    work_authorization: CandidateWorkAuthorizationSectionPayload = Field(
-        default_factory=CandidateWorkAuthorizationSectionPayload
-    )
-    education_summary: str = ""
-    education_entries: list[CandidateEducationEntryPayload] = Field(
-        default_factory=list
-    )
-    target_roles: list[str] = Field(default_factory=list)
-    strongest_areas: list[str] = Field(default_factory=list)
-    experience_highlights: list[str] = Field(default_factory=list)
-    hard_filters: list[str] = Field(default_factory=list)
-    preferences: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_unique_education_entry_ids(self) -> CandidateProfileSectionPayload:
-        """Ensure education row identifiers remain unique within one profile.
-
-        Purpose:
-            Prevent ambiguous UI updates and backend merges by enforcing stable
-            unique IDs for each education entry row.
-        Args:
-            None.
-        Output:
-            Returns the validated model instance.
-        Raises:
-            ValueError: When duplicate education entry IDs are detected.
-        """
-
-        entry_ids = [entry.id.strip() for entry in self.education_entries]
-        unique_entry_ids = set(entry_ids)
-        if len(entry_ids) != len(unique_entry_ids):
-            raise ValueError("Education entries must use unique IDs.")
-        return self
-
-
-class CandidateSearchDefaultsPayload(BaseModel):
-    """Structured search-default fields used for job-board query defaults.
-
-    Attributes:
-        job_board_search_terms: Search term list for discovery polling.
-    """
-
-    job_board_search_terms: list[str] = Field(default_factory=list)
-
-
-class CandidateProfileDocumentPayload(BaseModel):
-    """Structured candidate profile document persisted as YAML.
-
-    Attributes:
-        profile: Candidate profile section.
-        search_defaults: Default search term section.
-        prompt_context: Optional full prompt override string.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    profile: CandidateProfileSectionPayload = Field(
-        default_factory=CandidateProfileSectionPayload
-    )
-    search_defaults: CandidateSearchDefaultsPayload = Field(
-        default_factory=CandidateSearchDefaultsPayload
-    )
-    prompt_context: str | None = None
-
-
-class ProfileStructuredUpdateRequest(BaseModel):
-    """Request payload for guided candidate-profile save operations.
-
-    Attributes:
-        profile: Guided profile fields from settings form.
-        search_defaults: Guided search defaults from settings form.
-        prompt_context: Optional prompt-context override.
-    """
-
-    profile: CandidateProfileSectionPayload
-    search_defaults: CandidateSearchDefaultsPayload
-    prompt_context: str | None = None
-
-
-class ResumeStructuredUpdateRequest(BaseModel):
-    """Request payload for guided resume save operations.
-
-    Attributes:
-        resume: Full resume JSON payload to validate and persist as YAML.
-    """
-
-    resume: dict[str, object]
-
-
-def _error_response(
-    *,
-    code: str,
-    message: str,
-    details: dict[str, object] | None = None,
-) -> dict[str, object]:
-    """Build one deterministic API error payload.
-
-    Purpose:
-        Keep every endpoint error response shape consistent for frontend
-        consumers and deterministic integration tests.
-    Args:
-        code: Stable machine-readable error code.
-        message: Human-readable error summary.
-        details: Optional structured details for debugging or UI hints.
-    Output:
-        Returns a dictionary payload with `ok`, `code`, `message`, and `details`.
-    """
-
-    return {
-        "ok": False,
-        "code": code,
-        "message": message,
-        "details": details or {},
-    }
-
-
-def _raise_api_error(
-    *,
-    status_code: int,
-    code: str,
-    message: str,
-    details: dict[str, object] | None = None,
-) -> NoReturn:
-    """Raise an HTTPException with the project's standard error payload.
-
-    Purpose:
-        Centralize FastAPI error raising so route handlers stay focused on
-        business logic and all errors share the same response contract.
-    Args:
-        status_code: HTTP status code for the response.
-        code: Stable machine-readable error code.
-        message: Human-readable error message.
-        details: Optional structured details payload.
-    Output:
-        Raises `HTTPException` and does not return.
-    """
-
-    raise HTTPException(
-        status_code=status_code,
-        detail=_error_response(code=code, message=message, details=details),
-    )
 
 
 def _load_positive_int_env(name: str, default_value: int) -> int:
@@ -3866,13 +3468,6 @@ async def get_filters() -> JSONResponse:
     )
 
 
-class YamlPayload(BaseModel):
-    """Payload for writing a YAML config file."""
-
-    yaml_text: str
-    model_config = ConfigDict(extra="forbid")
-
-
 @app.put("/api/settings/filters")
 async def put_filters(payload: YamlPayload) -> JSONResponse:
     """Write the filters.yaml configuration.
@@ -3977,16 +3572,6 @@ async def put_sources(payload: YamlPayload) -> JSONResponse:
 # ---------------------------------------------------------------------------
 # AI Provider Configuration + Codex Device Auth
 # ---------------------------------------------------------------------------
-
-
-class ProviderConfigRequest(BaseModel):
-    """Payload for configuring the active AI provider."""
-
-    mode: str = Field(description="'codex' or 'byok'")
-    provider_type: str = Field(default="openai", description="openai, anthropic, gemini, openrouter")
-    api_key: str | None = Field(default=None, description="API key for BYOK mode")
-    base_url: str | None = Field(default=None, description="Custom endpoint URL")
-    default_model: str | None = Field(default=None, description="Default model override")
 
 
 @app.get("/api/settings/ai-provider")
@@ -4230,19 +3815,6 @@ async def pipeline_progress_sse() -> StreamingResponse:
 
 
 # ── Manual job import ──────────────────────────────────────────────
-
-
-class JobImportRequest(BaseModel):
-    """Request body for manual job import."""
-
-    model_config = ConfigDict(strict=True)
-
-    mode: Literal["url", "text"]
-    url: str | None = None
-    company: str | None = None
-    title: str | None = None
-    location: str | None = None
-    description: str | None = None
 
 
 @app.post("/api/jobs/import")
