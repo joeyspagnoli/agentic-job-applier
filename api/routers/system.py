@@ -13,6 +13,7 @@ from api.config import SYSTEM_ACTION_RESTART
 from api.config import SYSTEM_ACTION_STATUS_ACCEPTED
 from api.config import SYSTEM_ACTION_STOP
 from api.errors import _raise_api_error
+from api.services.env_keys import ENV_KEY_PLACEHOLDER_VALUES
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -41,21 +42,22 @@ class SystemHealthResponse(BaseModel):
 
 
 def _is_openai_key_configured() -> bool:
-    """Return True when `OPENAI_API_KEY` is set and non-empty.
+    """Return True when `OPENAI_API_KEY` is set to a non-placeholder value.
 
     Purpose:
         Centralize the "is the key set" check so the health endpoint, tests,
-        and any future caller use one consistent definition (non-empty after
-        whitespace stripping).
+        and any future caller use one consistent definition. A key counts as
+        configured only when it is non-empty after whitespace stripping AND
+        not one of the sentinel placeholder strings shipped in `.env.example`.
     Args:
         None.
     Output:
-        Returns True when the env var is present and contains non-whitespace
-        characters; False otherwise.
+        Returns True when the env var is set and is not a placeholder; False
+        otherwise.
     """
 
-    raw_value = os.environ.get("OPENAI_API_KEY", "")
-    return raw_value.strip() != ""
+    raw_value = os.environ.get("OPENAI_API_KEY", "").strip()
+    return raw_value != "" and raw_value not in ENV_KEY_PLACEHOLDER_VALUES
 
 
 @router.get("/health", response_model=SystemHealthResponse)
