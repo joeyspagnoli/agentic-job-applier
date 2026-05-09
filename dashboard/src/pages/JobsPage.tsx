@@ -43,20 +43,25 @@ const FILTER_TABS: readonly FilterTab[] = [
   { value: "REJECTED", label: "Rejected" },
 ];
 
-/** Source options for the source filter dropdown. */
+/**
+ * Source options for the source filter dropdown.
+ *
+ * Must mirror the canonical labels returned by `_source_label` in
+ * `api/services/sources.py`. Adding a new fetcher family means updating
+ * both the backend mapping and this list, and adding a regression test
+ * in `tests/test_api_jobs_source_filter.py`.
+ */
 const SOURCE_OPTIONS: readonly string[] = [
-  "GREENHOUSE",
   "WORKDAY",
+  "GREENHOUSE",
   "JOBSPY",
-  "adzuna",
-  "remotive",
-  "themuse",
-  "himalayas",
-  "lever",
-  "ashby",
-  "startup_jobs",
-  "working_nomads",
-  "manual_import",
+  "LINKEDIN",
+  "ICIMS",
+  "TALEO",
+  "LEVER",
+  "ASHBY",
+  "GITHUB_REPOS",
+  "MANUAL_IMPORT",
 ];
 
 /**
