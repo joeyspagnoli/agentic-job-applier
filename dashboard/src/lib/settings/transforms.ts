@@ -241,6 +241,8 @@ export function buildConfiguredKeyMap(
     OPENAI_API_KEY: false,
     GOOGLE_API_KEY: false,
     ANTHROPIC_API_KEY: false,
+    ADZUNA_APP_ID: false,
+    ADZUNA_APP_KEY: false,
   };
   keys.forEach((key) => {
     configuredMap[key.name] = key.configured;
