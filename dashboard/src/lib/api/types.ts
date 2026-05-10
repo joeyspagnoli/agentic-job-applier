@@ -222,7 +222,12 @@ export interface BudgetDto {
 }
 
 /** Supported environment-backed API key names shown in settings UI. */
-export type ApiKeyNameDto = "OPENAI_API_KEY" | "GOOGLE_API_KEY" | "ANTHROPIC_API_KEY";
+export type ApiKeyNameDto =
+  | "OPENAI_API_KEY"
+  | "GOOGLE_API_KEY"
+  | "ANTHROPIC_API_KEY"
+  | "ADZUNA_APP_ID"
+  | "ADZUNA_APP_KEY";
 
 /** One API key status row for write-only key management UI. */
 export interface ApiKeyStatusDto {

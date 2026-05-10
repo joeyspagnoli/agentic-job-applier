@@ -1249,7 +1249,12 @@ job_boards:
     priority: 2
 
   Glassdoor:
-    enabled: true
+    # JobSpy's Glassdoor scraper is consistently blocked by bot detection
+    # (stale browser fingerprint headers, silent 403 swallowed as 0 results).
+    # Disabled by default — see issue #9. Re-enable only with a residential
+    # proxy, or use the `adzuna:` block below as a stable API-backed
+    # alternative that aggregates Glassdoor among other boards.
+    enabled: false
     # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
     locations:
       - "Remote"
@@ -1263,6 +1268,19 @@ job_boards:
       - "Remote"
     results_wanted: 25
     priority: 3
+
+
+# ── Adzuna public API (replaces Glassdoor — see issue #9) ───────────
+# Free API key from https://developer.adzuna.com/. Set ADZUNA_APP_ID
+# and ADZUNA_APP_KEY in .env, then flip `enabled: true`. The
+# orchestrator skips this block automatically when keys are missing.
+adzuna:
+  enabled: false
+  country: "us"  # us, gb, au, ca, de, fr, ... (15+ countries supported)
+  # search_terms intentionally omitted — driven by candidate_profile.yaml search_defaults
+  locations:
+    - "Remote"
+  results_wanted: 50
 
 
 # ── Lever ATS companies (free public API, no auth) ──────────────────

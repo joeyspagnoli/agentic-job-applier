@@ -408,6 +408,29 @@ export async function upsertApiKeySetting(
 }
 
 /**
+ * Validate an Adzuna app_id / app_key pair against the live Adzuna API.
+ *
+ * @remarks
+ * Used by the onboarding wizard to fail fast on typos. The server makes a
+ * tiny probe request to Adzuna and returns 200 only when the credentials
+ * authenticate successfully. Throws on non-2xx responses so the caller
+ * can surface an inline error.
+ */
+export async function validateAdzunaKeys(
+  appId: string,
+  appKey: string,
+): Promise<void> {
+  const response = await fetch("/api/settings/api-keys/validate-adzuna", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ app_id: appId, app_key: appKey }),
+  });
+  if (!response.ok) {
+    throw new Error(`Adzuna validation failed (HTTP ${String(response.status)}).`);
+  }
+}
+
+/**
  * Delete one API key secret from runtime configuration.
  *
  * @param keyName - API key environment variable name.

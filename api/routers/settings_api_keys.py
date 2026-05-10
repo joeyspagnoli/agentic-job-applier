@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter
 
 from src.database.db_manager import DatabaseManager
@@ -9,6 +10,7 @@ from src.database.db_manager import DatabaseManager
 from api.config import ALLOWED_API_KEY_NAMES
 from api.config import ALLOWED_SERVICE_TIERS
 from api.errors import _raise_api_error
+from api.schemas.common import AdzunaValidateRequest
 from api.schemas.common import ApiKeyUpsertRequest
 from api.schemas.common import ServiceTierUpdateRequest
 from api.services.env_keys import _build_api_keys_response
@@ -83,6 +85,56 @@ async def delete_api_key(key_name: str) -> dict[str, object]:
         )
     _delete_env_key(key_name)
     return _build_api_keys_response()
+
+
+@router.post("/api-keys/validate-adzuna")
+async def validate_adzuna_keys(
+    payload: AdzunaValidateRequest,
+) -> dict[str, object]:
+    """Probe Adzuna with the supplied credentials before persisting them.
+
+    Purpose:
+        Catch typos in app_id/app_key during onboarding so the user gets
+        an inline error instead of silently empty discovery runs later.
+    Args:
+        payload: Parsed Adzuna app_id + app_key.
+    Output:
+        Returns ``{"ok": True}`` on success.
+    Raises:
+        HTTPException 401: When Adzuna rejects the credentials.
+        HTTPException 502: When Adzuna is unreachable.
+    """
+
+    url = "https://api.adzuna.com/v1/api/jobs/us/search/1"
+    params = {
+        "app_id": payload.app_id.strip(),
+        "app_key": payload.app_key.strip(),
+        "results_per_page": "1",
+        "what": "engineer",
+        "content-type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, params=params)
+    except httpx.RequestError as exc:
+        _raise_api_error(
+            status_code=502,
+            code="ADZUNA_UNREACHABLE",
+            message=f"Could not reach Adzuna: {exc}",
+        )
+    if response.status_code in (401, 403):
+        _raise_api_error(
+            status_code=401,
+            code="ADZUNA_AUTH_FAILED",
+            message="Adzuna rejected the supplied app_id/app_key.",
+        )
+    if response.status_code >= 400:
+        _raise_api_error(
+            status_code=502,
+            code="ADZUNA_ERROR",
+            message=f"Adzuna returned HTTP {response.status_code}.",
+        )
+    return {"ok": True}
 
 
 @router.get("/service-tier")

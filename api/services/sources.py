@@ -25,6 +25,7 @@ SOURCE_LABEL_ICIMS = "ICIMS"
 SOURCE_LABEL_TALEO = "TALEO"
 SOURCE_LABEL_LEVER = "LEVER"
 SOURCE_LABEL_ASHBY = "ASHBY"
+SOURCE_LABEL_ADZUNA = "ADZUNA"
 SOURCE_LABEL_GITHUB_REPOS = "GITHUB_REPOS"
 SOURCE_LABEL_MANUAL_IMPORT = "MANUAL_IMPORT"
 SOURCE_LABEL_OTHER = "OTHER"
@@ -65,6 +66,8 @@ def _source_label(raw_source: str) -> str:
         return SOURCE_LABEL_LEVER
     if normalized.startswith("ashby"):
         return SOURCE_LABEL_ASHBY
+    if normalized.startswith("adzuna"):
+        return SOURCE_LABEL_ADZUNA
     if normalized.startswith("github"):
         return SOURCE_LABEL_GITHUB_REPOS
     if normalized.startswith("manual"):
@@ -88,6 +91,7 @@ _LABEL_TO_FILTER: dict[str, tuple[str, list[object]]] = {
     SOURCE_LABEL_TALEO: ("LOWER(jp.source) LIKE ?", ["taleo%"]),
     SOURCE_LABEL_LEVER: ("LOWER(jp.source) LIKE ?", ["lever%"]),
     SOURCE_LABEL_ASHBY: ("LOWER(jp.source) LIKE ?", ["ashby%"]),
+    SOURCE_LABEL_ADZUNA: ("LOWER(jp.source) LIKE ?", ["adzuna%"]),
     SOURCE_LABEL_GITHUB_REPOS: ("LOWER(jp.source) LIKE ?", ["github%"]),
     SOURCE_LABEL_MANUAL_IMPORT: ("LOWER(jp.source) LIKE ?", ["manual%"]),
 }

@@ -19,6 +19,7 @@ from loguru import logger
 # (e.g. ``monkeypatch.setattr(main, "GreenhouseFetcher", FakeFetcher)``)
 # can swap the implementation that per-fetcher modules pick up via the
 # late-bound ``resolve_fetcher_attr`` helper.
+from src.fetchers.adzuna_fetcher import AdzunaFetcher
 from src.fetchers.ashby_fetcher import AshbyFetcher
 from src.fetchers.career_page_watcher import CareerPageWatcher
 from src.fetchers.github_repo_fetcher import GitHubRepoFetcher
@@ -35,6 +36,7 @@ from src.orchestrator.config_loader import (
     resolve_job_board_default_search_terms,
 )
 from src.orchestrator.discovery import run_job_discovery
+from src.orchestrator.fetchers.adzuna import fetch_adzuna_jobs
 from src.orchestrator.fetchers.ashby import fetch_ashby_jobs
 from src.orchestrator.fetchers.career_pages import fetch_career_page_jobs
 from src.orchestrator.fetchers.github_repos import fetch_github_repo_jobs
@@ -90,6 +92,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "AdzunaFetcher",
     "AshbyFetcher",
     "CareerPageWatcher",
     "GitHubRepoFetcher",
@@ -102,6 +105,7 @@ __all__ = [
     "WorkdayFetcher",
     "_insert_with_filters",
     "asyncio",
+    "fetch_adzuna_jobs",
     "fetch_ashby_jobs",
     "fetch_career_page_jobs",
     "fetch_github_repo_jobs",

@@ -73,7 +73,7 @@ export function defaultFiltersDraft(): FiltersDraft {
  * @returns Fresh provider draft with an empty OpenAI API key field.
  */
 export function defaultProviderDraft(): ProviderDraft {
-  return { apiKey: "" };
+  return { apiKey: "", adzunaAppId: "", adzunaAppKey: "" };
 }
 
 /**

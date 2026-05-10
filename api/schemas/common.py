@@ -71,6 +71,19 @@ class ApiKeyUpsertRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class AdzunaValidateRequest(BaseModel):
+    """Request payload for validating Adzuna API credentials.
+
+    Attributes:
+        app_id: Adzuna application ID.
+        app_key: Adzuna application key.
+    """
+
+    app_id: str = Field(min_length=1, description="Adzuna application ID.")
+    app_key: str = Field(min_length=1, description="Adzuna application key.")
+    model_config = ConfigDict(extra="forbid")
+
+
 class ServiceTierUpdateRequest(BaseModel):
     """Request payload for updating the active service tier.
 

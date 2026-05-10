@@ -14,6 +14,7 @@ from loguru import logger
 
 from src.database.db_manager import DatabaseManager
 from src.filters.job_filter import JobFilter
+from src.orchestrator.fetchers.adzuna import fetch_adzuna_jobs
 from src.orchestrator.fetchers.ashby import fetch_ashby_jobs
 from src.orchestrator.fetchers.career_pages import fetch_career_page_jobs
 from src.orchestrator.fetchers.github_repos import fetch_github_repo_jobs
@@ -137,6 +138,17 @@ def build_family_tasks(
         icims_fn = _resolve_fetch_fn("fetch_icims_jobs", fetch_icims_jobs)
         family_tasks.append(("icims", icims_fn(
             icims_companies, db, deduplicator,
+            title_include_patterns=title_include_patterns,
+            job_filter=job_filter,
+        )))
+
+    adzuna_config = companies_config.get("adzuna", {})
+    if isinstance(adzuna_config, dict) and adzuna_config.get("enabled", False):
+        logger.info("Fetching from Adzuna...")
+        adzuna_fn = _resolve_fetch_fn("fetch_adzuna_jobs", fetch_adzuna_jobs)
+        family_tasks.append(("adzuna", adzuna_fn(
+            adzuna_config, db, deduplicator,
+            default_search_terms=default_search_terms,
             title_include_patterns=title_include_patterns,
             job_filter=job_filter,
         )))
