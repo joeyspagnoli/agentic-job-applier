@@ -60,6 +60,7 @@ const SOURCE_OPTIONS: readonly string[] = [
   "TALEO",
   "LEVER",
   "ASHBY",
+  "ADZUNA",
   "GITHUB_REPOS",
   "MANUAL_IMPORT",
 ];

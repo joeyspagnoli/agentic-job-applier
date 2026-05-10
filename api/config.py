@@ -100,6 +100,8 @@ ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
         "GOOGLE_API_KEY",
         "ANTHROPIC_API_KEY",
         "OPENROUTER_BASE_URL",
+        "ADZUNA_APP_ID",
+        "ADZUNA_APP_KEY",
     }
 )
 

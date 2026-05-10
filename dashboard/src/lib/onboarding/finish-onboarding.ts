@@ -27,7 +27,12 @@
  * the dismissible warning banners; everything else is best-effort.
  */
 
-import { updateFiltersYaml, updateProfileStructured } from "@/lib/api/client";
+import {
+  updateFiltersYaml,
+  updateProfileStructured,
+  upsertApiKeySetting,
+  validateAdzunaKeys,
+} from "@/lib/api/client";
 import { EMPTY_WATCHLIST_RESULT } from "./defaults";
 import { buildStructuredProfilePayload } from "./profile-payload";
 import type {
@@ -38,7 +43,7 @@ import type {
   WatchlistDraft,
   WatchlistSaveResult,
 } from "./types";
-import { buildFiltersYaml, splitLines } from "./yaml-builders";
+import { buildFiltersYaml, setAdzunaEnabledInYaml, splitLines } from "./yaml-builders";
 import { saveWatchlistCompanies, seedGithubRepos } from "./watchlist";
 
 /** Argument bundle for {@link finishOnboarding}. */
@@ -86,6 +91,19 @@ export async function finishOnboarding(args: FinishOnboardingArgs): Promise<Watc
 
   if (provider.apiKey.trim() !== "") {
     await postOpenAiProviderKey(provider.apiKey);
+  }
+
+  const adzunaId = provider.adzunaAppId.trim();
+  const adzunaKey = provider.adzunaAppKey.trim();
+  if (adzunaId !== "" && adzunaKey !== "") {
+    // Probe Adzuna before persisting so onboarding fails fast on typos.
+    await validateAdzunaKeys(adzunaId, adzunaKey);
+    await upsertApiKeySetting("ADZUNA_APP_ID", adzunaId);
+    await upsertApiKeySetting("ADZUNA_APP_KEY", adzunaKey);
+    const current = await fetchSources();
+    await updateSources(setAdzunaEnabledInYaml(current.yaml_text, true));
+  } else if (adzunaId !== "" || adzunaKey !== "") {
+    throw new Error("Provide both Adzuna fields or leave both blank.");
   }
 
   // Bug 5 fix: pass roles so strongestAreas populate soft_filters.positive_keywords.

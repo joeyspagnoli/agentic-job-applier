@@ -18,6 +18,8 @@ from src.models.job_posting import JobPosting
 BASE_URL = "https://api.adzuna.com/v1/api/jobs"
 DEFAULT_RESULTS_PER_PAGE = 50
 DEFAULT_COUNTRY = "us"
+DEFAULT_RESULTS_WANTED = 50
+MAX_RESULTS_PER_PAGE = 50
 
 
 class AdzunaFetcher(BaseFetcher):
@@ -27,8 +29,10 @@ class AdzunaFetcher(BaseFetcher):
         _app_id: Adzuna application ID from developer portal.
         _app_key: Adzuna application key from developer portal.
         _search_term: Job title or keyword to search for.
+        _location: Optional ``where`` filter forwarded to Adzuna.
         _country: Two-letter country code (us, gb, de, etc.).
         _results_per_page: Number of results per API page.
+        _results_wanted: Cap on total normalized postings returned.
     """
 
     def __init__(
@@ -37,8 +41,10 @@ class AdzunaFetcher(BaseFetcher):
         app_id: str,
         app_key: str,
         search_term: str = "software engineer",
+        location: str | None = None,
         country: str = DEFAULT_COUNTRY,
         results_per_page: int = DEFAULT_RESULTS_PER_PAGE,
+        results_wanted: int = DEFAULT_RESULTS_WANTED,
     ) -> None:
         """Initialize the Adzuna fetcher with API credentials.
 
@@ -46,14 +52,19 @@ class AdzunaFetcher(BaseFetcher):
             app_id: Adzuna application ID.
             app_key: Adzuna application key.
             search_term: Job title or keyword to search.
+            location: Optional ``where`` filter (city/region) forwarded to the
+                Adzuna API. ``None`` searches the whole country.
             country: Two-letter country code for regional results.
-            results_per_page: Number of results per API page.
+            results_per_page: Number of results per API page (capped at 50).
+            results_wanted: Total cap across paginated calls.
         """
         self._app_id = app_id
         self._app_key = app_key
         self._search_term = search_term
+        self._location = location
         self._country = country
-        self._results_per_page = results_per_page
+        self._results_per_page = min(max(1, results_per_page), MAX_RESULTS_PER_PAGE)
+        self._results_wanted = max(1, results_wanted)
         self._client: Optional[httpx.AsyncClient] = None
         super().__init__(config={"search_term": search_term, "country": country})
 
@@ -80,47 +91,68 @@ class AdzunaFetcher(BaseFetcher):
     async def fetch_jobs(self) -> list[JobPosting]:
         """Fetch jobs matching the search term from Adzuna.
 
+        Iterates pages until ``results_wanted`` is reached, the API returns
+        an empty page, or the server reports total results were exhausted.
+
         Returns:
             A list of normalized JobPosting objects.
         """
         if not self._client:
             self._client = httpx.AsyncClient(timeout=30.0)
 
-        url = f"{BASE_URL}/{self._country}/search/1"
-        params = {
-            "app_id": self._app_id,
-            "app_key": self._app_key,
-            "what": self._search_term,
-            "results_per_page": str(self._results_per_page),
-            "content-type": "application/json",
-        }
-
-        try:
-            response = await self._client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 401:
-                logger.warning("Adzuna API auth failed — check app_id/app_key")
-                return []
-            if exc.response.status_code == 429:
-                logger.warning("Rate limited by Adzuna API")
-                return []
-            logger.error("HTTP error from Adzuna: {}", exc)
-            raise
-        except httpx.RequestError as exc:
-            logger.error("Network error fetching Adzuna: {}", exc)
-            raise
-
-        results = data.get("results", [])
-        logger.debug("Fetched {} jobs from Adzuna ({})", len(results), self._country)
-
         postings: list[JobPosting] = []
-        for item in results:
-            posting = self._parse_result(item)
-            if posting:
-                postings.append(posting)
-        return postings
+        page = 1
+        while len(postings) < self._results_wanted:
+            url = f"{BASE_URL}/{self._country}/search/{page}"
+            params: dict[str, str] = {
+                "app_id": self._app_id,
+                "app_key": self._app_key,
+                "what": self._search_term,
+                "results_per_page": str(self._results_per_page),
+                "content-type": "application/json",
+            }
+            if self._location:
+                params["where"] = self._location
+
+            try:
+                response = await self._client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 401:
+                    logger.warning("Adzuna API auth failed — check app_id/app_key")
+                    return postings
+                if exc.response.status_code == 429:
+                    logger.warning("Rate limited by Adzuna API")
+                    return postings
+                logger.error("HTTP error from Adzuna: {}", exc)
+                raise
+            except httpx.RequestError as exc:
+                logger.error("Network error fetching Adzuna: {}", exc)
+                raise
+
+            results = data.get("results", [])
+            logger.debug(
+                "Fetched {} jobs from Adzuna ({}, page {})",
+                len(results), self._country, page,
+            )
+            if not results:
+                break
+
+            for item in results:
+                posting = self._parse_result(item)
+                if posting:
+                    postings.append(posting)
+                if len(postings) >= self._results_wanted:
+                    break
+
+            # Adzuna returns at most ``results_per_page`` rows per page; a
+            # short page means the result set is exhausted.
+            if len(results) < self._results_per_page:
+                break
+            page += 1
+
+        return postings[: self._results_wanted]
 
     def _parse_result(self, item: dict[str, object]) -> JobPosting | None:
         """Convert one Adzuna result into a normalized JobPosting.

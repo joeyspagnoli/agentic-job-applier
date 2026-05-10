@@ -217,6 +217,61 @@ export function detectSimplifyCategories(targetRoles: string[]): string[] {
  * // → "github_repos:\n  - owner: SimplifyJobs\n    ...\n    categories:\n      - \"Hardware\"\n"
  * ```
  */
+/**
+ * Flip the `enabled` flag inside an existing top-level `adzuna:` block.
+ *
+ * @remarks
+ * Surgical edit: leaves comments, sibling fields, and adjacent blocks
+ * intact. When the file does not yet contain an `adzuna:` block, a
+ * minimal one is appended at the end of the document so older user
+ * configs (created before issue #9) still pick up the toggle.
+ *
+ * @param yamlText - Full text of `companies.yaml`.
+ * @param enabled - New value for `adzuna.enabled`.
+ * @returns Updated YAML text with the flag set to {@link enabled}.
+ */
+export function setAdzunaEnabledInYaml(yamlText: string, enabled: boolean): string {
+  const enabledLine = `  enabled: ${enabled ? "true" : "false"}`;
+  const blockHeader = /^adzuna:\s*$/m;
+  if (!blockHeader.test(yamlText)) {
+    const trailingNewline = yamlText.endsWith("\n") ? "" : "\n";
+    return (
+      yamlText +
+      trailingNewline +
+      `\nadzuna:\n${enabledLine}\n  country: "us"\n  results_wanted: 50\n`
+    );
+  }
+  const lines = yamlText.split("\n");
+  let inBlock = false;
+  let updated = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (/^adzuna:\s*$/.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock) {
+      // A non-indented, non-blank, non-comment line ends the block.
+      if (line !== "" && !/^\s/.test(line) && !line.startsWith("#")) {
+        break;
+      }
+      if (/^\s+enabled:\s*(true|false)\s*$/.test(line)) {
+        lines[i] = enabledLine;
+        updated = true;
+        break;
+      }
+    }
+  }
+  if (!updated) {
+    // Block exists but no enabled key — splice one in immediately after header.
+    const headerIdx = lines.findIndex((line) => /^adzuna:\s*$/.test(line));
+    if (headerIdx >= 0) {
+      lines.splice(headerIdx + 1, 0, enabledLine);
+    }
+  }
+  return lines.join("\n");
+}
+
 export function buildGithubReposBlock(categories: string[]): string {
   const categoriesYaml =
     categories.length === 0

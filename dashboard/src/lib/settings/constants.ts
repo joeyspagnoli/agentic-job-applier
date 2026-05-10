@@ -38,6 +38,16 @@ export const API_KEYS: readonly ApiKeyConfig[] = [
     icon: "auto_awesome",
     description: "Optional provider key for alternative model routing.",
   },
+  {
+    name: "ADZUNA_APP_ID",
+    icon: "travel_explore",
+    description: "Optional. Adzuna application ID — paired with the app key to enable Adzuna job discovery.",
+  },
+  {
+    name: "ADZUNA_APP_KEY",
+    icon: "travel_explore",
+    description: "Optional. Adzuna application key — see developer.adzuna.com.",
+  },
 ];
 
 /** Required API keys per service tier. */

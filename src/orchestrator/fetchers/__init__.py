@@ -6,6 +6,7 @@ row, runs jobs through the dedup + filter + insert pipeline, and returns
 the four-element accounting tuple expected by ``run_job_discovery``.
 """
 
+from src.orchestrator.fetchers.adzuna import fetch_adzuna_jobs
 from src.orchestrator.fetchers.ashby import fetch_ashby_jobs
 from src.orchestrator.fetchers.career_pages import fetch_career_page_jobs
 from src.orchestrator.fetchers.github_repos import fetch_github_repo_jobs
@@ -18,6 +19,7 @@ from src.orchestrator.fetchers.taleo import fetch_taleo_jobs
 from src.orchestrator.fetchers.workday import fetch_workday_jobs
 
 __all__ = [
+    "fetch_adzuna_jobs",
     "fetch_ashby_jobs",
     "fetch_career_page_jobs",
     "fetch_github_repo_jobs",
