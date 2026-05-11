@@ -8,12 +8,12 @@ from pathlib import Path
 import pypdf
 import yaml
 
-from src.agents.resume_tailor_adk.schemas import EducationSection
-from src.agents.resume_tailor_adk.schemas import ExperienceSection
-from src.agents.resume_tailor_adk.schemas import PersonalSection
-from src.agents.resume_tailor_adk.schemas import ProjectsSection
-from src.agents.resume_tailor_adk.schemas import ResumeContent
-from src.agents.resume_tailor_adk.schemas import SkillsAchievementsSection
+from src.agents.resume_tailor.schemas import EducationSection
+from src.agents.resume_tailor.schemas import ExperienceSection
+from src.agents.resume_tailor.schemas import PersonalSection
+from src.agents.resume_tailor.schemas import ProjectsSection
+from src.agents.resume_tailor.schemas import ResumeContent
+from src.agents.resume_tailor.schemas import SkillsAchievementsSection
 
 
 def read_pdf_pages(raw_bytes: bytes) -> tuple[pypdf.PdfReader, list[str]]:

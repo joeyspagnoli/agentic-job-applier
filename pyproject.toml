@@ -17,6 +17,7 @@ dependencies = [
     "google-genai==1.60.0",
     "curl-cffi==0.15.0",
     "httpx==0.28.1",
+    "instructor==1.15.1",
     "litellm==1.82.1",
     "loguru==0.7.3",
     "markdownify==1.2.2",

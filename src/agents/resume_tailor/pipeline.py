@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from google.adk.agents import BaseAgent
 from loguru import logger
 
 from src.database.db_manager import DatabaseManager
@@ -36,17 +35,15 @@ from src.utils.cost_tracking import (
     record_stage_cost_event,
 )
 
-from .agents import (
-    REVIEWER_PROVIDER,
-    TAILOR_PROVIDER,
-    build_reviewer_agent,
-    build_tailor_agent,
-    extract_first_json_object,
+from .compiler import compile_resume_tex, get_pdf_page_count
+from .llm import (
+    LlmCallResult,
+    call_reviewer,
+    call_tailor,
+    call_trim,
     get_reviewer_model_name,
     get_tailor_model_name,
-    run_agent_once,
 )
-from .compiler import compile_resume_tex, get_pdf_page_count
 from .pipeline_schemas import (
     EDITABLE_SECTION_IDS,
     BulletEdit,
@@ -143,48 +140,6 @@ def _format_resume_for_prompt(
     payload = resume_content.model_dump(mode="json")
     body = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False, width=120)
     return f'<resume label="{label}">\n{body}\n</resume>'
-
-
-def _parse_tailor_output(raw_response: str) -> TailorOutput:
-    """Parse a raw tailor/trim model response into `TailorOutput`.
-
-    Purpose:
-        Survive responses that include preamble or fenced markdown by
-        recovering the first JSON object before validating.
-    Args:
-        raw_response: Full raw text returned by the tailor or trim agent.
-    Output:
-        Returns a validated `TailorOutput`.
-    Raises:
-        ValueError: When no JSON object can be recovered or it does not
-            match the expected schema.
-    """
-
-    parsed = extract_first_json_object(raw_response)
-    if parsed is None:
-        raise ValueError("tailor_invalid_json: no JSON object recovered")
-    return TailorOutput.model_validate(parsed)
-
-
-def _parse_reviewer_output(raw_response: str) -> ReviewerOutput:
-    """Parse a raw reviewer model response into `ReviewerOutput`.
-
-    Purpose:
-        Mirror `_parse_tailor_output` for the reviewer-side schema so
-        both agents share recovery semantics.
-    Args:
-        raw_response: Full raw text returned by the reviewer agent.
-    Output:
-        Returns a validated `ReviewerOutput`.
-    Raises:
-        ValueError: When no JSON object can be recovered or it does not
-            match the expected schema.
-    """
-
-    parsed = extract_first_json_object(raw_response)
-    if parsed is None:
-        raise ValueError("reviewer_invalid_json: no JSON object recovered")
-    return ReviewerOutput.model_validate(parsed)
 
 
 def _apply_edits_in_memory(
@@ -444,19 +399,25 @@ async def _record_cost(
     stage: str,
     job_hash: str,
     tailor_run_id: int,
-    metadata: dict[str, Any],
+    phase: str,
+    call_result: LlmCallResult[Any],
 ) -> None:
     """Best-effort wrapper around `record_stage_cost_event`.
 
     Purpose:
         Cost recording is observational — never let a recording failure
-        kill a real pipeline run.
+        kill a real pipeline run. Token usage flows in from the
+        Instructor result so per-call metadata stays accurate without a
+        second provider round-trip.
     Args:
         db: Connected database manager.
         stage: Pipeline stage constant (`TAILOR` or `REVIEW`).
         job_hash: Stable job identifier.
         tailor_run_id: Owning tailor run primary key.
-        metadata: Model/attempt metadata to attach to the event.
+        phase: Short label distinguishing tailor / trim / retailor /
+            two_way / three_way for analytics.
+        call_result: Result of the Instructor call whose tokens are
+            being recorded.
     Output:
         Returns `None`; errors are logged and swallowed.
     """
@@ -467,7 +428,13 @@ async def _record_cost(
             stage=stage,
             job_hash=job_hash,
             run_id=str(tailor_run_id),
-            metadata=metadata,
+            metadata={
+                "model": call_result.model,
+                "phase": phase,
+                "prompt_tokens": call_result.prompt_tokens,
+                "completion_tokens": call_result.completion_tokens,
+                "total_tokens": call_result.total_tokens,
+            },
         )
     except Exception as exc:
         logger.warning("Cost recording failed (stage={}): {}", stage, exc)
@@ -481,9 +448,6 @@ async def run_tailor_review_pipeline(
     base_resume_yaml_path: str | Path,
     candidate_profile_yaml_path: str | Path,
     output_dir: str | Path,
-    tailor_agent: Optional[BaseAgent] = None,
-    trim_agent: Optional[BaseAgent] = None,
-    reviewer_agent: Optional[BaseAgent] = None,
     record_costs: bool = True,
 ) -> TailorRunResult:
     """Run the full tailor → render → reviewer → pick pipeline.
@@ -501,10 +465,6 @@ async def run_tailor_review_pipeline(
         base_resume_yaml_path: Path to `config/resume_content.yaml`.
         candidate_profile_yaml_path: Path to `config/candidate_profile.yaml`.
         output_dir: Per-run artifact directory; each variant gets a subdir.
-        tailor_agent: Optional injected ADK agent (tests); built when omitted.
-        trim_agent: Optional injected trim agent (tests); built when omitted.
-        reviewer_agent: Optional injected reviewer agent (tests); built when
-            omitted.
         record_costs: When `True`, emit per-stage cost events.
     Output:
         Returns a populated `TailorRunResult`.
@@ -558,34 +518,23 @@ async def run_tailor_review_pipeline(
     )
     base_artifacts = (base_yaml_path, base_tex_path, base_pdf_path)
 
-    tailor_owned = tailor_agent
-    trim_owned = trim_agent
-    reviewer_owned = reviewer_agent
-
     try:
-        if tailor_owned is None:
-            tailor_owned = build_tailor_agent(mode="tailor")
         tailor_message = _build_tailor_message(
             job_block=job_block,
             base_resume=base_resume,
             candidate_profile_text=candidate_profile_text,
         )
-        tailor_response = await run_agent_once(
-            agent=tailor_owned, user_message=tailor_message
-        )
+        tailor_call = await call_tailor(tailor_message)
         if record_costs:
             await _record_cost(
                 db=db,
                 stage=PIPELINE_STAGE_TAILOR,
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
-                metadata={
-                    "provider": TAILOR_PROVIDER,
-                    "model": get_tailor_model_name(),
-                    "phase": "tailor",
-                },
+                phase="tailor",
+                call_result=tailor_call,
             )
-        tailor_output = _parse_tailor_output(tailor_response)
+        tailor_output = tailor_call.parsed
 
         tailored_v1, applied_v1 = _apply_edits_in_memory(base_resume, tailor_output.edits)
 
@@ -637,29 +586,22 @@ async def run_tailor_review_pipeline(
 
         # Page-fit trim pass — at most one extra LLM call.
         if v1_page_count > PAGE_LIMIT:
-            if trim_owned is None:
-                trim_owned = build_tailor_agent(mode="trim")
             trim_message = _build_trim_message(
                 job_block=job_block,
                 overflow_resume=tailored_v1,
                 measured_page_count=v1_page_count,
             )
-            trim_response = await run_agent_once(
-                agent=trim_owned, user_message=trim_message
-            )
+            trim_call = await call_trim(trim_message)
             if record_costs:
                 await _record_cost(
                     db=db,
                     stage=PIPELINE_STAGE_TAILOR,
                     job_hash=job_hash,
                     tailor_run_id=tailor_run_id,
-                    metadata={
-                        "provider": TAILOR_PROVIDER,
-                        "model": get_tailor_model_name(),
-                        "phase": "trim",
-                    },
+                    phase="trim",
+                    call_result=trim_call,
                 )
-            trim_output = _parse_tailor_output(trim_response)
+            trim_output = trim_call.parsed
             trimmed_v1, _ = _apply_edits_in_memory(tailored_v1, trim_output.edits)
             (
                 v1_yaml_path,
@@ -708,8 +650,6 @@ async def run_tailor_review_pipeline(
             )
 
         # Reviewer — 2-way base vs v1.
-        if reviewer_owned is None:
-            reviewer_owned = build_reviewer_agent()
         reviewer_message = _build_reviewer_message(
             job_block=job_block,
             base_resume=base_resume,
@@ -717,22 +657,17 @@ async def run_tailor_review_pipeline(
             tailored_v2=None,
             feedback_for_retry=None,
         )
-        reviewer_response = await run_agent_once(
-            agent=reviewer_owned, user_message=reviewer_message
-        )
+        reviewer_call = await call_reviewer(reviewer_message)
         if record_costs:
             await _record_cost(
                 db=db,
                 stage=PIPELINE_STAGE_REVIEW,
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
-                metadata={
-                    "provider": REVIEWER_PROVIDER,
-                    "model": get_reviewer_model_name(),
-                    "phase": "two_way",
-                },
+                phase="two_way",
+                call_result=reviewer_call,
             )
-        reviewer_output = _parse_reviewer_output(reviewer_response)
+        reviewer_output = reviewer_call.parsed
 
         tailored_v2: Optional[ResumeContent] = None
         v2_artifacts: Optional[tuple[Path, Path, Path]] = None
@@ -747,22 +682,17 @@ async def run_tailor_review_pipeline(
                 candidate_profile_text=candidate_profile_text,
                 retry_feedback=feedback,
             )
-            retry_response = await run_agent_once(
-                agent=tailor_owned, user_message=retry_message
-            )
+            retry_call = await call_tailor(retry_message)
             if record_costs:
                 await _record_cost(
                     db=db,
                     stage=PIPELINE_STAGE_TAILOR,
                     job_hash=job_hash,
                     tailor_run_id=tailor_run_id,
-                    metadata={
-                        "provider": TAILOR_PROVIDER,
-                        "model": get_tailor_model_name(),
-                        "phase": "retailor",
-                    },
+                    phase="retailor",
+                    call_result=retry_call,
                 )
-            retry_output = _parse_tailor_output(retry_response)
+            retry_output = retry_call.parsed
             candidate_v2, applied_v2 = _apply_edits_in_memory(
                 base_resume, retry_output.edits
             )
@@ -792,22 +722,17 @@ async def run_tailor_review_pipeline(
                 tailored_v2=tailored_v2,
                 feedback_for_retry=reviewer_output.feedback_for_retry,
             )
-            three_way_response = await run_agent_once(
-                agent=reviewer_owned, user_message=three_way_message
-            )
+            three_way_call = await call_reviewer(three_way_message)
             if record_costs:
                 await _record_cost(
                     db=db,
                     stage=PIPELINE_STAGE_REVIEW,
                     job_hash=job_hash,
                     tailor_run_id=tailor_run_id,
-                    metadata={
-                        "provider": REVIEWER_PROVIDER,
-                        "model": get_reviewer_model_name(),
-                        "phase": "three_way",
-                    },
+                    phase="three_way",
+                    call_result=three_way_call,
                 )
-            three_way_output = _parse_reviewer_output(three_way_response)
+            three_way_output = three_way_call.parsed
             final_verdict = three_way_output.verdict
             final_scores_base = three_way_output.scores_base
             final_scores_tailored = three_way_output.scores_tailored

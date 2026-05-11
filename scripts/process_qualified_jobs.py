@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Resume-tailor worker daemon driven by the ADK pipeline.
+"""Resume-tailor worker daemon driven by the resume-tailor pipeline.
 
 Reads `automation.tailor_mode` from `system_settings` on every poll cycle.
 When the mode is `autonomous` or `both`, claim one QUALIFIED job and run
-the new ADK pipeline (`src.agents.resume_tailor_adk.run_tailor_review_pipeline`).
+the new resume-tailor pipeline (`src.agents.resume_tailor.run_tailor_review_pipeline`).
 When the mode is `opt_in`, skip claiming entirely — the user triggers
 runs from the dashboard — but still sweep stale PENDING rows every cycle
 so crashed user-triggered runs are reaped.
@@ -28,7 +28,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
 
-from src.agents.resume_tailor_adk import (
+from src.agents.resume_tailor import (
     TailorRunResult,
     run_tailor_review_pipeline,
 )
@@ -116,7 +116,7 @@ def _check_preflight() -> None:
 
     Purpose:
         Fail fast on missing dependencies before the worker tries its
-        first claim. The ADK pipeline only needs `latexmk` locally; the
+        first claim. The resume-tailor pipeline only needs `latexmk` locally; the
         pi binary is no longer required.
     Args:
         None.
@@ -198,7 +198,7 @@ async def _tailor_once(
     max_retries: int,
     lease_seconds: int,
 ) -> int:
-    """Claim and run the ADK pipeline for one QUALIFIED job.
+    """Claim and run the resume-tailor pipeline for one QUALIFIED job.
 
     Purpose:
         Wire one cycle of the worker: budget guard → claim → pipeline.
@@ -392,7 +392,7 @@ async def main() -> None:
         return
 
     parser = argparse.ArgumentParser(
-        description="Process QUALIFIED jobs through the ADK resume tailor pipeline",
+        description="Process QUALIFIED jobs through the resume tailor pipeline",
     )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--loop", action="store_true", help="Poll forever")

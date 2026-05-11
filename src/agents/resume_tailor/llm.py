@@ -1,0 +1,316 @@
+"""Instructor-backed LLM calls for the tailor, trim, and reviewer stages.
+
+Each public function takes a fully assembled user message, sends it to
+the configured model, validates the response against the corresponding
+Pydantic schema, and returns the parsed object alongside token usage
+for cost tracking. Instructor handles validation re-asks automatically:
+when the model returns malformed JSON or a payload that fails Pydantic
+validation, the library re-prompts with the error attached, up to
+`INSTRUCTOR_MAX_RETRIES` times.
+
+Provider selection is driven by env vars so the rest of the pipeline
+does not need to know whether OpenAI, Anthropic, or another backend is
+in use. The default is OpenAI's `gpt-5.1-codex-mini`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from dataclasses import dataclass
+from typing import Any, Generic, Type, TypeVar
+
+import instructor
+from loguru import logger
+from openai import OpenAI
+
+from .pipeline_schemas import ReviewerOutput, TailorOutput
+from .prompts import REVIEWER_INSTRUCTION, TAILOR_INSTRUCTION, TRIM_INSTRUCTION
+
+DEFAULT_TAILOR_MODEL = "openai/gpt-5.1-codex-mini"
+DEFAULT_REVIEWER_MODEL = "openai/gpt-5.1-codex-mini"
+
+TAILOR_MODEL_ENV_VAR = "RESUME_TAILOR_MODEL"
+REVIEWER_MODEL_ENV_VAR = "RESUME_REVIEWER_MODEL"
+
+INSTRUCTOR_MAX_RETRIES = 3
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class LlmCallResult(Generic[T]):
+    """Result of one structured LLM call.
+
+    Purpose:
+        Bundle the parsed Pydantic response with the raw token usage
+        metadata so the pipeline can record cost telemetry without
+        re-querying the provider.
+    """
+
+    parsed: T
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    model: str
+
+
+def get_tailor_model_name() -> str:
+    """Return the tailor model identifier, honoring env override.
+
+    Purpose:
+        Centralize model resolution so the client factory and cost
+        metadata observers see the same string.
+    Args:
+        None.
+    Output:
+        Returns the fully qualified provider/model identifier.
+    """
+
+    return os.getenv(TAILOR_MODEL_ENV_VAR, "").strip() or DEFAULT_TAILOR_MODEL
+
+
+def get_reviewer_model_name() -> str:
+    """Return the reviewer model identifier, honoring env override.
+
+    Purpose:
+        Centralize model resolution for the reviewer call path.
+    Args:
+        None.
+    Output:
+        Returns the fully qualified provider/model identifier.
+    """
+
+    return os.getenv(REVIEWER_MODEL_ENV_VAR, "").strip() or DEFAULT_REVIEWER_MODEL
+
+
+def _split_provider_and_model(qualified: str) -> tuple[str, str]:
+    """Split a `provider/model` identifier into its two parts.
+
+    Purpose:
+        Validate the identifier shape and fail fast when a model name
+        without a provider prefix is supplied.
+    Args:
+        qualified: String of the form `provider/model-name`.
+    Output:
+        Returns `(provider, model)` with both parts non-empty.
+    Raises:
+        ValueError: When the identifier does not contain a `/` or either
+            side is empty.
+    """
+
+    if "/" not in qualified:
+        raise ValueError(
+            f"Model identifier must be 'provider/model', got {qualified!r}"
+        )
+    provider, _, model = qualified.partition("/")
+    provider = provider.strip()
+    model = model.strip()
+    if not provider or not model:
+        raise ValueError(
+            f"Model identifier must be 'provider/model', got {qualified!r}"
+        )
+    return provider, model
+
+
+def _build_client(qualified_model: str) -> tuple[Any, str]:
+    """Build an Instructor-patched client for the given provider/model.
+
+    Purpose:
+        Keep credential checks and provider-client selection in one
+        place. Only OpenAI is wired today; Anthropic / Gemini can be
+        added by extending the provider match without touching call sites.
+    Args:
+        qualified_model: Identifier of the form `provider/model-name`.
+    Output:
+        Returns `(instructor_client, bare_model_name)`.
+    Raises:
+        RuntimeError: When the provider's API key is missing.
+        ValueError: When the provider is not supported.
+    """
+
+    provider, bare_model = _split_provider_and_model(qualified_model)
+
+    if provider == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set; resume-tailor LLM calls cannot run."
+            )
+        client = instructor.from_openai(OpenAI())
+        return client, bare_model
+
+    raise ValueError(
+        f"Unsupported provider {provider!r} in model identifier {qualified_model!r}"
+    )
+
+
+def _extract_usage(raw_completion: Any) -> tuple[int, int, int]:
+    """Pull token usage out of a raw completion object.
+
+    Purpose:
+        Instructor returns the underlying provider response object
+        alongside the parsed Pydantic model; this helper normalizes the
+        usage triple across providers that report it slightly differently.
+    Args:
+        raw_completion: Raw completion returned by
+            `create_with_completion`.
+    Output:
+        Returns `(prompt_tokens, completion_tokens, total_tokens)` with
+        any missing field coerced to `0`.
+    """
+
+    usage = getattr(raw_completion, "usage", None)
+    if usage is None:
+        return 0, 0, 0
+    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion = int(getattr(usage, "completion_tokens", 0) or 0)
+    total = int(getattr(usage, "total_tokens", prompt + completion) or 0)
+    return prompt, completion, total
+
+
+def _structured_call_sync(
+    *,
+    qualified_model: str,
+    system_prompt: str,
+    user_message: str,
+    response_model: Type[T],
+) -> LlmCallResult[T]:
+    """Synchronous body of one structured Instructor call.
+
+    Purpose:
+        Encapsulate the common shape of every tailor/trim/reviewer call
+        so the public async functions stay one-liners.
+    Args:
+        qualified_model: `provider/model` identifier.
+        system_prompt: System-role instruction for the model.
+        user_message: User-role payload (job posting, resume, etc.).
+        response_model: Pydantic class the response must validate against.
+    Output:
+        Returns an `LlmCallResult[T]` carrying the parsed model and the
+        token usage triple.
+    Raises:
+        RuntimeError: When the provider key is missing.
+        ValidationError: When Instructor cannot recover a valid response
+            after `INSTRUCTOR_MAX_RETRIES` attempts.
+    """
+
+    client, bare_model = _build_client(qualified_model)
+    parsed, raw_completion = client.chat.completions.create_with_completion(
+        model=bare_model,
+        response_model=response_model,
+        max_retries=INSTRUCTOR_MAX_RETRIES,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+    )
+    prompt_tokens, completion_tokens, total_tokens = _extract_usage(raw_completion)
+    logger.debug(
+        "LLM call: model={} prompt_tokens={} completion_tokens={}",
+        qualified_model,
+        prompt_tokens,
+        completion_tokens,
+    )
+    return LlmCallResult(
+        parsed=parsed,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        model=qualified_model,
+    )
+
+
+async def _structured_call(
+    *,
+    qualified_model: str,
+    system_prompt: str,
+    user_message: str,
+    response_model: Type[T],
+) -> LlmCallResult[T]:
+    """Async-safe wrapper that offloads the blocking call to a thread.
+
+    Purpose:
+        Instructor's synchronous client wraps the OpenAI HTTP client,
+        which blocks. Running it directly inside the FastAPI / worker
+        event loop would stall every other coroutine. `asyncio.to_thread`
+        keeps the call off the main loop.
+    Args:
+        qualified_model: `provider/model` identifier.
+        system_prompt: System-role instruction for the model.
+        user_message: User-role payload.
+        response_model: Pydantic class the response must validate against.
+    Output:
+        Returns an `LlmCallResult[T]`.
+    """
+
+    return await asyncio.to_thread(
+        _structured_call_sync,
+        qualified_model=qualified_model,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        response_model=response_model,
+    )
+
+
+async def call_tailor(user_message: str) -> LlmCallResult[TailorOutput]:
+    """Run the tailor stage on one user message.
+
+    Purpose:
+        Produce the initial set of bullet edits proposed for the target
+        job posting.
+    Args:
+        user_message: Fully assembled prompt body including job posting,
+            candidate profile, and base resume.
+    Output:
+        Returns an `LlmCallResult[TailorOutput]`.
+    """
+
+    return await _structured_call(
+        qualified_model=get_tailor_model_name(),
+        system_prompt=TAILOR_INSTRUCTION,
+        user_message=user_message,
+        response_model=TailorOutput,
+    )
+
+
+async def call_trim(user_message: str) -> LlmCallResult[TailorOutput]:
+    """Run the page-fit trim stage on one user message.
+
+    Purpose:
+        Shorten an overflowing tailored variant while preserving the
+        strongest content.
+    Args:
+        user_message: Fully assembled prompt body including job posting,
+            the overflowing resume, and the measured page count.
+    Output:
+        Returns an `LlmCallResult[TailorOutput]`.
+    """
+
+    return await _structured_call(
+        qualified_model=get_tailor_model_name(),
+        system_prompt=TRIM_INSTRUCTION,
+        user_message=user_message,
+        response_model=TailorOutput,
+    )
+
+
+async def call_reviewer(user_message: str) -> LlmCallResult[ReviewerOutput]:
+    """Run the reviewer stage on one user message.
+
+    Purpose:
+        Score base + tailored variants and pick the strongest one for
+        the target job. Supports both 2-way and 3-way comparisons via
+        the assembled prompt content.
+    Args:
+        user_message: Fully assembled prompt body including job posting
+            and each resume variant.
+    Output:
+        Returns an `LlmCallResult[ReviewerOutput]`.
+    """
+
+    return await _structured_call(
+        qualified_model=get_reviewer_model_name(),
+        system_prompt=REVIEWER_INSTRUCTION,
+        user_message=user_message,
+        response_model=ReviewerOutput,
+    )

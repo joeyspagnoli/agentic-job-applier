@@ -308,10 +308,10 @@ class ReviewMixin(_BaseMixin):
         fallback_base_tex_path: str | None,
         fallback_base_pdf_path: str | None,
     ) -> int:
-        """Insert one SUCCESS review_runs row for the ADK pipeline.
+        """Insert one SUCCESS review_runs row for the resume-tailor pipeline.
 
         Purpose:
-            The new ADK pipeline runs tailor and review in one process,
+            The new resume-tailor pipeline runs tailor and review in one process,
             so it does not use the per-stage claim-token dance of the old
             split workers. This helper writes the final review verdict and
             artifact pointers directly without forcing the caller through

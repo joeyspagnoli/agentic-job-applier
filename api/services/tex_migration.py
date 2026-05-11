@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from src.agents.resume_tailor_adk.schemas import ResumeContent
+from src.agents.resume_tailor.schemas import ResumeContent
 
 from api.config import PERSONAL_CONTACT_PATTERN
 from api.config import PERSONAL_NAME_PATTERN
