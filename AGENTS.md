@@ -37,16 +37,22 @@
 - Opt-in live model end-to-end tests: `uv run pytest -q --run-live-agent-e2e -m live_agent_e2e`
 - Live model tests require `OPENAI_API_KEY` and are skipped unless `--run-live-agent-e2e` is passed.
 
-## Resume Tailor Worker (Autonomous Runtime)
-- `scripts/process_qualified_jobs.py`: Claims QUALIFIED jobs from the database and invokes the pi-mono resume tailor pipeline (`run_resume_tailor_pipeline`) for each one.
-- Tracks state in a separate `tailor_runs` table (PENDING → SUCCESS/FAILED) with retry backoff.
-- The worker restores `config/resume_content.yaml` to its baseline state after every run (success or failure) so sequential jobs start from a clean YAML.
-- Preflight checks validate `pi` command, `latexmk`, and database path availability before entering the loop.
-- Generated artifacts land in `<TAILOR_OUTPUT_DIR>/<job_hash>/resume_tailored.{tex,pdf}` (default `data/tailored_resumes/...`).
+## Resume Tailor Worker (Per-Stage Mode)
+- `scripts/process_qualified_jobs.py`: Polls the database and, on every cycle, sweeps stale tailor runs and reads `automation.tailor_mode` from `system_settings`.
+- When the mode is `autonomous` or `both` the worker claims one QUALIFIED job and runs `src.agents.resume_tailor_adk.run_tailor_review_pipeline`. When the mode is `opt_in` the worker idles — user-triggered runs from the dashboard are the only way to tailor.
+- The ADK pipeline operates only on an in-memory copy of `config/resume_content.yaml`; the on-disk YAML is never mutated by a tailor run.
+- State lives in `tailor_runs` (PENDING → RUNNING → SUCCESS/FAILED, plus a `deleted_at` soft-delete column) and `review_runs` (verdicts: PASS, TAILORED, BASE, FAIL, NO_IMPROVEMENT, PAGE_FIT_FAILED).
+- Preflight only requires `latexmk` and a resolvable database path; the pi binary is no longer used.
+- Generated artifacts land in `<TAILOR_OUTPUT_DIR>/<job_hash>/{base,tailored_v1,tailored_v2}/...` (default `data/tailored_resumes/...`).
 - Systemd unit: `deploy/job-tailor-worker.service`.
-- Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_RETRY_BACKOFF_SECONDS`, `TAILOR_RETRY_BACKOFF_MULTIPLIER`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`.
+- Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`, `RESUME_TAILOR_MODEL`, `RESUME_REVIEWER_MODEL`, plus `TAILOR_MODE` / `REVIEW_MODE` for first-boot seeding of the per-stage modes.
+
+## Opt-In API Surface
+- `POST /api/jobs/{job_hash}/tailor` enqueues a FastAPI BackgroundTask that runs the same `run_tailor_review_pipeline`. Returns 409 when `tailor_mode=autonomous` or when a non-deleted run already exists.
+- `GET /api/tailor-runs/{id}` and `DELETE /api/tailor-runs/{id}` back the JobsPage row's polling and "delete & retry" buttons.
+- `GET/PATCH /api/system-settings/automation` drive the Automation card on the Settings page. The worker re-reads the modes on every poll cycle, so flips take effect within one cycle without a restart.
 
 ## Autonomy End Goal
-- End goal: this repository should be cloneable on a home server, configured once, and then run autonomously to discover jobs and execute the full workflow through job application.
-- The system may run asynchronously or in batches, but it should not require day-to-day operator intervention.
+- This repository can be cloneable on a home server, configured once, and run autonomously through discovery → gate → tailor → review → apply.
+- Per-stage modes (`autonomous | opt_in | both`) let users dial in how much of that pipeline runs without their intervention — power users keep gate=autonomous + tailor=opt_in if they want manual control of the costly stages while letting discovery run on its own.
 - Ongoing human involvement should be limited to updating preferences, the base resume, and reference files.
