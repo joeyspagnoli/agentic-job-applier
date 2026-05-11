@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from scripts import run_resume_tailor as run_tailor_script
-from src.agents.resume_tailor_pi.schemas import TailorRunResult
+from src.agents.resume_tailor_adk.schemas import TailorRunResult
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
 

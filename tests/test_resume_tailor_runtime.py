@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agents.resume_tailor_pi.schemas import TailorInvocationContract
+from src.agents.resume_tailor_adk.schemas import TailorInvocationContract
 from src.agents.resume_tailor_pi import runtime as runtime_module
 
 

@@ -294,6 +294,78 @@ class ReviewMixin(_BaseMixin):
         merged_row["_review_claim_token"] = review_row["claim_token"]
         return merged_row
 
+    async def insert_pipeline_review_run(
+        self,
+        *,
+        job_hash: str,
+        tailor_run_id: int,
+        verdict: str,
+        selected_yaml_path: str | None,
+        selected_tex_path: str | None,
+        selected_pdf_path: str | None,
+        review_report_json: str | None,
+        fallback_base_yaml_path: str | None,
+        fallback_base_tex_path: str | None,
+        fallback_base_pdf_path: str | None,
+    ) -> int:
+        """Insert one SUCCESS review_runs row for the ADK pipeline.
+
+        Purpose:
+            The new ADK pipeline runs tailor and review in one process,
+            so it does not use the per-stage claim-token dance of the old
+            split workers. This helper writes the final review verdict and
+            artifact pointers directly without forcing the caller through
+            `claim_next_review_job`.
+        Args:
+            self: The database manager performing the insert.
+            job_hash: Stable deduplication hash of the target job.
+            tailor_run_id: Owning tailor run primary key.
+            verdict: Final reviewer verdict — one of
+                `PASS | TAILORED | BASE | FAIL | NO_IMPROVEMENT | PAGE_FIT_FAILED`.
+            selected_yaml_path: Filesystem path to the selected resume YAML.
+            selected_tex_path: Filesystem path to the selected resume TeX.
+            selected_pdf_path: Filesystem path to the selected resume PDF.
+            review_report_json: Serialized reviewer scores/rationale, or `None`.
+            fallback_base_yaml_path: Base YAML path stored when serving base.
+            fallback_base_tex_path: Base TeX path stored when serving base.
+            fallback_base_pdf_path: Base PDF path stored when serving base.
+        Output:
+            Returns the primary key of the inserted review_runs row.
+        """
+
+        await self._ensure_review_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            INSERT INTO review_runs (
+                job_hash, tailor_run_id, status, verdict,
+                selected_yaml_path, selected_tex_path, selected_pdf_path,
+                review_report_json,
+                fallback_base_yaml_path, fallback_base_tex_path, fallback_base_pdf_path,
+                completed_at
+            )
+            VALUES (?, ?, 'SUCCESS', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            RETURNING id
+            """,
+            (
+                job_hash,
+                tailor_run_id,
+                verdict,
+                selected_yaml_path,
+                selected_tex_path,
+                selected_pdf_path,
+                review_report_json,
+                fallback_base_yaml_path,
+                fallback_base_tex_path,
+                fallback_base_pdf_path,
+            ),
+        )
+        row = await cursor.fetchone()
+        await conn.commit()
+        if row is None:
+            raise RuntimeError("INSERT into review_runs did not return an id")
+        return int(row["id"])
+
     async def record_review_success(
         self,
         *,

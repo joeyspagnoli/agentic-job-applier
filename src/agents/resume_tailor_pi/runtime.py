@@ -16,18 +16,18 @@ from pathlib import Path
 
 import yaml
 
-from .compiler import compile_resume_tex
-from .compiler import get_pdf_page_count
+from src.agents.resume_tailor_adk.compiler import compile_resume_tex
+from src.agents.resume_tailor_adk.compiler import get_pdf_page_count
 from .prompts import build_tailor_instruction
-from .renderer import render_resume_yaml_to_tex
-from .schemas import ResumeContent
-from .schemas import TailorAttemptRecord
-from .schemas import TailorInvocationContract
-from .schemas import TailorRunResult
-from .schemas import build_locked_section_snapshot
-from .schemas import ensure_locked_sections_unchanged
-from .yaml_io import load_resume_yaml
-from .yaml_io import save_resume_yaml
+from src.agents.resume_tailor_adk.renderer import render_resume_yaml_to_tex
+from src.agents.resume_tailor_adk.schemas import ResumeContent
+from src.agents.resume_tailor_adk.schemas import TailorAttemptRecord
+from src.agents.resume_tailor_adk.schemas import TailorInvocationContract
+from src.agents.resume_tailor_adk.schemas import TailorRunResult
+from src.agents.resume_tailor_adk.schemas import build_locked_section_snapshot
+from src.agents.resume_tailor_adk.schemas import ensure_locked_sections_unchanged
+from src.agents.resume_tailor_adk.yaml_io import load_resume_yaml
+from src.agents.resume_tailor_adk.yaml_io import save_resume_yaml
 
 DEFAULT_BRANCH_TIME_FORMAT = "%Y%m%d-%H%M%S"
 DEFAULT_PI_ARGV_COMMAND_ENV = "PI_CODING_AGENT_COMMAND_ARGV"

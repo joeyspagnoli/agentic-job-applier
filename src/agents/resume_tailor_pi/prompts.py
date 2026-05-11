@@ -10,7 +10,7 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 
-from .schemas import TailorInvocationContract
+from src.agents.resume_tailor_adk.schemas import TailorInvocationContract
 
 BASE_SYSTEM_PROMPT = """
 You are the Pi-Mono Resume Tailor operating on a YAML-canonical resume.
