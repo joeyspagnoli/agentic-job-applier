@@ -200,6 +200,20 @@ export function JobsPage({ hasTailorRunFilter = false }: JobsPageProps = {}): JS
         pageSize: PAGE_SIZE,
         hasTailorRun: hasTailorRunFilter,
       }),
+    // Auto-refetch every 5s while any visible row has an in-flight tailor run
+    // (PENDING or RUNNING). Without this the row sits on "Tailoring…" until
+    // the user navigates away and back.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data === undefined) {
+        return false;
+      }
+      const hasActive = data.items.some((item) => {
+        const status = item.tailor_run?.status;
+        return status === "PENDING" || status === "RUNNING";
+      });
+      return hasActive ? 5000 : false;
+    },
   });
 
   const rows = useMemo(() => (jobsQuery.data ? toJobsRows(jobsQuery.data) : []), [jobsQuery.data]);
