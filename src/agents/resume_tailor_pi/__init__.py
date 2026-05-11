@@ -1,8 +1,8 @@
 """Pi-mono YAML-canonical resume tailor package."""
 
 from .runtime import run_resume_tailor_pipeline
-from .schemas import TailorInvocationContract
-from .schemas import TailorRunResult
+from src.agents.resume_tailor_adk.schemas import TailorInvocationContract
+from src.agents.resume_tailor_adk.schemas import TailorRunResult
 
 __all__ = [
     "TailorInvocationContract",

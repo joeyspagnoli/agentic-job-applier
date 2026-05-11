@@ -12,19 +12,19 @@ import argparse
 import re
 from pathlib import Path
 
-from src.agents.resume_tailor_pi.schemas import EducationEntry
-from src.agents.resume_tailor_pi.schemas import EducationSection
-from src.agents.resume_tailor_pi.schemas import ExperienceListing
-from src.agents.resume_tailor_pi.schemas import ExperienceSection
-from src.agents.resume_tailor_pi.schemas import PersonalSection
-from src.agents.resume_tailor_pi.schemas import ProjectListing
-from src.agents.resume_tailor_pi.schemas import ProjectsSection
-from src.agents.resume_tailor_pi.schemas import ResumeBullet
-from src.agents.resume_tailor_pi.schemas import ResumeContent
-from src.agents.resume_tailor_pi.schemas import ResumeLink
-from src.agents.resume_tailor_pi.schemas import SkillListing
-from src.agents.resume_tailor_pi.schemas import SkillsAchievementsSection
-from src.agents.resume_tailor_pi.yaml_io import save_resume_yaml
+from src.agents.resume_tailor_adk.schemas import EducationEntry
+from src.agents.resume_tailor_adk.schemas import EducationSection
+from src.agents.resume_tailor_adk.schemas import ExperienceListing
+from src.agents.resume_tailor_adk.schemas import ExperienceSection
+from src.agents.resume_tailor_adk.schemas import PersonalSection
+from src.agents.resume_tailor_adk.schemas import ProjectListing
+from src.agents.resume_tailor_adk.schemas import ProjectsSection
+from src.agents.resume_tailor_adk.schemas import ResumeBullet
+from src.agents.resume_tailor_adk.schemas import ResumeContent
+from src.agents.resume_tailor_adk.schemas import ResumeLink
+from src.agents.resume_tailor_adk.schemas import SkillListing
+from src.agents.resume_tailor_adk.schemas import SkillsAchievementsSection
+from src.agents.resume_tailor_adk.yaml_io import save_resume_yaml
 from src.utils.paths import resolve_repo_root
 
 SECTION_HEADER_PATTERN = re.compile(r"\\section\{\\textbf\{(?P<heading>[^}]+)\}\}")

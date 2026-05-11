@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.agents.resume_tailor_pi.prompts import build_tailor_instruction
-from src.agents.resume_tailor_pi.schemas import TailorInvocationContract
+from src.agents.resume_tailor_adk.schemas import TailorInvocationContract
 
 
 def test_tailor_prompt_includes_database_path_and_recovery_commands(

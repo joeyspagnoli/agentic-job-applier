@@ -30,8 +30,8 @@ from loguru import logger
 from src.agents.resume_review_pi import ReviewInvocationContract
 from src.agents.resume_review_pi import ReviewRunResult
 from src.agents.resume_review_pi import run_resume_review_pipeline
-from src.agents.resume_tailor_pi.compiler import compile_resume_tex
-from src.agents.resume_tailor_pi.renderer import render_resume_yaml_to_tex
+from src.agents.resume_tailor_adk.compiler import compile_resume_tex
+from src.agents.resume_tailor_adk.renderer import render_resume_yaml_to_tex
 from src.database.db_manager import ClaimOwnershipError
 from src.database.db_manager import DEFAULT_REVIEW_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager

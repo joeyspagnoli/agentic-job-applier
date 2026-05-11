@@ -7,8 +7,8 @@ from fastapi import File
 from fastapi import UploadFile
 from fastapi.responses import FileResponse
 
-from src.agents.resume_tailor_pi.schemas import validate_locked_structure
-from src.agents.resume_tailor_pi.yaml_io import save_resume_yaml
+from src.agents.resume_tailor_adk.schemas import validate_locked_structure
+from src.agents.resume_tailor_adk.yaml_io import save_resume_yaml
 
 from scripts.migrate_resume_tex_to_yaml import ResumeMigrationError
 

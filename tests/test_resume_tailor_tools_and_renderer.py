@@ -13,13 +13,13 @@ from typing import Any
 
 import pytest
 
-from src.agents.resume_tailor_pi.compiler import get_pdf_page_count
-from src.agents.resume_tailor_pi.renderer import render_resume_yaml_to_tex
-from src.agents.resume_tailor_pi.schemas import build_locked_section_snapshot
-from src.agents.resume_tailor_pi.schemas import ensure_locked_sections_unchanged
+from src.agents.resume_tailor_adk.compiler import get_pdf_page_count
+from src.agents.resume_tailor_adk.renderer import render_resume_yaml_to_tex
+from src.agents.resume_tailor_adk.schemas import build_locked_section_snapshot
+from src.agents.resume_tailor_adk.schemas import ensure_locked_sections_unchanged
 from src.agents.resume_tailor_pi.tools import db_get_job_context
-from src.agents.resume_tailor_pi.yaml_io import load_resume_yaml
-from src.agents.resume_tailor_pi.yaml_io import save_resume_yaml
+from src.agents.resume_tailor_adk.yaml_io import load_resume_yaml
+from src.agents.resume_tailor_adk.yaml_io import save_resume_yaml
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
 

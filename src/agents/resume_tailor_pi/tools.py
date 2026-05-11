@@ -14,11 +14,11 @@ from typing import Any
 
 from src.database.db_manager import DatabaseManager
 
-from .compiler import compile_resume_tex
-from .compiler import get_pdf_page_count
-from .renderer import render_resume_yaml_to_tex
-from .yaml_io import load_resume_yaml_dict
-from .yaml_io import save_resume_yaml_dict
+from src.agents.resume_tailor_adk.compiler import compile_resume_tex
+from src.agents.resume_tailor_adk.compiler import get_pdf_page_count
+from src.agents.resume_tailor_adk.renderer import render_resume_yaml_to_tex
+from src.agents.resume_tailor_adk.yaml_io import load_resume_yaml_dict
+from src.agents.resume_tailor_adk.yaml_io import save_resume_yaml_dict
 
 
 async def db_get_job_context(

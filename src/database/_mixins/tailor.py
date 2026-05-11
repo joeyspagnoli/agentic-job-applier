@@ -291,6 +291,32 @@ class TailorMixin(_BaseMixin):
         merged["_tailor_claim_token"] = run_row["claim_token"]
         return merged
 
+    async def mark_tailor_running(self, *, run_id: int) -> None:
+        """Transition one tailor run from PENDING to RUNNING.
+
+        Purpose:
+            Surface in-flight state to the dashboard so the JobsPage row
+            can render a spinner instead of a stale "pending" label. The
+            transition is a no-op when the row is not currently PENDING.
+        Args:
+            self: The database manager performing the transition.
+            run_id: Primary key of the tailor_runs row.
+        Output:
+            Returns `None` after the conditional update commits.
+        """
+
+        await self._ensure_tailor_schema_ready()
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            UPDATE tailor_runs
+            SET status = 'RUNNING'
+            WHERE id = ? AND status = 'PENDING'
+            """,
+            (run_id,),
+        )
+        await conn.commit()
+
     async def record_tailor_success(
         self,
         *,
@@ -328,7 +354,7 @@ class TailorMixin(_BaseMixin):
                 page_count = ?,
                 completed_at = CURRENT_TIMESTAMP,
                 next_retry_at = NULL
-            WHERE id = ?
+            WHERE id = ? AND status IN ('PENDING', 'RUNNING')
             """,
             (
                 artifact_yaml_path,
@@ -371,7 +397,7 @@ class TailorMixin(_BaseMixin):
                 error = ?,
                 next_retry_at = ?,
                 completed_at = CURRENT_TIMESTAMP
-            WHERE id = ?
+            WHERE id = ? AND status IN ('PENDING', 'RUNNING')
             """,
             (error, next_retry_at, run_id),
         )
