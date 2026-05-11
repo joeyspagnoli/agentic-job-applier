@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS daily_stats (
 CREATE TABLE IF NOT EXISTS tailor_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_hash TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING, SUCCESS, FAILED
+    status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING, RUNNING, SUCCESS, FAILED
     artifact_yaml_path TEXT,
     artifact_tex_path TEXT,
     artifact_pdf_path TEXT,
@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS tailor_runs (
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     claim_token TEXT,
-    CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED'))
+    deleted_at TIMESTAMP,
+    CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED'))
 );
 CREATE INDEX IF NOT EXISTS idx_tailor_runs_job_hash ON tailor_runs(job_hash);
 CREATE INDEX IF NOT EXISTS idx_tailor_runs_status ON tailor_runs(status);
@@ -143,7 +144,9 @@ CREATE TABLE IF NOT EXISTS review_runs (
     completed_at TIMESTAMP,
     claim_token TEXT,
     CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-    CHECK (verdict IS NULL OR verdict IN ('PASS', 'TAILORED', 'BASE', 'FAIL'))
+    CHECK (verdict IS NULL OR verdict IN (
+        'PASS', 'TAILORED', 'BASE', 'FAIL', 'NO_IMPROVEMENT', 'PAGE_FIT_FAILED'
+    ))
 );
 CREATE INDEX IF NOT EXISTS idx_review_runs_job_hash ON review_runs(job_hash);
 CREATE INDEX IF NOT EXISTS idx_review_runs_status ON review_runs(status);

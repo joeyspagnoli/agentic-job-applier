@@ -38,6 +38,7 @@ class _BaseMixin:
     _review_schema_ready: bool
     _apply_schema_ready: bool
     _cost_schema_ready: bool
+    _system_settings_schema_ready: bool
 
     def _require_conn(self) -> aiosqlite.Connection:
         """Return the active SQLite connection or fail fast.

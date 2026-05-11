@@ -15,6 +15,7 @@ from src.database._mixins.costs import CostsMixin
 from src.database._mixins.failure_resets import FailureResetsMixin
 from src.database._mixins.jobs import JobsMixin
 from src.database._mixins.review import ReviewMixin
+from src.database._mixins.system_settings import SystemSettingsMixin
 from src.database._mixins.tailor import TailorMixin
 from src.database._mixins.telemetry import TelemetryMixin
 
@@ -25,6 +26,7 @@ __all__ = [
     "FailureResetsMixin",
     "JobsMixin",
     "ReviewMixin",
+    "SystemSettingsMixin",
     "TailorMixin",
     "TelemetryMixin",
     "_BaseMixin",

@@ -44,6 +44,7 @@ from src.database._mixins.review import (
     ClaimOwnershipError,
     ReviewMixin,
 )
+from src.database._mixins.system_settings import SystemSettingsMixin
 from src.database._mixins.tailor import (
     DEFAULT_TAILOR_CLAIM_LEASE_SECONDS,
     TailorMixin,
@@ -78,6 +79,7 @@ class DatabaseManager(
     ApplyMixin,
     CostsMixin,
     FailureResetsMixin,
+    SystemSettingsMixin,
 ):
     """Async SQLite database manager for job postings and crawl metadata.
 
@@ -116,6 +118,7 @@ class DatabaseManager(
         self._review_schema_ready = False
         self._apply_schema_ready = False
         self._cost_schema_ready = False
+        self._system_settings_schema_ready = False
 
     async def connect(self) -> None:
         """Open the SQLite connection and apply connection-level pragmas.
@@ -140,6 +143,7 @@ class DatabaseManager(
         self._review_schema_ready = False
         self._apply_schema_ready = False
         self._cost_schema_ready = False
+        self._system_settings_schema_ready = False
 
         # These pragmas reduce lock contention during timer-driven runs while
         # still keeping the database simple and file-backed.
@@ -178,6 +182,13 @@ class DatabaseManager(
 
         await conn.executescript(schema)
         await conn.commit()
+
+        # Mixin migrations handle schema additions that post-date schema.sql so
+        # existing databases pick up new columns/CHECKs without manual steps.
+        await self.migrate_tailor_schema()
+        await self.migrate_review_schema()
+        await self.migrate_system_settings_schema()
+        await self.seed_automation_defaults_from_env()
 
     async def close(self) -> None:
         """Close the active SQLite connection if one exists.
