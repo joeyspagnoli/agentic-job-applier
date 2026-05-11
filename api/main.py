@@ -50,6 +50,8 @@ from api.routers import settings_profile as settings_profile_router
 from api.routers import settings_provider as settings_provider_router
 from api.routers import settings_resume as settings_resume_router
 from api.routers import system as system_router
+from api.routers import system_settings as system_settings_router
+from api.routers import tailor_runs as tailor_runs_router
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,8 @@ app.include_router(settings_filters_router.router)
 app.include_router(settings_profile_router.router)
 app.include_router(settings_provider_router.router)
 app.include_router(settings_resume_router.router)
+app.include_router(system_settings_router.router)
+app.include_router(tailor_runs_router.router)
 
 
 @app.exception_handler(HTTPException)

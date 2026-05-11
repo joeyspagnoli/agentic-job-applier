@@ -39,6 +39,8 @@ async def get_jobs(
     page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     status: str | None = Query(default=None),
     source: str | None = Query(default=None),
+    has_tailor_run: bool = Query(default=False),
+    tailor_state: str | None = Query(default=None),
 ) -> dict[str, object]:
     """Return paginated jobs table rows with expandable-detail metadata.
 
@@ -73,6 +75,20 @@ async def get_jobs(
         source_clause, source_params = _source_filter_sql(source)
         filters.append(source_clause)
         params.extend(source_params)
+
+    if has_tailor_run:
+        filters.append(
+            "EXISTS (SELECT 1 FROM tailor_runs tr "
+            "WHERE tr.job_hash = jp.job_hash AND tr.deleted_at IS NULL)"
+        )
+        if tailor_state is not None and tailor_state.strip() != "":
+            filters.append(
+                "EXISTS (SELECT 1 FROM tailor_runs tr "
+                "WHERE tr.job_hash = jp.job_hash "
+                "  AND tr.deleted_at IS NULL "
+                "  AND tr.status = ?)"
+            )
+            params.append(tailor_state.strip().upper())
 
     where_clause = ""
     if filters:
@@ -143,7 +159,43 @@ async def get_jobs(
                     SELECT 1 FROM apply_handoffs ah
                     WHERE ah.job_hash = jp.job_hash
                       AND ah.handoff_status = 'PENDING_REVIEW'
-                ) AS has_pending_handoff
+                ) AS has_pending_handoff,
+                (
+                    SELECT tr.id FROM tailor_runs tr
+                    WHERE tr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY tr.started_at DESC, tr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_id,
+                (
+                    SELECT tr.status FROM tailor_runs tr
+                    WHERE tr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY tr.started_at DESC, tr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_status,
+                (
+                    SELECT tr.page_count FROM tailor_runs tr
+                    WHERE tr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY tr.started_at DESC, tr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_page_count,
+                (
+                    SELECT tr.error FROM tailor_runs tr
+                    WHERE tr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY tr.started_at DESC, tr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_error,
+                (
+                    SELECT rr.verdict FROM review_runs rr
+                    JOIN tailor_runs tr ON tr.id = rr.tailor_run_id
+                    WHERE rr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY rr.started_at DESC, rr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_verdict
             FROM job_postings jp
             {where_clause}
             ORDER BY jp.fetched_at DESC, jp.id DESC
@@ -165,6 +217,21 @@ async def get_jobs(
             has_apply_success=bool(row["has_apply_success"]),
             has_pending_handoff=bool(row["has_pending_handoff"]),
         )
+
+        tailor_run_payload: dict[str, object] | None = None
+        if row["tailor_run_id"] is not None:
+            tailor_run_status = str(row["tailor_run_status"] or "")
+            pdf_url: str | None = None
+            if tailor_run_status == "SUCCESS":
+                pdf_url = f"/api/jobs/{str(row['job_hash'])}/resume"
+            tailor_run_payload = {
+                "id": int(row["tailor_run_id"]),
+                "status": tailor_run_status,
+                "verdict": row["tailor_run_verdict"],
+                "page_count": row["tailor_run_page_count"],
+                "error": row["tailor_run_error"],
+                "pdf_url": pdf_url,
+            }
 
         job_items.append(
             {
@@ -191,6 +258,7 @@ async def get_jobs(
                 "gate_reasoning": gate_reasoning,
                 "tailored_resume": row["tailored_resume_path"],
                 "job_posting_url": str(row["source_url"]),
+                "tailor_run": tailor_run_payload,
             }
         )
 
