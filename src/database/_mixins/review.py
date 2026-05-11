@@ -62,7 +62,10 @@ class ReviewMixin(_BaseMixin):
                 completed_at TIMESTAMP,
                 claim_token TEXT,
                 CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-                CHECK (verdict IS NULL OR verdict IN ('PASS', 'TAILORED', 'BASE', 'FAIL'))
+                CHECK (verdict IS NULL OR verdict IN (
+                    'PASS', 'TAILORED', 'BASE', 'FAIL',
+                    'NO_IMPROVEMENT', 'PAGE_FIT_FAILED'
+                ))
             );
             CREATE INDEX IF NOT EXISTS idx_review_runs_job_hash
                 ON review_runs(job_hash);
@@ -76,8 +79,81 @@ class ReviewMixin(_BaseMixin):
                 ON review_runs(tailor_run_id, status);
             """
         )
+        await self._widen_verdict_check_if_needed()
         await conn.commit()
         self._review_schema_ready = True
+
+    async def _widen_verdict_check_if_needed(self) -> None:
+        """Rebuild `review_runs` when the verdict CHECK lacks new states.
+
+        Purpose:
+            SQLite cannot alter a CHECK constraint in place. On databases
+            that predate this migration, the older `CHECK (... 'FAIL')`
+            blocks the new `NO_IMPROVEMENT` and `PAGE_FIT_FAILED` verdicts,
+            so the table is rebuilt with the widened CHECK and existing
+            rows are copied over verbatim.
+        Args:
+            self: The database manager performing the rebuild.
+        Output:
+            Returns `None` after either rebuilding the table or detecting
+            that the migration has already run.
+        """
+
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='review_runs'"
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return
+        existing_sql = str(row["sql"] or "")
+        if "'NO_IMPROVEMENT'" in existing_sql and "'PAGE_FIT_FAILED'" in existing_sql:
+            return
+
+        await conn.executescript(
+            """
+            CREATE TABLE review_runs__new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_hash TEXT NOT NULL,
+                tailor_run_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                verdict TEXT,
+                selected_yaml_path TEXT,
+                selected_tex_path TEXT,
+                selected_pdf_path TEXT,
+                review_report_json TEXT,
+                agent_stdout TEXT,
+                agent_stderr TEXT,
+                error TEXT,
+                next_retry_at TIMESTAMP,
+                fallback_base_yaml_path TEXT,
+                fallback_base_tex_path TEXT,
+                fallback_base_pdf_path TEXT,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                claim_token TEXT,
+                CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+                CHECK (verdict IS NULL OR verdict IN (
+                    'PASS', 'TAILORED', 'BASE', 'FAIL',
+                    'NO_IMPROVEMENT', 'PAGE_FIT_FAILED'
+                ))
+            );
+            INSERT INTO review_runs__new
+            SELECT * FROM review_runs;
+            DROP TABLE review_runs;
+            ALTER TABLE review_runs__new RENAME TO review_runs;
+            CREATE INDEX IF NOT EXISTS idx_review_runs_job_hash
+                ON review_runs(job_hash);
+            CREATE INDEX IF NOT EXISTS idx_review_runs_status
+                ON review_runs(status);
+            CREATE INDEX IF NOT EXISTS idx_review_runs_started_at
+                ON review_runs(started_at);
+            CREATE INDEX IF NOT EXISTS idx_review_runs_tailor_run_id
+                ON review_runs(tailor_run_id);
+            CREATE INDEX IF NOT EXISTS idx_review_runs_tailor_status
+                ON review_runs(tailor_run_id, status);
+            """
+        )
 
     async def _ensure_review_schema_ready(self) -> None:
         """Ensure review_runs table exists before review queries run.
