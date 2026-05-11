@@ -8,12 +8,15 @@ import type {
   ApiErrorPayload,
   ApiKeyNameDto,
   ApiKeysResponseDto,
+  AutomationMode,
+  AutomationSettingsDto,
   BudgetDto,
   CostByStageDto,
   CostDailyTrendDto,
   CostStatsDto,
   DashboardStatsDto,
   DiscoveryTrendDto,
+  EnqueueTailorRunResponseDto,
   FailuresResponseDto,
   HandoffMutationDto,
   HumanReviewResponseDto,
@@ -29,6 +32,7 @@ import type {
   SettingsResumeTexUploadDto,
   SettingsResumeUploadDto,
   SystemLifecycleActionDto,
+  TailorRunDetailDto,
 } from "@/lib/api/types";
 
 const JSON_HEADERS = {
@@ -159,6 +163,8 @@ export async function fetchJobs(args: {
   readonly pageSize: number;
   readonly status?: string;
   readonly source?: string;
+  readonly hasTailorRun?: boolean;
+  readonly tailorState?: string;
 }): Promise<JobsResponseDto> {
   const params = new URLSearchParams({
     search: args.search,
@@ -171,7 +177,99 @@ export async function fetchJobs(args: {
   if (args.source && args.source !== "") {
     params.set("source", args.source);
   }
+  if (args.hasTailorRun === true) {
+    params.set("has_tailor_run", "1");
+  }
+  if (args.tailorState && args.tailorState !== "") {
+    params.set("tailor_state", args.tailorState);
+  }
   return getJson<JobsResponseDto>(`/api/jobs?${params.toString()}`);
+}
+
+/**
+ * Enqueue a user-triggered tailor run for one job.
+ *
+ * @param jobHash - Stable deduplication hash of the target job.
+ * @returns Enqueue response with the new tailor_run_id.
+ */
+export async function enqueueTailorRun(
+  jobHash: string,
+): Promise<EnqueueTailorRunResponseDto> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobHash)}/tailor`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+    throw buildApiError(
+      payload?.message ?? `Tailor enqueue failed (HTTP ${response.status})`,
+      payload?.code ?? "TAILOR_ENQUEUE_FAILED",
+      (payload?.details as Record<string, unknown> | undefined) ?? {},
+    );
+  }
+  return (await response.json()) as EnqueueTailorRunResponseDto;
+}
+
+/**
+ * Fetch the current state of one tailor run.
+ *
+ * @param runId - Primary key of the tailor_runs row.
+ * @returns Tailor run detail payload.
+ */
+export async function fetchTailorRun(runId: number): Promise<TailorRunDetailDto> {
+  return getJson<TailorRunDetailDto>(`/api/tailor-runs/${runId}`);
+}
+
+/**
+ * Soft-delete one tailor run.
+ *
+ * @param runId - Primary key of the tailor_runs row.
+ */
+export async function deleteTailorRun(runId: number): Promise<void> {
+  const response = await fetch(`/api/tailor-runs/${runId}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+    throw buildApiError(
+      payload?.message ?? `Tailor delete failed (HTTP ${response.status})`,
+      payload?.code ?? "TAILOR_DELETE_FAILED",
+      (payload?.details as Record<string, unknown> | undefined) ?? {},
+    );
+  }
+}
+
+/**
+ * Fetch the current automation modes.
+ *
+ * @returns Automation settings payload.
+ */
+export async function fetchAutomationSettings(): Promise<AutomationSettingsDto> {
+  return getJson<AutomationSettingsDto>("/api/system-settings/automation");
+}
+
+/**
+ * Persist new automation modes.
+ *
+ * @param patch - Optional new modes for tailor and review stages.
+ * @returns Updated automation settings payload.
+ */
+export async function patchAutomationSettings(patch: {
+  readonly tailor_mode?: AutomationMode;
+  readonly review_mode?: AutomationMode;
+}): Promise<AutomationSettingsDto> {
+  const response = await fetch("/api/system-settings/automation", {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+    throw buildApiError(
+      payload?.message ?? `Automation update failed (HTTP ${response.status})`,
+      payload?.code ?? "AUTOMATION_UPDATE_FAILED",
+      (payload?.details as Record<string, unknown> | undefined) ?? {},
+    );
+  }
+  return (await response.json()) as AutomationSettingsDto;
 }
 
 /**

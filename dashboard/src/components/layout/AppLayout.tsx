@@ -24,6 +24,7 @@ import { COLOR_SURFACE, SIDEBAR_WIDTH_PX } from "@/lib/design-tokens";
 const PAGE_TITLES = {
   "/": "Dashboard",
   "/jobs": "Jobs",
+  "/tailored-resumes": "Tailored Resumes",
   "/human-review": "Human Review",
   "/failures": "Failures",
   "/cost-tracking": "Cost Tracking",

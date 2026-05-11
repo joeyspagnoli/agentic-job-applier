@@ -7,6 +7,7 @@
 
 import type { JSX } from "react";
 import { ApiKeysSettings } from "./ApiKeysSettings";
+import { AutomationSettings } from "./AutomationSettings";
 import { BudgetSettings } from "./BudgetSettings";
 import { ServiceTierSettings } from "./ServiceTierSettings";
 
@@ -42,6 +43,7 @@ export function GeneralSettings({
       />
       <ApiKeysSettings onDirtyChange={onApiKeysDirtyChange} />
       <ServiceTierSettings onDirtyChange={onTierDirtyChange} />
+      <AutomationSettings />
     </>
   );
 }

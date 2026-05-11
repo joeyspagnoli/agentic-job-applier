@@ -55,6 +55,7 @@ interface NavItem {
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true },
   { to: "/jobs", label: "Jobs", icon: "work", end: false },
+  { to: "/tailored-resumes", label: "Tailored Resumes", icon: "description", end: false },
   { to: "/human-review", label: "Human Review", icon: "visibility", end: false },
   { to: "/failures", label: "Failures", icon: "error", end: false },
   { to: "/cost-tracking", label: "Cost Tracking", icon: "payments", end: false },
