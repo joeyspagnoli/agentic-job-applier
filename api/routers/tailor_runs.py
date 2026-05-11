@@ -24,6 +24,7 @@ from loguru import logger
 from src.agents.resume_tailor_adk import run_tailor_review_pipeline
 from src.database._mixins.system_settings import TAILOR_MODE_KEY
 from src.database.db_manager import DatabaseManager
+from src.utils.cost_tracking import PIPELINE_STAGE_TAILOR, check_budget_before_claim
 
 from api.config import (
     SETTINGS_PROFILE_PATH,
@@ -163,6 +164,17 @@ async def enqueue_tailor_run(
                     "set to autonomous."
                 ),
                 details={"tailor_mode": mode},
+            )
+
+        if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_TAILOR):
+            _raise_api_error(
+                status_code=409,
+                code="BUDGET_EXCEEDED",
+                message=(
+                    "Monthly budget exceeded — raise the budget in Settings "
+                    "before triggering more tailor runs."
+                ),
+                details={"stage": PIPELINE_STAGE_TAILOR},
             )
 
         claim_result = await db.insert_user_triggered_tailor_run(
