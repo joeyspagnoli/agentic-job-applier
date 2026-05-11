@@ -13,8 +13,8 @@ import yaml
 from fastapi import UploadFile
 from pydantic import ValidationError
 
-from src.agents.resume_tailor_adk.schemas import ResumeContent
-from src.agents.resume_tailor_adk.schemas import validate_locked_structure
+from src.agents.resume_tailor.schemas import ResumeContent
+from src.agents.resume_tailor.schemas import validate_locked_structure
 
 from api.config import SETTINGS_BACKUP_FILE_LIMIT
 from api.config import SETTINGS_BACKUP_TIMESTAMP_FORMAT

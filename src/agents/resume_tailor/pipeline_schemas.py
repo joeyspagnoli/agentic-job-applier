@@ -1,4 +1,4 @@
-"""Pydantic schemas for the ADK tailor/reviewer pipeline.
+"""Pydantic schemas for the resume-tailor / reviewer pipeline.
 
 These models are intentionally separate from the canonical `ResumeContent`
 schemas in `schemas.py` — they describe the *contract* the tailor and

@@ -21,7 +21,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks
 from loguru import logger
 
-from src.agents.resume_tailor_adk import run_tailor_review_pipeline
+from src.agents.resume_tailor import run_tailor_review_pipeline
 from src.database._mixins.system_settings import TAILOR_MODE_KEY
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_TAILOR, check_budget_before_claim
@@ -46,7 +46,7 @@ async def _run_pipeline_background(
     job_hash: str,
     output_dir: Path,
 ) -> None:
-    """Execute the ADK pipeline inside a FastAPI BackgroundTask.
+    """Execute the resume-tailor pipeline inside a FastAPI BackgroundTask.
 
     Purpose:
         Run the pipeline on the request's lifecycle without blocking the
@@ -122,7 +122,7 @@ async def enqueue_tailor_run(
     """Enqueue a user-triggered tailor pipeline run.
 
     Purpose:
-        Insert a PENDING tailor_runs row and schedule the ADK pipeline
+        Insert a PENDING tailor_runs row and schedule the resume-tailor pipeline
         as a FastAPI BackgroundTask. Rejects with 409 when the user has
         opted out of manual runs (`autonomous` mode) or when a non-deleted
         active row already exists for this job.
