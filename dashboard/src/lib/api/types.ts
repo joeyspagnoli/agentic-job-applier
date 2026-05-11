@@ -79,6 +79,16 @@ export interface PipelineStepDto {
   readonly status: string;
 }
 
+/** Embedded tailor-run snapshot attached to each jobs row. */
+export interface TailorRunSummaryDto {
+  readonly id: number;
+  readonly status: string;
+  readonly verdict: string | null;
+  readonly page_count: number | null;
+  readonly error: string | null;
+  readonly pdf_url: string | null;
+}
+
 /** One jobs table item row returned by backend. */
 export interface JobsItemDto {
   readonly id: number;
@@ -96,6 +106,41 @@ export interface JobsItemDto {
   readonly gate_reasoning: string;
   readonly tailored_resume: string | null;
   readonly job_posting_url: string;
+  readonly tailor_run: TailorRunSummaryDto | null;
+}
+
+/** Response payload for `POST /api/jobs/{job_hash}/tailor`. */
+export interface EnqueueTailorRunResponseDto {
+  readonly ok: true;
+  readonly tailor_run_id: number;
+  readonly status: string;
+  readonly job_hash: string;
+}
+
+/** Response payload for `GET /api/tailor-runs/{id}`. */
+export interface TailorRunDetailDto {
+  readonly ok: true;
+  readonly tailor_run: {
+    readonly id: number;
+    readonly job_hash: string;
+    readonly status: string;
+    readonly page_count: number | null;
+    readonly error: string | null;
+    readonly started_at: string;
+    readonly completed_at: string | null;
+    readonly deleted_at: string | null;
+    readonly pdf_url: string | null;
+  };
+}
+
+/** Allowed automation modes for tailor/review stages. */
+export type AutomationMode = "autonomous" | "opt_in" | "both";
+
+/** Response payload for `GET /api/system-settings/automation`. */
+export interface AutomationSettingsDto {
+  readonly ok: true;
+  readonly tailor_mode: AutomationMode;
+  readonly review_mode: AutomationMode;
 }
 
 /** Paginated jobs endpoint response. */

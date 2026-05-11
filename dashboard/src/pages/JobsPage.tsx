@@ -9,7 +9,14 @@ import type { ChangeEvent, JSX } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toJobsRows, type JobsRowModel } from "@/lib/api/adapters";
-import { fetchJobs, fetchJobsNow, getTailoredResumeUrl } from "@/lib/api/client";
+import {
+  deleteTailorRun,
+  enqueueTailorRun,
+  fetchAutomationSettings,
+  fetchJobs,
+  fetchJobsNow,
+  getTailoredResumeUrl,
+} from "@/lib/api/client";
 import {
   COLOR_ON_SURFACE,
   COLOR_ON_SURFACE_VARIANT,
@@ -122,12 +129,22 @@ function statusBadgeClass(status: string): string {
   return "bg-primary-fixed text-primary";
 }
 
+/** Props for the JobsPage component. */
+interface JobsPageProps {
+  /**
+   * When `true`, only list jobs with a non-deleted tailor_run. Used by
+   * the Tailored Resumes sidebar page to reuse this component.
+   */
+  readonly hasTailorRunFilter?: boolean;
+}
+
 /**
  * Jobs dashboard page component.
  *
+ * @param props - {@link JobsPageProps}
  * @returns The full page content rendered inside AppLayout.
  */
-export function JobsPage(): JSX.Element {
+export function JobsPage({ hasTailorRunFilter = false }: JobsPageProps = {}): JSX.Element {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -171,6 +188,7 @@ export function JobsPage(): JSX.Element {
         source: sourceFilter,
         page: currentPage,
         pageSize: PAGE_SIZE,
+        hasTailorRun: hasTailorRunFilter,
       },
     ],
     queryFn: () =>
@@ -180,6 +198,7 @@ export function JobsPage(): JSX.Element {
         source: sourceFilter,
         page: currentPage,
         pageSize: PAGE_SIZE,
+        hasTailorRun: hasTailorRunFilter,
       }),
   });
 
@@ -457,6 +476,184 @@ export function JobsPage(): JSX.Element {
   );
 }
 
+/** Props for the tailored-resume cell inside an expanded job row. */
+interface TailoredResumeCellProps {
+  /** Row data including the embedded tailor_run snapshot. */
+  readonly row: JobsRowModel;
+}
+
+/**
+ * Render the tailored-resume control inside an expanded job row.
+ *
+ * The control surfaces six states driven by `row.tailorRun`:
+ * idle / PENDING / RUNNING / SUCCESS (with verdict variants) / FAILED.
+ * Each state shows the correct action button — "Tailor resume",
+ * "Download PDF", "Delete & retry" — and writes back through the
+ * tailor-run API.
+ *
+ * @param props - {@link TailoredResumeCellProps}
+ * @returns A short status block plus the active action button.
+ */
+function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
+  const queryClient = useQueryClient();
+  const { data: automation } = useQuery({
+    queryKey: ["automation-settings"],
+    queryFn: fetchAutomationSettings,
+  });
+  const isAutonomous = automation?.tailor_mode === "autonomous";
+
+  const enqueueMutation = useMutation({
+    mutationFn: () => enqueueTailorRun(row.jobHash),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (runId: number) => deleteTailorRun(runId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+
+  const tailorRun = row.tailorRun;
+  const baseDownloadUrl = getTailoredResumeUrl(row.jobHash);
+  const errorMessage = enqueueMutation.error
+    ? (enqueueMutation.error as Error).message
+    : null;
+
+  if (tailorRun === null) {
+    return (
+      <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+        <p>Tailored Resume: Not generated yet</p>
+        {isAutonomous ? (
+          <p style={{ color: COLOR_OUTLINE }}>
+            Automation mode is autonomous — runs trigger from the worker.
+          </p>
+        ) : (
+          <button
+            type="button"
+            className="rounded-lg px-3 py-1 text-xs font-semibold border"
+            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+            onClick={(e) => {
+              e.stopPropagation();
+              enqueueMutation.mutate();
+            }}
+            disabled={enqueueMutation.isPending}
+          >
+            {enqueueMutation.isPending ? "Enqueuing…" : "Tailor resume"}
+          </button>
+        )}
+        {errorMessage !== null ? (
+          <p style={{ color: "#b91c1c" }}>{errorMessage}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (tailorRun.status === "PENDING" || tailorRun.status === "RUNNING") {
+    return (
+      <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+        Tailored Resume: {tailorRun.status === "PENDING" ? "Queued…" : "Tailoring…"}
+      </p>
+    );
+  }
+
+  if (tailorRun.status === "FAILED") {
+    return (
+      <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+        <p>Tailored Resume: Tailor failed — {tailorRun.error ?? "unknown error"}</p>
+        <a
+          className="font-semibold hover:underline"
+          href={baseDownloadUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: COLOR_PRIMARY }}
+        >
+          Download base PDF
+        </a>
+        <button
+          type="button"
+          className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
+          style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteMutation.mutate(tailorRun.id);
+          }}
+          disabled={deleteMutation.isPending}
+        >
+          Delete &amp; retry
+        </button>
+      </div>
+    );
+  }
+
+  // SUCCESS — verdict drives the copy + button labels.
+  const verdict = (tailorRun.verdict ?? "").toUpperCase();
+  if (verdict === "TAILORED") {
+    return (
+      <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+        <p>Tailored Resume: Reviewer picked the tailored variant.</p>
+        <a
+          className="font-semibold hover:underline"
+          href={baseDownloadUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: COLOR_PRIMARY }}
+        >
+          Download PDF
+        </a>
+        <button
+          type="button"
+          className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
+          style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteMutation.mutate(tailorRun.id);
+          }}
+          disabled={deleteMutation.isPending}
+        >
+          Delete tailored
+        </button>
+      </div>
+    );
+  }
+
+  const verdictCopy =
+    verdict === "PAGE_FIT_FAILED"
+      ? "Couldn't fit on one page — served base."
+      : verdict === "NO_IMPROVEMENT"
+        ? "Reviewer thought the base resume was fine for this role."
+        : "Served base resume.";
+
+  return (
+    <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+      <p>Tailored Resume: {verdictCopy}</p>
+      <a
+        className="font-semibold hover:underline"
+        href={baseDownloadUrl}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: COLOR_PRIMARY }}
+      >
+        Download base PDF
+      </a>
+      <button
+        type="button"
+        className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
+        style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+        onClick={(e) => {
+          e.stopPropagation();
+          deleteMutation.mutate(tailorRun.id);
+        }}
+        disabled={deleteMutation.isPending}
+      >
+        Delete &amp; retry
+      </button>
+    </div>
+  );
+}
+
 /** Props for one jobs table row. */
 interface JobRowProps {
   /** Data row model. */
@@ -597,22 +794,7 @@ function JobRow({ row, expanded, focused, onToggle }: JobRowProps): JSX.Element 
                     </div>
                   ))}
                 </div>
-                <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-                  Tailored Resume:{" "}
-                  {row.tailoredResume ? (
-                    <a
-                      className="font-semibold hover:underline"
-                      href={getTailoredResumeUrl(row.jobHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: COLOR_PRIMARY }}
-                    >
-                      Download PDF
-                    </a>
-                  ) : (
-                    "Not generated yet"
-                  )}
-                </p>
+                <TailoredResumeCell row={row} />
               </div>
             </div>
           </td>

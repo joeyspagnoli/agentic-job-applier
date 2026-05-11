@@ -22,6 +22,7 @@ import { CostTrackingPage } from "@/pages/CostTrackingPage";
 import { JobsPage } from "@/pages/JobsPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { TailoredResumesPage } from "@/pages/TailoredResumesPage";
 
 /**
  * Root React application component.
@@ -46,6 +47,7 @@ export default function App(): JSX.Element {
         >
           <Route index element={<DashboardPage />} />
           <Route path="jobs" element={<JobsPage />} />
+          <Route path="tailored-resumes" element={<TailoredResumesPage />} />
           <Route path="human-review" element={<HumanReviewPage />} />
           <Route path="failures" element={<FailuresPage />} />
           <Route path="cost-tracking" element={<CostTrackingPage />} />

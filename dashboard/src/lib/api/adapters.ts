@@ -26,6 +26,16 @@ export interface KpiCardModel {
   readonly subText: string;
 }
 
+/** Embedded tailor-run snapshot for one jobs row. */
+export interface TailorRunSummaryModel {
+  readonly id: number;
+  readonly status: string;
+  readonly verdict: string | null;
+  readonly pageCount: number | null;
+  readonly error: string | null;
+  readonly pdfUrl: string | null;
+}
+
 /** One normalized jobs row used by jobs-page table rendering. */
 export interface JobsRowModel {
   readonly id: number;
@@ -43,6 +53,7 @@ export interface JobsRowModel {
   readonly gateReasoning: string;
   readonly tailoredResume: string | null;
   readonly jobPostingUrl: string;
+  readonly tailorRun: TailorRunSummaryModel | null;
 }
 
 /**
@@ -109,6 +120,17 @@ export function toJobsRows(dto: JobsResponseDto): readonly JobsRowModel[] {
     gateReasoning: item.gate_reasoning,
     tailoredResume: item.tailored_resume,
     jobPostingUrl: item.job_posting_url,
+    tailorRun:
+      item.tailor_run !== null
+        ? {
+            id: item.tailor_run.id,
+            status: item.tailor_run.status,
+            verdict: item.tailor_run.verdict,
+            pageCount: item.tailor_run.page_count,
+            error: item.tailor_run.error,
+            pdfUrl: item.tailor_run.pdf_url,
+          }
+        : null,
   }));
 }
 
