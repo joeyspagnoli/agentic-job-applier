@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from fastapi import APIRouter, BackgroundTasks
 from loguru import logger
@@ -191,7 +191,7 @@ async def enqueue_tailor_run(
                 details={"job_hash": validated_hash},
             )
 
-        tailor_run_id = int(claim_result["id"])
+        tailor_run_id = cast(int, claim_result["id"])
 
     run_output_dir = TAILORED_RESUME_DIR / validated_hash
     background_tasks.add_task(
