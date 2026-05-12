@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import cast
 
 import pytest
 import pytest_asyncio
@@ -34,7 +33,7 @@ async def _seed_tailor_run(db: DatabaseManager, job_hash: str) -> int:
 
     inserted = await db.insert_user_triggered_tailor_run(job_hash=job_hash)
     assert inserted is not None
-    return cast(int, inserted["id"])
+    return inserted["id"]
 
 
 @pytest.mark.parametrize(

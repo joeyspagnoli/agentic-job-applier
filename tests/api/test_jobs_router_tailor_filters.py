@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,7 +53,7 @@ def _seed_jobs(db_path: Path) -> None:
                 job_hash=JOB_WITH_DELETED_RUN_HASH
             )
             assert deleted_insert is not None
-            await db.soft_delete_tailor_run(cast(int, deleted_insert["id"]))
+            await db.soft_delete_tailor_run(deleted_insert["id"])
 
     asyncio.run(_seed())
 

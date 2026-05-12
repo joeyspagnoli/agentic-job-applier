@@ -7,7 +7,7 @@ or queries one tailor attempt for a `QUALIFIED` job posting.
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Optional, TypedDict
 
 from loguru import logger
 
@@ -15,6 +15,18 @@ from src.database._mixins.base import _BaseMixin
 from src.utils.json_types import JSONObject
 
 DEFAULT_TAILOR_CLAIM_LEASE_SECONDS = 7200
+
+
+class TailorRunClaim(TypedDict):
+    """Strongly typed return shape for new tailor_runs row inserts.
+
+    Purpose:
+        Expose `id` as `int` so API callers and worker code do not need
+        to cast through `dict[str, object]` every time they read it.
+    """
+
+    id: int
+    claim_token: str
 
 
 class TailorMixin(_BaseMixin):
@@ -437,7 +449,7 @@ class TailorMixin(_BaseMixin):
         self,
         *,
         job_hash: str,
-    ) -> Optional[dict[str, object]]:
+    ) -> Optional[TailorRunClaim]:
         """Create a PENDING tailor_runs row for an opt-in user request.
 
         Purpose:
@@ -490,7 +502,7 @@ class TailorMixin(_BaseMixin):
 
         if row is None:
             return None
-        return {"id": row["id"], "claim_token": row["claim_token"]}
+        return TailorRunClaim(id=int(row["id"]), claim_token=str(row["claim_token"]))
 
     async def get_tailor_run(self, run_id: int) -> Optional[dict[str, object]]:
         """Fetch one tailor_runs row by primary key.
