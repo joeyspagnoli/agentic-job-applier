@@ -13,11 +13,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import cast
 
 import pytest
 import pytest_asyncio
 
+from src.database._mixins.tailor import TailorRunClaim
 from src.database.db_manager import DatabaseManager
 
 
@@ -37,7 +37,7 @@ async def db(tmp_path: Path) -> AsyncGenerator[DatabaseManager, None]:
     await manager.close()
 
 
-async def _new_inserter(db_path: str, job_hash: str) -> dict[str, object] | None:
+async def _new_inserter(db_path: str, job_hash: str) -> TailorRunClaim | None:
     """Open an independent DB connection, attempt one user-triggered insert.
 
     Purpose:
@@ -88,7 +88,7 @@ async def test_insert_user_triggered_blocks_when_running_row_exists(
 
     first = await db.insert_user_triggered_tailor_run(job_hash="c" * 40)
     assert first is not None
-    await db.mark_tailor_running(run_id=cast(int, first["id"]))
+    await db.mark_tailor_running(run_id=first["id"])
 
     second = await db.insert_user_triggered_tailor_run(job_hash="c" * 40)
 
@@ -104,7 +104,7 @@ async def test_insert_user_triggered_blocks_when_success_row_exists(
     first = await db.insert_user_triggered_tailor_run(job_hash="d" * 40)
     assert first is not None
     await db.record_tailor_success(
-        run_id=cast(int, first["id"]),
+        run_id=first["id"],
         artifact_yaml_path="/tmp/a.yaml",
         artifact_tex_path="/tmp/a.tex",
         artifact_pdf_path="/tmp/a.pdf",
@@ -125,7 +125,7 @@ async def test_insert_user_triggered_allows_after_failure(
     first = await db.insert_user_triggered_tailor_run(job_hash="e" * 40)
     assert first is not None
     await db.record_tailor_failure(
-        run_id=cast(int, first["id"]),
+        run_id=first["id"],
         error="something_failed",
         next_retry_at=None,
     )
@@ -144,7 +144,7 @@ async def test_insert_user_triggered_allows_after_soft_delete(
 
     first = await db.insert_user_triggered_tailor_run(job_hash="f" * 40)
     assert first is not None
-    assert await db.soft_delete_tailor_run(cast(int, first["id"])) is True
+    assert await db.soft_delete_tailor_run(first["id"]) is True
 
     second = await db.insert_user_triggered_tailor_run(job_hash="f" * 40)
 
@@ -195,8 +195,8 @@ async def test_soft_delete_returns_false_when_already_deleted(
 
     inserted = await db.insert_user_triggered_tailor_run(job_hash="9" * 40)
     assert inserted is not None
-    first = await db.soft_delete_tailor_run(cast(int, inserted["id"]))
-    second = await db.soft_delete_tailor_run(cast(int, inserted["id"]))
+    first = await db.soft_delete_tailor_run(inserted["id"])
+    second = await db.soft_delete_tailor_run(inserted["id"])
 
     assert first is True
     assert second is False
@@ -210,9 +210,9 @@ async def test_soft_delete_sets_deleted_at_visible_on_get(
 
     inserted = await db.insert_user_triggered_tailor_run(job_hash="8" * 40)
     assert inserted is not None
-    await db.soft_delete_tailor_run(cast(int, inserted["id"]))
+    await db.soft_delete_tailor_run(inserted["id"])
 
-    row = await db.get_tailor_run(cast(int, inserted["id"]))
+    row = await db.get_tailor_run(inserted["id"])
 
     assert row is not None
     assert row["deleted_at"] is not None
@@ -227,9 +227,9 @@ async def test_mark_tailor_running_transitions_pending_row(
     inserted = await db.insert_user_triggered_tailor_run(job_hash="7" * 40)
     assert inserted is not None
 
-    await db.mark_tailor_running(run_id=cast(int, inserted["id"]))
+    await db.mark_tailor_running(run_id=inserted["id"])
 
-    row = await db.get_tailor_run(cast(int, inserted["id"]))
+    row = await db.get_tailor_run(inserted["id"])
     assert row is not None
     assert row["status"] == "RUNNING"
 
@@ -243,16 +243,16 @@ async def test_mark_tailor_running_is_noop_for_terminal_status(
     inserted = await db.insert_user_triggered_tailor_run(job_hash="6" * 40)
     assert inserted is not None
     await db.record_tailor_success(
-        run_id=cast(int, inserted["id"]),
+        run_id=inserted["id"],
         artifact_yaml_path="/tmp/x.yaml",
         artifact_tex_path="/tmp/x.tex",
         artifact_pdf_path="/tmp/x.pdf",
         page_count=1,
     )
 
-    await db.mark_tailor_running(run_id=cast(int, inserted["id"]))
+    await db.mark_tailor_running(run_id=inserted["id"])
 
-    row = await db.get_tailor_run(cast(int, inserted["id"]))
+    row = await db.get_tailor_run(inserted["id"])
     assert row is not None
     assert row["status"] == "SUCCESS"
 
@@ -278,7 +278,7 @@ async def test_get_latest_tailor_run_returns_most_recent_non_deleted(
     first = await db.insert_user_triggered_tailor_run(job_hash=job_hash)
     assert first is not None
     await db.record_tailor_failure(
-        run_id=cast(int, first["id"]), error="failed", next_retry_at=None
+        run_id=first["id"], error="failed", next_retry_at=None
     )
 
     second = await db.insert_user_triggered_tailor_run(job_hash=job_hash)
@@ -299,7 +299,7 @@ async def test_get_latest_tailor_run_excludes_deleted_rows(
     job_hash = "4" * 40
     first = await db.insert_user_triggered_tailor_run(job_hash=job_hash)
     assert first is not None
-    await db.soft_delete_tailor_run(cast(int, first["id"]))
+    await db.soft_delete_tailor_run(first["id"])
 
     latest = await db.get_latest_tailor_run_for_job(job_hash)
 
@@ -319,19 +319,19 @@ async def test_mark_stale_tailor_runs_reaps_running_status(
 
     inserted = await db.insert_user_triggered_tailor_run(job_hash="3" * 40)
     assert inserted is not None
-    await db.mark_tailor_running(run_id=cast(int, inserted["id"]))
+    await db.mark_tailor_running(run_id=inserted["id"])
 
     conn = db._require_conn()
     await conn.execute(
         "UPDATE tailor_runs SET started_at = datetime('now', '-99999 seconds') "
         "WHERE id = ?",
-        (cast(int, inserted["id"]),),
+        (inserted["id"],),
     )
     await conn.commit()
 
     reaped = await db.mark_stale_tailor_runs_failed(lease_seconds=10)
 
     assert reaped == 1
-    row = await db.get_tailor_run(cast(int, inserted["id"]))
+    row = await db.get_tailor_run(inserted["id"])
     assert row is not None
     assert row["status"] == "FAILED"

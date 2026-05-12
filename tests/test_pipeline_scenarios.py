@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -72,7 +72,7 @@ async def _seed_pipeline_inputs(
     await db.insert_job(db_dict)
     inserted = await db.insert_user_triggered_tailor_run(job_hash=job_hash)
     assert inserted is not None
-    return cast(int, inserted["id"])
+    return inserted["id"]
 
 
 def _make_compile_stub(
@@ -137,7 +137,7 @@ async def test_job_not_found_records_failure_without_review_row(
 
     result = await run_tailor_review_pipeline(
         db=db,
-        tailor_run_id=cast(int, inserter["id"]),
+        tailor_run_id=inserter["id"],
         job_hash="dead" * 10,
         base_resume_yaml_path=resume_yaml_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
@@ -149,12 +149,12 @@ async def test_job_not_found_records_failure_without_review_row(
     assert result.error is not None
     assert result.error.startswith("job_not_found:")
 
-    row = await db.get_tailor_run(cast(int, inserter["id"]))
+    row = await db.get_tailor_run(inserter["id"])
     assert row is not None
     assert row["status"] == "FAILED"
     assert row["error"] == result.error
 
-    review_rows = await db.get_review_runs_for_tailor_run(cast(int, inserter["id"]))
+    review_rows = await db.get_review_runs_for_tailor_run(inserter["id"])
     assert review_rows == []
 
 
