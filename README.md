@@ -58,7 +58,7 @@ docker compose up -d
 
 Open `http://localhost:8000` once the `api` container is healthy. The first visit redirects to the in-app onboarding wizard described below.
 
-The default `docker compose up` starts the **base** profile (api, discovery, gate). Tailoring, review, and browser-driven apply are opt-in profiles documented under [Profiles and opt-in tiers](#profiles-and-opt-in-tiers).
+The default `docker compose up` starts the **base** profile (api, discovery, gate). Tailoring (which also runs the reviewer in-process) and browser-driven apply are opt-in profiles documented under [Profiles and opt-in tiers](#profiles-and-opt-in-tiers).
 
 To stop the stack while preserving data:
 
@@ -94,7 +94,7 @@ The Compose file ships three docker compose profiles. Each one inherits the laye
 | Profile  | Build target | Services started                            | Adds to image                                       | Approx. extra build time |
 | -------- | ------------ | ------------------------------------------- | --------------------------------------------------- | ------------------------ |
 | _(none)_ | `base`       | `api`, `discovery`, `gate`                  | Python deps, FastAPI, prebuilt React dashboard      | ~3-5 min                 |
-| `tailor` | `latex`      | base + `tailor`, `review`                   | TeX Live, `latexmk`, poppler-utils, Node, `pi` CLI  | +8-12 min                |
+| `tailor` | `latex`      | base + `tailor` (runs review in-process)    | TeX Live, `latexmk`, poppler-utils                  | +8-12 min                |
 | `full`   | `full`       | base + tailor + `apply`                     | Chromium (via Playwright) and Xvfb virtual display  | +3-5 min                 |
 
 Bring up a higher tier with:
@@ -159,7 +159,7 @@ Cost telemetry rates (`COST_RATE_GATE_USD`, `COST_RATE_TAILOR_USD`, `COST_RATE_R
 
 Use this path if you are contributing or running individual workers without Docker.
 
-Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js 20+. The tailor and review workers also require `latexmk` and the `pi` CLI; the apply worker additionally needs Chrome and Playwright.
+Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js 20+. The tailor worker also requires `latexmk` (TeX Live); the apply worker additionally needs Chrome and Playwright.
 
 ```bash
 git clone https://github.com/joeyspagnoli/agentic-job-applier.git
@@ -182,8 +182,7 @@ Run the pipeline stages individually:
 ```bash
 uv run python main.py                                                   # one discovery cycle
 uv run python -m scripts.process_new_jobs --once --limit 25             # gate
-uv run python -m scripts.process_qualified_jobs --once                  # tailor
-uv run python -m scripts.process_reviewed_resumes --once                # review
+uv run python -m scripts.process_qualified_jobs --once                  # tailor + review (single pipeline)
 uv run python -m scripts.process_apply_jobs --once                      # apply
 uv run python -m scripts.run_pipeline_once --limit 25                   # discovery + gate one-shot
 ```
@@ -201,18 +200,17 @@ curl -sS "http://127.0.0.1:8000/api/jobs?page=1&page_size=20"
 The pipeline is a chain of workers that move rows through a SQLite database (`data/jobs.db`).
 
 ```
-discovery -> gate -> tailor -> review -> apply
-   |          |        |         |         |
-fetchers   apply-     LaTeX     LaTeX     Playwright
-           decider    + pi      + pi      + Simplify
+discovery -> gate -> tailor + review -> apply
+   |          |              |              |
+fetchers   apply-       Instructor +    Playwright
+           decider      LaTeX/latexmk   + Simplify
 ```
 
 | Stage     | Producer / consumer                          | Inputs                                  | Outputs                                                |
 | --------- | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------ |
 | Discovery | `main.py`                                    | `config/companies.yaml`, fetchers       | New rows in `job_postings`, `crawl_history`            |
 | Gate      | `scripts/process_new_jobs.py`                | `NEW` postings, candidate profile       | `QUALIFIED` or `FILTERED` status; cost events          |
-| Tailor    | `scripts/process_qualified_jobs.py`          | `QUALIFIED` postings, `resume_content.yaml` | `tailor_runs` rows + tailored LaTeX/PDF artifacts   |
-| Review    | `scripts/process_reviewed_resumes.py`        | Successful `tailor_runs`                | `review_runs` rows + revised PDF                       |
+| Tailor + Review | `scripts/process_qualified_jobs.py`    | `QUALIFIED` postings, `resume_content.yaml` | `tailor_runs` + matching `review_runs` rows, tailored LaTeX/PDF artifacts |
 | Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows, `apply_handoffs` at `PENDING_REVIEW` (forms filled, never auto-submitted in this release) |
 
 State lives in:

@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # Run all queue workers locally (outside Docker) for development.
 #
-# In Docker, each worker runs as its own Compose service (gate, tailor,
-# review) so they can be enabled independently.  Use this script only
-# when running the stack directly on your machine without Compose.
+# In Docker, each worker runs as its own Compose service (gate, tailor)
+# so they can be enabled independently. The tailor worker drives both
+# tailor and review stages in one process. Use this script only when
+# running the stack directly on your machine without Compose.
 #
-# Requires LaTeX + pi CLI installed locally to use tailor + review.
+# Requires LaTeX (latexmk) installed locally to use the tailor worker.
 #
 # Usage:
-#   bash scripts/docker/run_workers.sh            # all three
+#   bash scripts/docker/run_workers.sh            # all workers
 #   WORKERS=gate bash scripts/docker/run_workers.sh  # gate only
 set -euo pipefail
 
-WORKERS="${WORKERS:-gate,tailor,review}"
+WORKERS="${WORKERS:-gate,tailor}"
 
 declare -a PIDS=()
 
@@ -42,15 +43,8 @@ if [[ "$WORKERS" == *"tailor"* ]]; then
     echo "[workers] tailor pid=$tailor_pid"
 fi
 
-if [[ "$WORKERS" == *"review"* ]]; then
-    uv run python -m scripts.process_reviewed_resumes --loop &
-    review_pid=$!
-    PIDS+=("$review_pid")
-    echo "[workers] review pid=$review_pid"
-fi
-
 if [ ${#PIDS[@]} -eq 0 ]; then
-    echo "No workers started. Set WORKERS=gate,tailor,review" >&2
+    echo "No workers started. Set WORKERS=gate,tailor" >&2
     exit 1
 fi
 trap cleanup_workers EXIT

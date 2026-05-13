@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import secrets
-from datetime import UTC
-from datetime import datetime
-
 from fastapi import APIRouter
 from fastapi import Query
 from fastapi import Request
 from fastapi.responses import FileResponse
 
 from src.database.db_manager import DatabaseManager
+from src.models.job_posting import JobPosting
 
 from api.config import DEFAULT_PAGE_SIZE
 from api.config import MAX_PAGE_SIZE
@@ -28,6 +25,8 @@ from api.services.tailored_resume import _is_safe_tailored_resume_path
 from api.services.tailored_resume import _require_tailored_resume_access
 from api.services.tailored_resume import _resolve_latest_tailored_resume_pdf_path
 from api.services.tailored_resume import _validate_job_hash
+
+MANUAL_IMPORT_SOURCE = "manual_import"
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -326,11 +325,20 @@ async def download_tailored_resume(job_hash: str, request: Request) -> FileRespo
 async def import_job_manually(payload: JobImportRequest) -> dict[str, object]:
     """Import a job posting manually from URL or pasted text.
 
+    Purpose:
+        Persist a user-submitted posting through the same `JobPosting` →
+        `insert_job` path the fetchers use, so the row matches the
+        `job_postings` schema (column names, NOT NULL fields, status
+        CHECK constraint) and participates in dedup. The created row
+        starts in `NEW` status and flows through the normal pipeline.
     Args:
-        payload: Import request with mode and associated data.
-
-    Returns:
-        JSON with created job identifier.
+        payload: Import request body with mode (`url` or `text`) and
+            optional company/title/location/description/url fields.
+    Output:
+        Returns `{ok, job_hash, job_id, duplicate}` where `duplicate` is
+        `True` when an identical row already existed (dedup hit).
+    Raises:
+        HTTPException: 422 when mode-specific required fields are missing.
     """
 
     from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
@@ -349,32 +357,38 @@ async def import_job_manually(payload: JobImportRequest) -> dict[str, object]:
             message="Title is required when mode is 'text'.",
         )
 
-    job_hash = secrets.token_hex(16)
+    posting = JobPosting(
+        source=MANUAL_IMPORT_SOURCE,
+        source_url=payload.url or "",
+        company=payload.company or "Unknown",
+        title=payload.title or "Imported Job",
+        location=payload.location,
+        description=payload.description or "",
+    )
+    row = posting.to_db_dict()
+
     db_path = str(_main.resolve_database_path())
-
     async with DatabaseManager(db_path) as db:
-        conn = db._require_conn()
-        cursor = await conn.execute(
-            """
-            INSERT INTO job_postings (
-                job_hash, company, position, location, pay,
-                work_type, source, status, discovered, job_posting_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                job_hash,
-                payload.company or "Unknown",
-                payload.title or "Imported Job",
-                payload.location or "",
-                "",
-                "",
-                "manual_import",
-                "new",
-                datetime.now(tz=UTC).isoformat(),
-                payload.url or "",
-            ),
-        )
-        await conn.commit()
-        job_id = cursor.lastrowid
+        await db.create_tables()
+        inserted = await db.insert_job(row)
+        # Look up the row regardless of insert outcome so duplicates also
+        # return the existing job_id rather than failing the user's action.
+        stored = await db.get_job_by_hash(posting.job_hash)
 
-    return {"ok": True, "job_id": job_id}
+    if stored is None:
+        # Should be unreachable — insert_job either inserts or finds a duplicate
+        # by the same job_hash, both of which leave a row in place.
+        _raise_api_error(
+            status_code=500,
+            code="JOB_IMPORT_FAILED",
+            message="Manual import did not produce a stored job row.",
+        )
+
+    # `stored["id"]` is typed as the broad JSON union; coerce through `str`
+    # so mypy is satisfied without losing the int round-trip from SQLite.
+    return {
+        "ok": True,
+        "job_hash": posting.job_hash,
+        "job_id": int(str(stored["id"])),
+        "duplicate": not inserted,
+    }
