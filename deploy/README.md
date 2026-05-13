@@ -4,8 +4,7 @@
 
 - `job-discovery.timer` triggers `job-discovery.service` every 30 minutes.
 - `job-agent-worker.service` continuously drains `NEW` jobs (gate stage).
-- `job-tailor-worker.service` continuously drains `QUALIFIED` jobs.
-- `job-review-worker.service` continuously drains successful tailor runs.
+- `job-tailor-worker.service` continuously drains `QUALIFIED` jobs through the combined tailor + review pipeline (a single process now writes both `tailor_runs` and the matching `review_runs` row).
 - `job-apply-worker.service` continuously drains eligible review runs.
 - `job-apply-chrome.service` runs a CDP-enabled Chrome target for apply automation.
 - SQLite is the queue/state backbone (`job_postings`, `tailor_runs`, `review_runs`, `apply_runs`, `apply_handoffs`, `cost_events`, `budget_settings`).
@@ -16,7 +15,7 @@
 2. `uv`
 3. Linux host with systemd
 4. Project cloned on host
-5. `pi` + `latexmk` for tailor/review workers
+5. `latexmk` for the tailor worker (TeX Live)
 6. Chrome installed for apply worker CDP service
 
 ## 1. Clone And Install
@@ -55,7 +54,6 @@ Optional cost-rate keys:
 uv run python -c "import sqlite3; print(sqlite3.sqlite_version)"
 uv run python -m scripts.process_new_jobs --once --limit 1
 uv run python -m scripts.process_qualified_jobs --once
-uv run python -m scripts.process_reviewed_resumes --once
 uv run python -m scripts.process_apply_jobs --once
 ```
 
@@ -66,7 +64,6 @@ Edit placeholders in:
 - `deploy/job-discovery.service`
 - `deploy/job-agent-worker.service`
 - `deploy/job-tailor-worker.service`
-- `deploy/job-review-worker.service`
 - `deploy/job-apply-worker.service`
 - `deploy/job-apply-chrome.service`
 - `deploy/job-agent-alert@.service` (optional)
@@ -83,7 +80,6 @@ sudo cp deploy/job-discovery.service /etc/systemd/system/
 sudo cp deploy/job-discovery.timer /etc/systemd/system/
 sudo cp deploy/job-agent-worker.service /etc/systemd/system/
 sudo cp deploy/job-tailor-worker.service /etc/systemd/system/
-sudo cp deploy/job-review-worker.service /etc/systemd/system/
 sudo cp deploy/job-apply-worker.service /etc/systemd/system/
 sudo cp deploy/job-apply-chrome.service /etc/systemd/system/
 sudo cp deploy/job-agent-alert@.service /etc/systemd/system/
@@ -93,7 +89,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now job-discovery.timer
 sudo systemctl enable --now job-agent-worker.service
 sudo systemctl enable --now job-tailor-worker.service
-sudo systemctl enable --now job-review-worker.service
 sudo systemctl enable --now job-apply-chrome.service
 sudo systemctl enable --now job-apply-worker.service
 ```
@@ -104,14 +99,12 @@ sudo systemctl enable --now job-apply-worker.service
 systemctl status job-discovery.timer
 systemctl status job-agent-worker.service
 systemctl status job-tailor-worker.service
-systemctl status job-review-worker.service
 systemctl status job-apply-chrome.service
 systemctl status job-apply-worker.service
 
 journalctl -u job-discovery.service -f
 journalctl -u job-agent-worker.service -f
 journalctl -u job-tailor-worker.service -f
-journalctl -u job-review-worker.service -f
 journalctl -u job-apply-worker.service -f
 ```
 

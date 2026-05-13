@@ -2,8 +2,8 @@
 # Compose profiles control which pipeline stages are active:
 #
 #   docker compose up -d                   # core only (fetch + gate)
-#   docker compose --profile tailor up -d  # + tailoring + review
-#   docker compose --profile full up -d    # + tailoring + review + apply
+#   docker compose --profile tailor up -d  # + tailoring (review runs in-process)
+#   docker compose --profile full up -d    # + tailoring + apply
 #
 # Each profile builds only the image layers it needs.
 # Layers from earlier stages are reused from cache.
@@ -57,7 +57,8 @@ services:
     command: uv run --no-dev python -m scripts.process_new_jobs --loop
 
   # ----------------------------------------------------------
-  # TAILOR profile — resume tailoring + review
+  # TAILOR profile — resume tailoring (review runs in the same
+  # process — there is no separate review service).
   # Requires: docker compose --profile tailor up
   # ----------------------------------------------------------
 
@@ -74,23 +75,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  review:
-    build:
-      context: .
-      target: latex
-    profiles: [tailor, full]
-    command: uv run --no-dev python -m scripts.process_reviewed_resumes --loop
-    env_file: .env
-    <<: *base-volumes
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
   # ----------------------------------------------------------
   # FULL profile — automated browser apply
   # Requires: docker compose --profile full up
-  # Note: tailor + review are also included via profiles: [tailor, full]
+  # Note: tailor is also included via profiles: [tailor, full]
   # ----------------------------------------------------------
 
   apply:

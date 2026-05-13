@@ -972,8 +972,18 @@ export async function importJob(payload: {
   readonly title?: string;
   readonly location?: string;
   readonly description?: string;
-}): Promise<{ ok: true; job_id: number }> {
-  return getJson<{ ok: true; job_id: number }>("/api/jobs/import", {
+}): Promise<{
+  readonly ok: true;
+  readonly job_id: number;
+  readonly job_hash: string;
+  readonly duplicate: boolean;
+}> {
+  return getJson<{
+    readonly ok: true;
+    readonly job_id: number;
+    readonly job_hash: string;
+    readonly duplicate: boolean;
+  }>("/api/jobs/import", {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(payload),

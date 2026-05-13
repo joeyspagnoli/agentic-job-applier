@@ -1,8 +1,10 @@
-"""Orchestrator for the ADK tailor → render → reviewer → pick pipeline.
+"""Orchestrator for the tailor → render → reviewer → pick pipeline.
 
 Public entry point: `run_tailor_review_pipeline`. Both the worker daemon
 (`scripts/process_qualified_jobs.py`) and the API BackgroundTasks path
-(`POST /api/jobs/{hash}/tailor`) call this same function.
+(`POST /api/jobs/{hash}/tailor`) call this same function. Each LLM stage
+is one structured Instructor call validated against a Pydantic schema
+(see `pipeline_schemas.py`).
 
 Stages, in order:
 
