@@ -127,12 +127,14 @@ def _resolve_artifact_path(raw_path: str) -> Path:
 
 
 async def _resolve_latest_tailored_resume_pdf_path(job_hash: str) -> Path | None:
-    """Resolve the latest successful tailored resume artifact path for one job.
+    """Resolve the latest tailored-resume artifact path for one job.
 
     Purpose:
-        Use persisted `tailor_runs.artifact_pdf_path` metadata so download
-        behavior remains correct even when tailor output directories are
-        customized by CLI or environment configuration.
+        Prefer the reviewer-chosen PDF (`review_runs.selected_pdf_path`)
+        so a BASE / PAGE_FIT_FAILED verdict serves the base resume — the
+        invariant documented in the pipeline. Fall back to
+        `tailor_runs.artifact_pdf_path` for rows that predate the review
+        run (or migrations with no `review_runs` row yet).
     Args:
         job_hash: Validated job hash for artifact lookup.
     Output:
@@ -145,27 +147,43 @@ async def _resolve_latest_tailored_resume_pdf_path(job_hash: str) -> Path | None
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_tailor_schema()
+        await db.migrate_review_schema()
 
         assert db.conn is not None
         conn = db.conn
         artifact_cursor = await conn.execute(
             """
-            SELECT tr.artifact_pdf_path
-            FROM tailor_runs tr
-            WHERE tr.job_hash = ?
-              AND tr.status = 'SUCCESS'
-              AND COALESCE(tr.artifact_pdf_path, '') <> ''
-            ORDER BY COALESCE(tr.completed_at, tr.started_at) DESC, tr.id DESC
-            LIMIT 1
+            SELECT COALESCE(
+                (
+                    SELECT rr.selected_pdf_path
+                    FROM review_runs rr
+                    WHERE rr.job_hash = ?
+                      AND rr.status = 'SUCCESS'
+                      AND COALESCE(rr.selected_pdf_path, '') <> ''
+                    ORDER BY COALESCE(rr.completed_at, rr.started_at) DESC,
+                             rr.id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT tr.artifact_pdf_path
+                    FROM tailor_runs tr
+                    WHERE tr.job_hash = ?
+                      AND tr.status = 'SUCCESS'
+                      AND COALESCE(tr.artifact_pdf_path, '') <> ''
+                    ORDER BY COALESCE(tr.completed_at, tr.started_at) DESC,
+                             tr.id DESC
+                    LIMIT 1
+                )
+            ) AS resolved_pdf_path
             """,
-            (job_hash,),
+            (job_hash, job_hash),
         )
         artifact_row = await artifact_cursor.fetchone()
 
     if artifact_row is None:
         return None
 
-    raw_path = str(artifact_row["artifact_pdf_path"] or "").strip()
+    raw_path = str(artifact_row["resolved_pdf_path"] or "").strip()
     if raw_path == "":
         return None
 
