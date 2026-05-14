@@ -247,14 +247,13 @@ export async function fetchAutomationSettings(): Promise<AutomationSettingsDto> 
 }
 
 /**
- * Persist new automation modes.
+ * Persist a new tailor automation mode.
  *
- * @param patch - Optional new modes for tailor and review stages.
+ * @param patch - Optional new mode for the tailor stage.
  * @returns Updated automation settings payload.
  */
 export async function patchAutomationSettings(patch: {
   readonly tailor_mode?: AutomationMode;
-  readonly review_mode?: AutomationMode;
 }): Promise<AutomationSettingsDto> {
   const response = await fetch("/api/system-settings/automation", {
     method: "PATCH",
