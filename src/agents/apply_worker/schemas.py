@@ -61,6 +61,26 @@ class ApplyOutcome(str, Enum):
     FAILED_OTHER = "FAILED_OTHER"
 
 
+def apply_outcome_check_sql(column: str = "apply_outcome") -> str:
+    """Build the `<column> IN (...)` clause used in DB CHECK constraints.
+
+    Purpose:
+        Generate the `IN (...)` value list from `ApplyOutcome` so the
+        Python enum is the single source of truth. Adding a new outcome
+        only requires editing the enum; every CHECK that imports this
+        helper picks up the new value automatically.
+    Args:
+        column: Column name to constrain. Defaults to `apply_outcome`
+            which matches the names used by `apply_runs` and
+            `apply_handoffs`.
+    Output:
+        Returns a SQL fragment of the form ``apply_outcome IN ('A', 'B')``.
+    """
+
+    values = ", ".join(repr(item.value) for item in ApplyOutcome)
+    return f"{column} IN ({values})"
+
+
 class ATSPlatform(str, Enum):
     """Identify the applicant tracking system hosting a job application.
 

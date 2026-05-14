@@ -38,9 +38,15 @@ class ReviewMixin(_BaseMixin):
             Returns `None` after ensuring review schema exists.
         """
 
+        # Lazy import avoids a `src.database` ↔ `src.agents` import cycle.
+        from src.agents.resume_tailor.db_verdict import (  # noqa: PLC0415
+            db_verdict_check_sql,
+        )
+
         conn = self._require_conn()
+        verdict_check = db_verdict_check_sql("verdict")
         await conn.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS review_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_hash TEXT NOT NULL,
@@ -62,10 +68,7 @@ class ReviewMixin(_BaseMixin):
                 completed_at TIMESTAMP,
                 claim_token TEXT,
                 CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-                CHECK (verdict IS NULL OR verdict IN (
-                    'PASS', 'TAILORED', 'BASE', 'FAIL',
-                    'NO_IMPROVEMENT', 'PAGE_FIT_FAILED'
-                ))
+                CHECK (verdict IS NULL OR {verdict_check})
             );
             CREATE INDEX IF NOT EXISTS idx_review_runs_job_hash
                 ON review_runs(job_hash);
@@ -110,8 +113,13 @@ class ReviewMixin(_BaseMixin):
         if "'NO_IMPROVEMENT'" in existing_sql and "'PAGE_FIT_FAILED'" in existing_sql:
             return
 
+        from src.agents.resume_tailor.db_verdict import (  # noqa: PLC0415
+            db_verdict_check_sql,
+        )
+
+        verdict_check = db_verdict_check_sql("verdict")
         await conn.executescript(
-            """
+            f"""
             CREATE TABLE review_runs__new (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_hash TEXT NOT NULL,
@@ -133,10 +141,7 @@ class ReviewMixin(_BaseMixin):
                 completed_at TIMESTAMP,
                 claim_token TEXT,
                 CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-                CHECK (verdict IS NULL OR verdict IN (
-                    'PASS', 'TAILORED', 'BASE', 'FAIL',
-                    'NO_IMPROVEMENT', 'PAGE_FIT_FAILED'
-                ))
+                CHECK (verdict IS NULL OR {verdict_check})
             );
             INSERT INTO review_runs__new
             SELECT * FROM review_runs;

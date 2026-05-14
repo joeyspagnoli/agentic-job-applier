@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS review_runs (
     completed_at TIMESTAMP,
     claim_token TEXT,
     CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+    -- keep in sync with DBReviewVerdict (src/agents/resume_tailor/db_verdict.py)
     CHECK (verdict IS NULL OR verdict IN (
         'PASS', 'TAILORED', 'BASE', 'FAIL', 'NO_IMPROVEMENT', 'PAGE_FIT_FAILED'
     ))
@@ -189,6 +190,7 @@ CREATE TABLE IF NOT EXISTS apply_runs (
     claim_token TEXT,
 
     CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+    -- keep in sync with ApplyOutcome (src/agents/apply_worker/schemas.py)
     CHECK (outcome IS NULL OR outcome IN (
         'NEEDS_REVIEW', 'SUBMITTED',
         'FAILED_PREFILL', 'FAILED_UPLOAD', 'FAILED_NAVIGATION', 'FAILED_OTHER'
@@ -222,6 +224,7 @@ CREATE TABLE IF NOT EXISTS apply_handoffs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')),
+    -- keep in sync with ApplyOutcome (src/agents/apply_worker/schemas.py)
     CHECK (apply_outcome IN (
         'NEEDS_REVIEW', 'SUBMITTED',
         'FAILED_PREFILL', 'FAILED_UPLOAD', 'FAILED_NAVIGATION', 'FAILED_OTHER'
