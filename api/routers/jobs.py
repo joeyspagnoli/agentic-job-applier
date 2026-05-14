@@ -131,13 +131,26 @@ async def get_jobs(
                 jp.salary_max,
                 jp.salary_currency,
                 jp.agent_result,
-                (
-                    SELECT tr.artifact_pdf_path
-                    FROM tailor_runs tr
-                    WHERE tr.job_hash = jp.job_hash
-                      AND tr.status = 'SUCCESS'
-                    ORDER BY COALESCE(tr.completed_at, tr.started_at) DESC, tr.id DESC
-                    LIMIT 1
+                COALESCE(
+                    (
+                        SELECT rr.selected_pdf_path
+                        FROM review_runs rr
+                        WHERE rr.job_hash = jp.job_hash
+                          AND rr.status = 'SUCCESS'
+                          AND COALESCE(rr.selected_pdf_path, '') <> ''
+                        ORDER BY COALESCE(rr.completed_at, rr.started_at) DESC,
+                                 rr.id DESC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT tr.artifact_pdf_path
+                        FROM tailor_runs tr
+                        WHERE tr.job_hash = jp.job_hash
+                          AND tr.status = 'SUCCESS'
+                        ORDER BY COALESCE(tr.completed_at, tr.started_at) DESC,
+                                 tr.id DESC
+                        LIMIT 1
+                    )
                 ) AS tailored_resume_path,
                 EXISTS(
                     SELECT 1 FROM tailor_runs tr
