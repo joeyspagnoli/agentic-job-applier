@@ -133,14 +133,13 @@ export interface TailorRunDetailDto {
   };
 }
 
-/** Allowed automation modes for tailor/review stages. */
+/** Allowed automation modes for the tailor stage. */
 export type AutomationMode = "autonomous" | "opt_in" | "both";
 
 /** Response payload for `GET /api/system-settings/automation`. */
 export interface AutomationSettingsDto {
   readonly ok: true;
   readonly tailor_mode: AutomationMode;
-  readonly review_mode: AutomationMode;
 }
 
 /** Paginated jobs endpoint response. */

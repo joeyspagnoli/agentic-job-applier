@@ -2,10 +2,9 @@
  * @packageDocumentation
  *
  * Automation card for the General settings tab. Lets the user pick the
- * per-stage automation mode (autonomous / opt-in / both) for the tailor
- * and review stages. Writes back through
- * `PATCH /api/system-settings/automation` so the worker observes the
- * change on its next poll cycle.
+ * automation mode (autonomous / opt-in / both) for the tailor stage.
+ * Writes back through `PATCH /api/system-settings/automation` so the
+ * worker observes the change on its next poll cycle.
  */
 
 import type { JSX } from "react";
@@ -84,7 +83,6 @@ export function AutomationSettings({
   });
 
   const tailorMode = query.data?.tailor_mode ?? "opt_in";
-  const reviewMode = query.data?.review_mode ?? "opt_in";
 
   return (
     <section
@@ -98,8 +96,8 @@ export function AutomationSettings({
           Automation
         </h2>
         <p className="text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-          Decide whether each stage runs autonomously, on-demand, or both.
-          Changes take effect on the worker's next poll cycle.
+          Decide whether the tailor stage runs autonomously, on-demand, or
+          both. Changes take effect on the worker's next poll cycle.
         </p>
       </header>
 
@@ -108,13 +106,6 @@ export function AutomationSettings({
         currentValue={tailorMode}
         disabled={mutation.isPending || query.isLoading}
         onChange={(value) => mutation.mutate({ tailor_mode: value })}
-      />
-
-      <ModeRadioGroup
-        title="Resume review"
-        currentValue={reviewMode}
-        disabled={mutation.isPending || query.isLoading}
-        onChange={(value) => mutation.mutate({ review_mode: value })}
       />
 
       {mutation.error ? (
