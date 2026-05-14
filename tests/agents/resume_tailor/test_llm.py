@@ -15,6 +15,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import instructor
 import pytest
 
 from src.agents.resume_tailor import llm
@@ -80,7 +81,7 @@ def test_build_client_returns_instructor_client_and_bare_model_for_openai(
         call_count["value"] += 1
         return sentinel_client
 
-    monkeypatch.setattr(llm.instructor, "from_openai", fake_from_openai)
+    monkeypatch.setattr(instructor, "from_openai", fake_from_openai)
 
     client, bare_model = llm._build_client("openai/gpt-5.1-codex-mini")
 
