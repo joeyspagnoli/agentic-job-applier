@@ -3,10 +3,10 @@
 Owns the `system_settings` table, a generic key/value store for runtime
 toggles that the worker and the API both need to read every poll cycle.
 
-The first consumer is per-stage automation mode — `automation.tailor_mode`
-and `automation.review_mode`, each one of `{autonomous, opt_in, both}` —
-which controls whether the resume-tailor worker daemon claims jobs or
-idles while waiting for user-triggered runs.
+The first consumer is per-stage automation mode — `automation.tailor_mode`,
+one of `{autonomous, opt_in, both}` — which controls whether the
+resume-tailor worker daemon claims jobs or idles while waiting for
+user-triggered runs.
 """
 
 from __future__ import annotations
@@ -21,10 +21,8 @@ from src.database._mixins.base import _BaseMixin
 AUTOMATION_MODES: tuple[str, ...] = ("autonomous", "opt_in", "both")
 
 TAILOR_MODE_KEY = "automation.tailor_mode"
-REVIEW_MODE_KEY = "automation.review_mode"
 
 TAILOR_MODE_ENV_VAR = "TAILOR_MODE"
-REVIEW_MODE_ENV_VAR = "REVIEW_MODE"
 
 DEFAULT_AUTOMATION_MODE = "opt_in"
 
@@ -173,7 +171,7 @@ class SystemSettingsMixin(_BaseMixin):
             in the allowed set.
         Args:
             self: The database manager performing the lookup.
-            key: Either `automation.tailor_mode` or `automation.review_mode`.
+            key: The settings key, e.g. `automation.tailor_mode`.
             default: Fallback mode used when the key is missing or invalid.
         Output:
             Returns one of `AUTOMATION_MODES`.
@@ -200,7 +198,7 @@ class SystemSettingsMixin(_BaseMixin):
             Centralize enum validation so callers cannot persist a typo.
         Args:
             self: The database manager performing the write.
-            key: Either `automation.tailor_mode` or `automation.review_mode`.
+            key: The settings key, e.g. `automation.tailor_mode`.
             mode: One of `AUTOMATION_MODES`.
         Output:
             Returns `None` after committing the row.
@@ -220,10 +218,10 @@ class SystemSettingsMixin(_BaseMixin):
 
         Purpose:
             On first boot — and only when the key is missing — copy the
-            value from `TAILOR_MODE` / `REVIEW_MODE` into the database,
-            falling back to `DEFAULT_AUTOMATION_MODE` when the env var
-            is unset or invalid. Subsequent boots leave the stored value
-            alone so user edits via the Settings UI persist.
+            value from `TAILOR_MODE` into the database, falling back to
+            `DEFAULT_AUTOMATION_MODE` when the env var is unset or
+            invalid. Subsequent boots leave the stored value alone so
+            user edits via the Settings UI persist.
         Args:
             self: The database manager performing the seeding.
         Output:
@@ -233,7 +231,6 @@ class SystemSettingsMixin(_BaseMixin):
         await self._ensure_system_settings_schema_ready()
         env_seeds: tuple[tuple[str, str], ...] = (
             (TAILOR_MODE_KEY, TAILOR_MODE_ENV_VAR),
-            (REVIEW_MODE_KEY, REVIEW_MODE_ENV_VAR),
         )
 
         for setting_key, env_var in env_seeds:
