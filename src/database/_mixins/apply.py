@@ -35,9 +35,17 @@ class ApplyMixin(_BaseMixin):
             Returns `None` after ensuring apply schema exists.
         """
 
+        # Lazy import avoids a `src.database` ↔ `src.agents` import cycle
+        # (loading the schema module triggers `src.agents.__init__`).
+        from src.agents.apply_worker.schemas import (  # noqa: PLC0415
+            apply_outcome_check_sql,
+        )
+
         conn = self._require_conn()
+        runs_outcome_check = apply_outcome_check_sql("outcome")
+        handoff_outcome_check = apply_outcome_check_sql("apply_outcome")
         await conn.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS apply_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_hash TEXT NOT NULL,
@@ -60,11 +68,7 @@ class ApplyMixin(_BaseMixin):
                 completed_at TIMESTAMP,
                 claim_token TEXT,
                 CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
-                CHECK (outcome IS NULL OR outcome IN (
-                    'NEEDS_REVIEW', 'SUBMITTED',
-                    'FAILED_PREFILL', 'FAILED_UPLOAD',
-                    'FAILED_NAVIGATION', 'FAILED_OTHER'
-                ))
+                CHECK (outcome IS NULL OR {runs_outcome_check})
             );
             CREATE INDEX IF NOT EXISTS idx_apply_runs_job_hash
                 ON apply_runs(job_hash);
@@ -97,11 +101,7 @@ class ApplyMixin(_BaseMixin):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')),
-                CHECK (apply_outcome IN (
-                    'NEEDS_REVIEW', 'SUBMITTED',
-                    'FAILED_PREFILL', 'FAILED_UPLOAD',
-                    'FAILED_NAVIGATION', 'FAILED_OTHER'
-                ))
+                CHECK ({handoff_outcome_check})
             );
             CREATE INDEX IF NOT EXISTS idx_apply_handoffs_status
                 ON apply_handoffs(handoff_status);
