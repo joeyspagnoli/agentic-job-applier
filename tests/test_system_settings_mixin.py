@@ -17,7 +17,6 @@ import pytest_asyncio
 from src.database._mixins.system_settings import (
     AUTOMATION_MODES,
     DEFAULT_AUTOMATION_MODE,
-    REVIEW_MODE_KEY,
     TAILOR_MODE_KEY,
 )
 from src.database.db_manager import DatabaseManager
@@ -185,33 +184,28 @@ async def test_seed_automation_defaults_uses_default_when_env_unset(
     fresh_db: DatabaseManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """First boot with no env vars seeds the safe default for both keys."""
+    """First boot with no env var seeds the safe default for the tailor key."""
 
     monkeypatch.delenv("TAILOR_MODE", raising=False)
-    monkeypatch.delenv("REVIEW_MODE", raising=False)
 
     await fresh_db.seed_automation_defaults_from_env()
 
     tailor_mode = await fresh_db.get_system_setting(TAILOR_MODE_KEY)
-    review_mode = await fresh_db.get_system_setting(REVIEW_MODE_KEY)
     assert tailor_mode == DEFAULT_AUTOMATION_MODE
-    assert review_mode == DEFAULT_AUTOMATION_MODE
 
 
 @pytest.mark.asyncio
-async def test_seed_automation_defaults_picks_up_valid_env_values(
+async def test_seed_automation_defaults_picks_up_valid_env_value(
     fresh_db: DatabaseManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Valid env values override the bare default when keys are missing."""
+    """A valid env value overrides the bare default when the key is missing."""
 
     monkeypatch.setenv("TAILOR_MODE", "autonomous")
-    monkeypatch.setenv("REVIEW_MODE", "both")
 
     await fresh_db.seed_automation_defaults_from_env()
 
     assert await fresh_db.get_system_setting(TAILOR_MODE_KEY) == "autonomous"
-    assert await fresh_db.get_system_setting(REVIEW_MODE_KEY) == "both"
 
 
 @pytest.mark.asyncio
@@ -256,13 +250,9 @@ async def test_seed_automation_defaults_is_idempotent(
     """Running seeding repeatedly produces a stable end state."""
 
     monkeypatch.setenv("TAILOR_MODE", "autonomous")
-    monkeypatch.delenv("REVIEW_MODE", raising=False)
 
     await fresh_db.seed_automation_defaults_from_env()
     await fresh_db.seed_automation_defaults_from_env()
     await fresh_db.seed_automation_defaults_from_env()
 
     assert await fresh_db.get_system_setting(TAILOR_MODE_KEY) == "autonomous"
-    assert (
-        await fresh_db.get_system_setting(REVIEW_MODE_KEY) == DEFAULT_AUTOMATION_MODE
-    )
