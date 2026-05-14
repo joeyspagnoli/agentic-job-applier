@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Run the same checks CI runs, before any commit reaches origin.
+#
+# Activate once per clone:
+#   git config core.hooksPath .githooks
+#
+# Skip in an emergency:
+#   git push --no-verify
+#
+# Pairs with the `CI` workflow in `.github/workflows/`. Whenever a step is
+# added/removed there, mirror it here so local runs stay byte-for-byte
+# equivalent to GitHub Actions.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Pick a Python runner that matches what CI uses. CI runs `uv run …`; if uv
+# is not on PATH (common in dev containers), fall back to the repo's venv
+# binary, which executes the same code against the same lockfile.
+if command -v uv >/dev/null 2>&1; then
+    PY_RUN=(uv run)
+elif [ -x .venv/bin/python ]; then
+    PY_RUN=(.venv/bin/python -m)
+else
+    echo "❌ pre-push: need either \`uv\` on PATH or a populated \`.venv/\` to run checks." >&2
+    echo "   Install uv (https://docs.astral.sh/uv/) or run \`uv sync\` first." >&2
+    exit 1
+fi
+
+echo "▶ pre-push: backend pytest (deterministic, CI parity)"
+"${PY_RUN[@]}" pytest -q
+
+echo "▶ pre-push: backend mypy (strict, full project)"
+"${PY_RUN[@]}" mypy
+
+if [ -d dashboard ]; then
+    echo "▶ pre-push: dashboard lint"
+    (cd dashboard && npm run lint)
+
+    echo "▶ pre-push: dashboard typecheck"
+    (cd dashboard && npm run typecheck)
+
+    echo "▶ pre-push: dashboard vitest"
+    (cd dashboard && npm test -- --run)
+fi
+
+echo "✓ pre-push: all CI-equivalent checks passed"

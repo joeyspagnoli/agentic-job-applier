@@ -91,6 +91,19 @@ npm --prefix dashboard run build       # production build
 If you change formatting, run `npm --prefix dashboard run format` to apply Prettier
 across the dashboard tree.
 
+### Pre-push hook (recommended)
+
+The repo ships a `pre-push` hook in `.githooks/` that runs every CI check
+locally before the push leaves your machine. Activate it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+After that, `git push` automatically runs backend pytest + mypy and dashboard
+lint + typecheck + vitest. Use `git push --no-verify` to bypass in an
+emergency.
+
 ## Coding Standards
 
 These standards are enforced by code review and, where possible, by mypy / ESLint /
