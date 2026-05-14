@@ -535,6 +535,9 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
   const errorMessage = enqueueMutation.error
     ? (enqueueMutation.error as Error).message
     : null;
+  const deleteErrorMessage = deleteMutation.error
+    ? (deleteMutation.error as Error).message
+    : null;
 
   if (tailorRun === null) {
     return (
@@ -598,6 +601,9 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         >
           Delete &amp; retry
         </button>
+        {deleteErrorMessage !== null ? (
+          <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+        ) : null}
       </div>
     );
   }
@@ -629,6 +635,9 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         >
           Delete tailored
         </button>
+        {deleteErrorMessage !== null ? (
+          <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+        ) : null}
       </div>
     );
   }
@@ -664,6 +673,9 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
       >
         Delete &amp; retry
       </button>
+      {deleteErrorMessage !== null ? (
+        <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+      ) : null}
     </div>
   );
 }
