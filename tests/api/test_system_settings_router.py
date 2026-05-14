@@ -28,22 +28,21 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     db_path = tmp_path / "settings.db"
     monkeypatch.setattr(api_main, "resolve_database_path", lambda: db_path)
     monkeypatch.delenv("TAILOR_MODE", raising=False)
-    monkeypatch.delenv("REVIEW_MODE", raising=False)
     return TestClient(api_main.app)
 
 
 def test_get_returns_defaults_on_fresh_db(client: TestClient) -> None:
-    """First GET creates the table; both modes default to `opt_in`."""
+    """First GET creates the table; tailor mode defaults to `opt_in`."""
 
     response = client.get("/api/system-settings/automation")
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"ok": True, "tailor_mode": "opt_in", "review_mode": "opt_in"}
+    assert body == {"ok": True, "tailor_mode": "opt_in"}
 
 
-def test_patch_updates_single_mode(client: TestClient) -> None:
-    """PATCH with one field updates only that field; the other is unchanged."""
+def test_patch_updates_tailor_mode(client: TestClient) -> None:
+    """PATCH with `tailor_mode` updates the persisted value."""
 
     response = client.patch(
         "/api/system-settings/automation",
@@ -53,21 +52,6 @@ def test_patch_updates_single_mode(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["tailor_mode"] == "autonomous"
-    assert body["review_mode"] == "opt_in"
-
-
-def test_patch_updates_both_modes(client: TestClient) -> None:
-    """PATCH with both fields updates both."""
-
-    response = client.patch(
-        "/api/system-settings/automation",
-        json={"tailor_mode": "both", "review_mode": "autonomous"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["tailor_mode"] == "both"
-    assert body["review_mode"] == "autonomous"
 
 
 def test_patch_empty_body_is_noop_and_returns_current_state(
@@ -79,7 +63,7 @@ def test_patch_empty_body_is_noop_and_returns_current_state(
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"ok": True, "tailor_mode": "opt_in", "review_mode": "opt_in"}
+    assert body == {"ok": True, "tailor_mode": "opt_in"}
 
 
 def test_patch_rejects_invalid_mode_with_422(client: TestClient) -> None:
@@ -99,9 +83,23 @@ def test_patch_rejects_invalid_mode_with_422(client: TestClient) -> None:
 def test_patch_then_get_round_trips(client: TestClient) -> None:
     """A value written via PATCH is visible to a subsequent GET."""
 
-    client.patch("/api/system-settings/automation", json={"review_mode": "both"})
+    client.patch("/api/system-settings/automation", json={"tailor_mode": "both"})
 
     response = client.get("/api/system-settings/automation")
 
     assert response.status_code == 200
-    assert response.json()["review_mode"] == "both"
+    assert response.json()["tailor_mode"] == "both"
+
+
+def test_patch_silently_ignores_unknown_field(client: TestClient) -> None:
+    """Stale clients sending a removed field receive 200 with no effect."""
+
+    response = client.patch(
+        "/api/system-settings/automation",
+        json={"review_mode": "both"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "review_mode" not in body
+    assert body["tailor_mode"] == "opt_in"
