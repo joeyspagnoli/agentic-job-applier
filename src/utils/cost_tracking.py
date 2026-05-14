@@ -1,13 +1,18 @@
 """Record configurable pipeline cost events for dashboard analytics.
 
 This module centralizes environment-driven stage rates so each worker can
-emit consistent cost telemetry without duplicating parsing logic.
+emit consistent cost telemetry without duplicating parsing logic. Stages
+that emit token counts in their cost-event metadata (tailor, review)
+opt into a more precise per-model rate computed from
+`COST_RATE_<MODEL>_IN_USD` / `_OUT_USD` env vars; stages without that
+data (apply browser ops) keep the flat env-rate path.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -30,6 +35,105 @@ _STAGE_RATE_ENV_KEYS: dict[str, str] = {
 }
 
 _DEFAULT_STAGE_RATE_USD = 0.0
+
+_TOKENS_PER_RATE_UNIT = 1000.0
+
+_MODEL_NAME_SANITIZE_PATTERN = re.compile(r"[/.\-]")
+
+_WARNED_UNKNOWN_MODELS: set[str] = set()
+
+
+def _env_var_names_for_model(model: str) -> tuple[str, str]:
+    """Return the `(input_rate_env, output_rate_env)` names for one model.
+
+    Purpose:
+        Derive the two env-var names operators set when they want a
+        precise per-model rate. Replaces `/`, `.`, and `-` with `_` and
+        uppercases the result so identifiers stay shell-friendly.
+    Args:
+        model: Fully qualified `provider/model` string.
+    Output:
+        Returns `(in_env_name, out_env_name)`.
+    """
+
+    sanitized = _MODEL_NAME_SANITIZE_PATTERN.sub("_", model).upper()
+    return f"COST_RATE_{sanitized}_IN_USD", f"COST_RATE_{sanitized}_OUT_USD"
+
+
+def _parse_rate_env(env_name: str) -> float | None:
+    """Read one rate env var, returning `None` when unparseable or negative.
+
+    Purpose:
+        Centralize parsing so both the model and stage rate paths reject
+        malformed values consistently.
+    Args:
+        env_name: Name of the env var to read.
+    Output:
+        Returns the parsed non-negative `float`, or `None` when unset or
+        invalid.
+    """
+
+    raw_value = os.getenv(env_name)
+    if raw_value is None or raw_value.strip() == "":
+        return None
+    try:
+        parsed_value = float(raw_value)
+    except ValueError:
+        return None
+    if parsed_value < 0:
+        return None
+    return parsed_value
+
+
+def _token_cost_from_metadata(metadata: Mapping[str, Any]) -> float | None:
+    """Compute USD cost from token-usage metadata when rates are configured.
+
+    Purpose:
+        Replace the flat env-rate per stage with model-aware token-based
+        pricing for stages whose metadata carries `model`,
+        `prompt_tokens`, and `completion_tokens`. Stages without that
+        shape (apply browser ops) fall through to the stage rate.
+    Args:
+        metadata: Cost-event metadata dict. Expected keys: `model` (str),
+            `prompt_tokens` (int), `completion_tokens` (int).
+    Output:
+        Returns the computed USD cost (may be `0.0` for known model +
+        zero tokens), or `None` when the model is unknown, the tokens
+        are missing/malformed, or the env vars are not set.
+    """
+
+    model = metadata.get("model")
+    prompt_raw = metadata.get("prompt_tokens")
+    completion_raw = metadata.get("completion_tokens")
+
+    if not isinstance(model, str) or model.strip() == "":
+        return None
+    if not isinstance(prompt_raw, int) or isinstance(prompt_raw, bool):
+        return None
+    if not isinstance(completion_raw, int) or isinstance(completion_raw, bool):
+        return None
+    if prompt_raw < 0 or completion_raw < 0:
+        return None
+
+    in_env, out_env = _env_var_names_for_model(model)
+    in_rate = _parse_rate_env(in_env)
+    out_rate = _parse_rate_env(out_env)
+    if in_rate is None or out_rate is None:
+        if model not in _WARNED_UNKNOWN_MODELS:
+            _WARNED_UNKNOWN_MODELS.add(model)
+            logger.warning(
+                "cost_tracking: no token rate configured for model '{}' "
+                "(checked {} / {}); falling back to stage rate",
+                model,
+                in_env,
+                out_env,
+            )
+        return None
+
+    return (
+        (prompt_raw / _TOKENS_PER_RATE_UNIT) * in_rate
+        + (completion_raw / _TOKENS_PER_RATE_UNIT) * out_rate
+    )
 
 
 def _coerce_stage_rate_usd(stage: str) -> float:
@@ -98,7 +202,11 @@ async def record_stage_cost_event(
         Returns `None` after writing the cost event.
     """
 
-    cost_usd = _coerce_stage_rate_usd(stage)
+    token_cost: float | None = None
+    if metadata is not None:
+        token_cost = _token_cost_from_metadata(metadata)
+    cost_usd = token_cost if token_cost is not None else _coerce_stage_rate_usd(stage)
+
     metadata_json: str | None = None
     if metadata is not None:
         metadata_json = json.dumps(dict(metadata), ensure_ascii=True, sort_keys=True)
