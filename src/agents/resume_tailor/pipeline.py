@@ -38,6 +38,7 @@ from src.utils.cost_tracking import (
 )
 
 from .compiler import compile_resume_tex, get_pdf_page_count
+from .db_verdict import DBReviewVerdict
 from .llm import (
     LlmCallResult,
     call_reviewer,
@@ -67,13 +68,6 @@ PAGE_LIMIT = 1
 BASE_VARIANT_NAME = "base"
 TAILORED_V1_VARIANT_NAME = "tailored_v1"
 TAILORED_V2_VARIANT_NAME = "tailored_v2"
-
-VERDICT_TAILORED_DB = "TAILORED"
-VERDICT_BASE_DB = "BASE"
-VERDICT_NO_IMPROVEMENT_DB = "NO_IMPROVEMENT"
-VERDICT_PAGE_FIT_FAILED_DB = "PAGE_FIT_FAILED"
-VERDICT_FAIL_DB = "FAIL"
-
 
 def _format_candidate_profile_snippet(profile_yaml_path: Path) -> str:
     """Read candidate profile YAML into a short prompt snippet.
@@ -389,10 +383,10 @@ def _select_final_variant(
     """
 
     if verdict == ReviewerVerdict.TAILORED_BETTER:
-        return VERDICT_TAILORED_DB, tailored_artifacts
+        return DBReviewVerdict.TAILORED.value, tailored_artifacts
     if verdict == ReviewerVerdict.BASE_BETTER:
-        return VERDICT_BASE_DB, base_artifacts
-    return VERDICT_NO_IMPROVEMENT_DB, base_artifacts
+        return DBReviewVerdict.BASE.value, base_artifacts
+    return DBReviewVerdict.NO_IMPROVEMENT.value, base_artifacts
 
 
 async def _record_cost(
@@ -544,7 +538,7 @@ async def run_tailor_review_pipeline(
             review_run_id = await db.insert_pipeline_review_run(
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
-                verdict=VERDICT_NO_IMPROVEMENT_DB,
+                verdict=DBReviewVerdict.NO_IMPROVEMENT.value,
                 selected_yaml_path=str(base_yaml_path),
                 selected_tex_path=str(base_tex_path),
                 selected_pdf_path=str(base_pdf_path),
@@ -567,7 +561,7 @@ async def run_tailor_review_pipeline(
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
                 review_run_id=review_run_id,
-                verdict=VERDICT_NO_IMPROVEMENT_DB,
+                verdict=DBReviewVerdict.NO_IMPROVEMENT.value,
                 selected_pdf_path=str(base_pdf_path),
                 selected_yaml_path=str(base_yaml_path),
                 selected_tex_path=str(base_tex_path),
@@ -621,7 +615,7 @@ async def run_tailor_review_pipeline(
             review_run_id = await db.insert_pipeline_review_run(
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
-                verdict=VERDICT_PAGE_FIT_FAILED_DB,
+                verdict=DBReviewVerdict.PAGE_FIT_FAILED.value,
                 selected_yaml_path=str(base_yaml_path),
                 selected_tex_path=str(base_tex_path),
                 selected_pdf_path=str(base_pdf_path),
@@ -644,7 +638,7 @@ async def run_tailor_review_pipeline(
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
                 review_run_id=review_run_id,
-                verdict=VERDICT_PAGE_FIT_FAILED_DB,
+                verdict=DBReviewVerdict.PAGE_FIT_FAILED.value,
                 selected_pdf_path=str(base_pdf_path),
                 selected_yaml_path=str(base_yaml_path),
                 selected_tex_path=str(base_tex_path),
