@@ -44,7 +44,7 @@ import type {
   WatchlistSaveResult,
 } from "./types";
 import { buildFiltersYaml, setAdzunaEnabledInYaml, splitLines } from "./yaml-builders";
-import { saveWatchlistCompanies, seedGithubRepos } from "./watchlist";
+import { saveWatchlistCompanies, seedGithubRepos, seedKeylessBoards } from "./watchlist";
 
 /** Argument bundle for {@link finishOnboarding}. */
 export interface FinishOnboardingArgs {
@@ -110,6 +110,15 @@ export async function finishOnboarding(args: FinishOnboardingArgs): Promise<Watc
   await updateFiltersYaml(buildFiltersYaml(filters, roles));
 
   await seedGithubRepos(splitLines(roles.targetRoles), updateSources, fetchSources);
+
+  // Seed the keyless aggregators (JobSpy Indeed/LinkedIn/Glassdoor + the
+  // direct LinkedIn scraper) so a fresh wizard run pulls from every source
+  // that needs no credentials. Falls back to targetRoles if the user did
+  // not provide explicit board-search terms.
+  const boardTerms = splitLines(roles.searchTerms).length > 0
+    ? splitLines(roles.searchTerms)
+    : splitLines(roles.targetRoles);
+  await seedKeylessBoards(boardTerms, updateSources, fetchSources);
 
   // Bug 4 fix: validate Greenhouse slugs; capture unverified + network
   // failures so each gets its own message in the UI below.

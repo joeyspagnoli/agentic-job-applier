@@ -16,7 +16,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { setAdzunaEnabledInYaml } from "@/lib/onboarding/yaml-builders";
+import {
+  buildKeylessBoardsBlocks,
+  setAdzunaEnabledInYaml,
+} from "@/lib/onboarding/yaml-builders";
 
 describe("setAdzunaEnabledInYaml — flipping an existing block", () => {
   it("flips enabled: false to enabled: true in place", () => {
@@ -179,5 +182,36 @@ describe("setAdzunaEnabledInYaml — preserving surrounding content", () => {
     // The themuse enabled line stays false — proves the loop terminated at the
     // top-level boundary instead of mutating the wrong block.
     expect(lines[themuseHeaderIdx + 1]).toBe("  enabled: false");
+  });
+});
+
+describe("buildKeylessBoardsBlocks", () => {
+  it("emits indeed/linkedin/glassdoor under job_boards plus a linkedin scraper block", () => {
+    // Arrange / Act
+    const result = buildKeylessBoardsBlocks(["software engineer intern"]);
+
+    // Assert: each keyless source appears with enabled: true
+    expect(result).toMatch(/^job_boards:/m);
+    expect(result).toMatch(/^ {2}indeed:\n {4}enabled: true/m);
+    expect(result).toMatch(/^ {2}linkedin:\n {4}enabled: true/m);
+    expect(result).toMatch(/^ {2}glassdoor:\n {4}enabled: true/m);
+    expect(result).toMatch(/^linkedin:\n {2}enabled: true/m);
+    expect(result).toContain('- "software engineer intern"');
+  });
+
+  it("falls back to a generic intern query when given no search terms", () => {
+    // Arrange / Act
+    const result = buildKeylessBoardsBlocks([]);
+
+    // Assert: at least one search term is present so each board still queries
+    expect(result).toContain('- "software engineer intern"');
+  });
+
+  it("escapes embedded double quotes in user-provided search terms", () => {
+    // Arrange / Act
+    const result = buildKeylessBoardsBlocks(['weird "quoted" role']);
+
+    // Assert: double quotes get backslash-escaped inside the YAML scalar
+    expect(result).toContain('- "weird \\"quoted\\" role"');
   });
 });

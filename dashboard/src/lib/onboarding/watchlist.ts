@@ -20,6 +20,7 @@ import { KNOWN_SLUGS } from "./constants";
 import { EMPTY_WATCHLIST_RESULT } from "./defaults";
 import {
   buildGithubReposBlock,
+  buildKeylessBoardsBlocks,
   detectSimplifyCategories,
   escapeYamlMappingKey,
   toYamlDoubleQuoted,
@@ -255,4 +256,47 @@ export async function seedGithubRepos(
     updatedYaml = updatedYaml + "\n" + reposBlock;
   }
   await updateSources(updatedYaml);
+}
+
+/**
+ * Seed the keyless aggregator sources (JobSpy boards + LinkedIn scraper)
+ * during onboarding so a fresh wizard run discovers jobs from every source
+ * that does not require an API key.
+ *
+ * @remarks
+ * Skips replacement when the user already has a `job_boards:` or top-level
+ * `linkedin:` block so re-running onboarding (or editing the YAML by hand)
+ * never clobbers customizations. The default seed targets nationwide US
+ * with a small `results_wanted` so the first discovery cycle stays fast.
+ *
+ * @param searchTerms - Free-form search terms captured in the wizard's
+ *   Target Roles step (`roles.searchTerms`). When empty, falls back to a
+ *   single generic intern query so each board still issues a request.
+ * @param updateSources - Mutation that persists merged `companies.yaml`.
+ * @param fetchSources - Reader that returns current `companies.yaml`.
+ */
+export async function seedKeylessBoards(
+  searchTerms: string[],
+  updateSources: (yaml: string) => Promise<unknown>,
+  fetchSources: () => Promise<{ yaml_text: string }>,
+): Promise<void> {
+  const blocks = buildKeylessBoardsBlocks(searchTerms);
+  const current = await fetchSources();
+  let updatedYaml = current.yaml_text ?? "";
+  const hasJobBoards = /^job_boards:/m.test(updatedYaml);
+  const hasLinkedinScraper = /^linkedin:/m.test(updatedYaml);
+  if (hasJobBoards && hasLinkedinScraper) {
+    return;
+  }
+  // Append only the blocks the user does not already have, so partial
+  // edits stay intact.
+  const [jobBoardsFragment, linkedinFragment] = blocks.split(/\n(?=linkedin:\n)/);
+  let appended = updatedYaml;
+  if (!hasJobBoards && jobBoardsFragment) {
+    appended = appended + "\n" + jobBoardsFragment;
+  }
+  if (!hasLinkedinScraper && linkedinFragment) {
+    appended = appended + "\n" + linkedinFragment;
+  }
+  await updateSources(appended);
 }

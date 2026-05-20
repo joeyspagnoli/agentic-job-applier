@@ -287,3 +287,56 @@ export function buildGithubReposBlock(categories: string[]): string {
     categoriesYaml
   );
 }
+
+/**
+ * Build YAML for the keyless aggregator sources — JobSpy boards (Indeed,
+ * LinkedIn, Glassdoor) and the direct LinkedIn scraper — so new users get
+ * jobs from these the moment onboarding finishes.
+ *
+ * @remarks
+ * These sources do not require an API key (JobSpy scrapes the public boards
+ * and the LinkedIn scraper uses the same public guest API). Before this
+ * helper existed, a fresh wizard run only seeded the SimplifyJobs github
+ * source, so users saw a single source unless they hand-edited
+ * `companies.yaml`. The defaults here mirror what discovery runs accept and
+ * are safe to leave on: `results_wanted` is small so the first cycle is
+ * fast, and location defaults to nationwide US which matches the broadest
+ * intern audience.
+ *
+ * @param searchTerms - Free-form search terms from the wizard (e.g.
+ *   `["software engineer intern", "ai engineer intern"]`). When empty,
+ *   the builder falls back to a single generic term so each board still
+ *   issues at least one query.
+ * @returns Two YAML fragments concatenated by a blank line: the
+ *   `job_boards:` mapping (Indeed/LinkedIn/Glassdoor under JobSpy) and the
+ *   top-level `linkedin:` direct-scraper block.
+ */
+export function buildKeylessBoardsBlocks(searchTerms: string[]): string {
+  const terms =
+    searchTerms.length > 0 ? searchTerms : ["software engineer intern"];
+  const termLines = terms.map((t) => `      - "${t.replace(/"/g, '\\"')}"`).join("\n");
+  const jobBoards =
+    `job_boards:\n` +
+    `  indeed:\n` +
+    `    enabled: true\n` +
+    `    search_terms:\n${termLines}\n` +
+    `    location: "United States"\n` +
+    `    results_wanted: 25\n` +
+    `  linkedin:\n` +
+    `    enabled: true\n` +
+    `    search_terms:\n${termLines}\n` +
+    `    location: "United States"\n` +
+    `    results_wanted: 25\n` +
+    `  glassdoor:\n` +
+    `    enabled: true\n` +
+    `    search_terms:\n${termLines}\n` +
+    `    location: "United States"\n` +
+    `    results_wanted: 25\n`;
+  const linkedinScraper =
+    `linkedin:\n` +
+    `  enabled: true\n` +
+    `  search_terms:\n${termLines}\n` +
+    `  location: "United States"\n` +
+    `  geo_id: 103644278\n`;
+  return jobBoards + "\n" + linkedinScraper;
+}

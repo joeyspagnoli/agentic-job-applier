@@ -41,6 +41,7 @@ vi.mock("@/lib/api/client", () => ({
 // can assert exactly which `updateSources` calls are Adzuna's.
 vi.mock("@/lib/onboarding/watchlist", () => ({
   seedGithubRepos: vi.fn().mockResolvedValue(undefined),
+  seedKeylessBoards: vi.fn().mockResolvedValue(undefined),
   saveWatchlistCompanies: vi.fn().mockResolvedValue({
     unverified: [],
     networkFailures: [],
