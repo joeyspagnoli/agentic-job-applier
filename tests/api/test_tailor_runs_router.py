@@ -11,6 +11,7 @@ Purpose:
 from __future__ import annotations
 
 import asyncio
+import shutil
 from pathlib import Path
 
 import pytest
@@ -277,3 +278,422 @@ def test_delete_returns_404_when_already_deleted(
 
     assert response.status_code == 404
     assert response.json()["code"] == "TAILOR_RUN_ALREADY_DELETED"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/tailor-runs/{id}/retry — atomic delete + re-enqueue (issue #56).
+# ---------------------------------------------------------------------------
+
+
+def _mark_run_failed(db_path: Path, run_id: int) -> None:
+    """Transition the given run to FAILED so retry-eligibility kicks in."""
+
+    async def _fail() -> None:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            await db.record_tailor_failure(
+                run_id=run_id, error="boom", next_retry_at=None
+            )
+
+    asyncio.run(_fail())
+
+
+def test_retry_returns_404_for_unknown_id(client: TestClient) -> None:
+    """Retrying a row that never existed surfaces TAILOR_RUN_NOT_FOUND."""
+
+    response = client.post("/api/tailor-runs/99999/retry")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "TAILOR_RUN_NOT_FOUND"
+
+
+def test_retry_returns_404_when_already_deleted(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """Retrying an already soft-deleted row → TAILOR_RUN_ALREADY_DELETED."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    post = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    assert client.delete(f"/api/tailor-runs/{post['tailor_run_id']}").status_code == 204
+
+    response = client.post(f"/api/tailor-runs/{post['tailor_run_id']}/retry")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "TAILOR_RUN_ALREADY_DELETED"
+
+
+def test_retry_in_opt_in_mode_inserts_fresh_pending_row(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """opt_in retry: 202 envelope with retry_via=user and a new run id."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["ok"] is True
+    assert body["retry_via"] == "user"
+    assert body["status"] == "PENDING"
+    assert body["job_hash"] == VALID_HASH
+    assert isinstance(body["tailor_run_id"], int)
+    assert body["tailor_run_id"] != first["tailor_run_id"]
+
+
+def test_retry_in_opt_in_mode_soft_deletes_the_original_row(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """The pre-existing row is soft-deleted before the new one is created."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+
+    retry_response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+    assert retry_response.status_code == 202
+
+    # Re-deleting the original surfaces ALREADY_DELETED only when the
+    # retry path actually performed the soft-delete.
+    follow_up = client.delete(f"/api/tailor-runs/{first['tailor_run_id']}")
+    assert follow_up.status_code == 404
+    assert follow_up.json()["code"] == "TAILOR_RUN_ALREADY_DELETED"
+
+
+def test_retry_in_both_mode_inserts_fresh_pending_row(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """`both` mode behaves like opt_in for retry (user-triggered branch)."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    _set_tailor_mode(db_path, "both")
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["retry_via"] == "user"
+    assert body["status"] == "PENDING"
+    assert body["job_hash"] == VALID_HASH
+
+
+def test_retry_in_autonomous_mode_returns_worker_envelope(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """autonomous retry returns retry_via=worker and no new tailor_run_id."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    _set_tailor_mode(db_path, "autonomous")
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["ok"] is True
+    assert body["retry_via"] == "worker"
+    assert body["deleted_run_id"] == first["tailor_run_id"]
+    assert body["job_hash"] == VALID_HASH
+    assert "tailor_run_id" not in body
+
+
+def test_retry_in_autonomous_mode_does_not_create_a_new_row(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """The autonomous branch must not insert a fresh PENDING tailor_run."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    _set_tailor_mode(db_path, "autonomous")
+
+    client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    async def _count() -> int:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            conn = db._require_conn()
+            cursor = await conn.execute(
+                "SELECT COUNT(*) AS c FROM tailor_runs WHERE deleted_at IS NULL"
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return int(row["c"])
+
+    active_rows = asyncio.run(_count())
+    assert active_rows == 0
+
+
+def _force_job_status_qualified(db_path: Path, job_hash: str) -> None:
+    """Set the seeded job's status to QUALIFIED so the worker can claim it."""
+
+    async def _update() -> None:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            conn = db._require_conn()
+            await conn.execute(
+                "UPDATE job_postings SET status = 'QUALIFIED' WHERE job_hash = ?",
+                (job_hash,),
+            )
+            await conn.commit()
+
+    asyncio.run(_update())
+
+
+def test_retry_in_autonomous_mode_makes_job_claimable_again(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """The soft-delete alone re-opens the job for the worker's next poll.
+
+    Purpose:
+        Locks the integration contract called out in the issue body: in
+        autonomous mode the soft-delete IS the retry — `claim_next_tailor_job`
+        must succeed against the same job after the retry, even with
+        max_retries=1, because the FAILED row no longer counts.
+    """
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    _force_job_status_qualified(db_path, VALID_HASH)
+    _set_tailor_mode(db_path, "autonomous")
+
+    async def _claim_before() -> object:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            return await db.claim_next_tailor_job(max_retries=1)
+
+    pre_retry_claim = asyncio.run(_claim_before())
+    assert pre_retry_claim is None
+
+    retry_response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+    assert retry_response.status_code == 202
+
+    async def _claim_after() -> object:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            return await db.claim_next_tailor_job(max_retries=1)
+
+    post_retry_claim = asyncio.run(_claim_after())
+    assert post_retry_claim is not None
+
+
+def test_retry_returns_409_when_budget_exceeded(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """opt_in retry honors the monthly budget guard."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+
+    async def _exceeded(self: object) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        "src.database._mixins.costs.CostsMixin.is_budget_exceeded",
+        _exceeded,
+    )
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "BUDGET_EXCEEDED"
+
+
+def test_retry_budget_check_skipped_in_autonomous_mode(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Autonomous retry bypasses the user-path budget guard.
+
+    Purpose:
+        Budget enforcement is a property of the user-triggered branch.
+        Autonomous retries are a worker-claim concern handled elsewhere;
+        the endpoint must not 409 on budget when retry_via=worker.
+    """
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    _set_tailor_mode(db_path, "autonomous")
+
+    async def _exceeded(self: object) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        "src.database._mixins.costs.CostsMixin.is_budget_exceeded",
+        _exceeded,
+    )
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    assert response.status_code == 202
+    assert response.json()["retry_via"] == "worker"
+
+
+def test_retry_in_opt_in_mode_schedules_background_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The user-triggered branch hands the new run to the BackgroundTask."""
+
+    db_path = tmp_path / "tailor_api.db"
+    monkeypatch.setattr(api_main, "resolve_database_path", lambda: db_path)
+
+    scheduled: list[dict[str, object]] = []
+
+    async def _capture_background(**kwargs: object) -> None:
+        scheduled.append(kwargs)
+
+    monkeypatch.setattr(
+        tailor_runs_router,
+        "_run_pipeline_background",
+        _capture_background,
+    )
+
+    test_client = TestClient(api_main.app)
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = test_client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    scheduled.clear()  # drop the original POST's scheduling event.
+
+    retry_response = test_client.post(
+        f"/api/tailor-runs/{first['tailor_run_id']}/retry"
+    )
+    assert retry_response.status_code == 202
+
+    new_run_id = retry_response.json()["tailor_run_id"]
+    assert len(scheduled) == 1
+    assert scheduled[0]["tailor_run_id"] == new_run_id
+    assert scheduled[0]["job_hash"] == VALID_HASH
+
+
+def test_retry_in_autonomous_mode_does_not_schedule_background_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Autonomous retry must not queue the user-path pipeline task."""
+
+    db_path = tmp_path / "tailor_api.db"
+    monkeypatch.setattr(api_main, "resolve_database_path", lambda: db_path)
+
+    scheduled: list[dict[str, object]] = []
+
+    async def _capture_background(**kwargs: object) -> None:
+        scheduled.append(kwargs)
+
+    monkeypatch.setattr(
+        tailor_runs_router,
+        "_run_pipeline_background",
+        _capture_background,
+    )
+
+    test_client = TestClient(api_main.app)
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = test_client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+    _mark_run_failed(db_path, first["tailor_run_id"])
+    _set_tailor_mode(db_path, "autonomous")
+    scheduled.clear()  # drop the original POST's scheduling event.
+
+    retry_response = test_client.post(
+        f"/api/tailor-runs/{first['tailor_run_id']}/retry"
+    )
+    assert retry_response.status_code == 202
+    assert scheduled == []
+
+
+def test_retry_cleans_up_artifact_directory(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """A retry on a SUCCESS row removes the on-disk artifact directory."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+
+    artifact_dir = tmp_path / "artifacts" / VALID_HASH
+    artifact_dir.mkdir(parents=True)
+    pdf_path = artifact_dir / "resume.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 dummy")
+
+    async def _mark_success() -> None:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            await db.record_tailor_success(
+                run_id=first["tailor_run_id"],
+                artifact_yaml_path=str(artifact_dir / "r.yaml"),
+                artifact_tex_path=str(artifact_dir / "r.tex"),
+                artifact_pdf_path=str(pdf_path),
+                page_count=1,
+            )
+
+    asyncio.run(_mark_success())
+    assert artifact_dir.exists()
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+    assert response.status_code == 202
+    assert not artifact_dir.exists()
+
+
+def test_retry_swallows_artifact_cleanup_errors(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Filesystem failures during cleanup must not break the HTTP response."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    first = client.post(f"/api/jobs/{VALID_HASH}/tailor").json()
+
+    artifact_dir = tmp_path / "broken" / VALID_HASH
+    artifact_dir.mkdir(parents=True)
+
+    async def _mark_success() -> None:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            await db.record_tailor_success(
+                run_id=first["tailor_run_id"],
+                artifact_yaml_path=str(artifact_dir / "r.yaml"),
+                artifact_tex_path=str(artifact_dir / "r.tex"),
+                artifact_pdf_path=str(artifact_dir / "r.pdf"),
+                page_count=1,
+            )
+
+    asyncio.run(_mark_success())
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(shutil, "rmtree", _boom)
+
+    response = client.post(f"/api/tailor-runs/{first['tailor_run_id']}/retry")
+
+    assert response.status_code == 202
+    assert response.json()["retry_via"] == "user"
