@@ -177,10 +177,10 @@ def test_get_tailor_model_name_returns_default_when_env_unset(
     assert result == llm.DEFAULT_TAILOR_MODEL
 
 
-def test_get_tailor_model_name_default_is_pinned_to_gpt_5_1_mini(
+def test_get_tailor_model_name_default_is_pinned_to_gpt_5_mini(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin the literal default tailor model to `openai/gpt-5.1-mini`.
+    """Pin the literal default tailor model to `openai/gpt-5-mini`.
 
     Purpose:
         Issue #53 swapped away from `gpt-5.1-codex-mini` because the
@@ -193,13 +193,13 @@ def test_get_tailor_model_name_default_is_pinned_to_gpt_5_1_mini(
 
     result = llm.get_tailor_model_name()
 
-    assert result == "openai/gpt-5.1-mini"
+    assert result == "openai/gpt-5-mini"
 
 
-def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_1_mini(
+def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_mini(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin the literal default reviewer model to `openai/gpt-5.1-mini`.
+    """Pin the literal default reviewer model to `openai/gpt-5-mini`.
 
     Purpose:
         The reviewer was also swapped off `gpt-5.1-codex-mini` in #53 so
@@ -210,7 +210,7 @@ def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_1_mini(
 
     result = llm.get_reviewer_model_name()
 
-    assert result == "openai/gpt-5.1-mini"
+    assert result == "openai/gpt-5-mini"
 
 
 def test_get_tailor_model_name_honors_env_override(
