@@ -87,6 +87,18 @@ The dashboard refuses to load until `config/candidate_profile.yaml`, `config/res
 
 After the final step the dashboard becomes available. Re-run any step later from **Settings** in the sidebar; raw YAML is editable there too.
 
+### Adzuna (optional job board)
+
+Adzuna is a free, API-backed job aggregator covering 12+ countries. It's used here as a stable alternative to scraping Glassdoor — it returns structured listings (including salary ranges) without needing proxies or browser automation. You can skip it during onboarding and enable it later from Settings.
+
+**Getting your credentials**
+
+1. Go to [developer.adzuna.com](https://developer.adzuna.com) and create a free account.
+2. Once logged in, create a new application — any name works.
+3. You'll receive an **App ID** and an **App Key**. You need both.
+
+Enter them in Step 5 of the onboarding wizard (or under **Settings → API Keys**). The wizard validates the credentials against the live API before saving, so typos are caught immediately. Once saved, `adzuna.enabled` in `config/companies.yaml` is flipped on automatically and the fetcher runs on every discovery cycle.
+
 ## Profiles and opt-in tiers
 
 The Compose file ships three docker compose profiles. Each one inherits the layers of the previous tier, so opting up later only builds the delta.
