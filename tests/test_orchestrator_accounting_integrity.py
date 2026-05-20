@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 import main as discovery_main
+import src.orchestrator.discovery as discovery_module
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
 from src.utils.deduplicator import Deduplicator
@@ -463,6 +464,13 @@ async def test_run_job_discovery_updates_daily_stats_with_start_crawl_failures(
                 "workday_companies": {},
                 "job_boards": {},
             },
+        )
+        from src.orchestrator.config_loader import load_optional_yaml as _real_load_optional_yaml
+
+        monkeypatch.setattr(
+            discovery_module,
+            "load_optional_yaml",
+            lambda path: None if Path(path).name == "filters.yaml" else _real_load_optional_yaml(path),
         )
 
         original_start_crawl = DatabaseManager.start_crawl
