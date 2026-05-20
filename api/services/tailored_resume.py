@@ -8,6 +8,9 @@ from pathlib import Path
 
 from fastapi import Request
 
+from src.agents.resume_tailor.pipeline import BASE_VARIANT_NAME
+from src.agents.resume_tailor.pipeline import TAILORED_V1_VARIANT_NAME
+from src.agents.resume_tailor.pipeline import TAILORED_V2_VARIANT_NAME
 from src.database.db_manager import DatabaseManager
 from src.utils.paths import resolve_database_path
 from src.utils.paths import resolve_repo_root
@@ -18,6 +21,18 @@ from api.config import TAILORED_RESUME_FILENAME
 from api.config import TAILORED_RESUME_TOKEN_ENV_KEY
 from api.config import TAILORED_RESUME_TOKEN_HEADER
 from api.errors import _raise_api_error
+
+# Closed whitelist of per-variant subdirectory names the tailor pipeline emits.
+# Treated as a defense-in-depth boundary alongside the job_hash regex and
+# `Path.resolve(strict=True)` — anything outside this set is rejected even if
+# the rest of the path shape would otherwise validate.
+_VARIANT_SUBDIR_NAMES = frozenset(
+    {
+        BASE_VARIANT_NAME,
+        TAILORED_V1_VARIANT_NAME,
+        TAILORED_V2_VARIANT_NAME,
+    }
+)
 
 
 def _validate_job_hash(job_hash: str) -> str:
@@ -85,11 +100,13 @@ def _require_tailored_resume_access(request: Request) -> None:
 
 
 def _is_safe_tailored_resume_path(*, job_hash: str, candidate_path: Path) -> bool:
-    """Check whether a resolved resume path matches expected artifact shape.
+    """Check whether a resolved resume path matches an expected artifact shape.
 
     Purpose:
         Prevent arbitrary file serving by enforcing job-scoped resume artifact
-        naming and directory conventions.
+        naming and directory conventions. Accepts both the current pipeline
+        layout (`<hash>/<variant>/<variant>.pdf`) and the legacy flat layout
+        (`<hash>/resume_tailored.pdf`) so historical rows continue to download.
     Args:
         job_hash: Validated job hash for the requested artifact.
         candidate_path: Filesystem path candidate resolved from DB metadata.
@@ -97,12 +114,33 @@ def _is_safe_tailored_resume_path(*, job_hash: str, candidate_path: Path) -> boo
         Returns `True` when the path shape is acceptable, else `False`.
     """
 
-    return (
-        candidate_path.name == TAILORED_RESUME_FILENAME
-        and candidate_path.suffix.lower() == ".pdf"
-        and candidate_path.parent.name == job_hash
-        and candidate_path.is_file()
-    )
+    # Cheap structural checks first so we never touch the filesystem (`is_file`)
+    # for obviously-wrong inputs like directories or non-PDF extensions.
+    if not candidate_path.is_file() or candidate_path.suffix.lower() != ".pdf":
+        return False
+
+    # Current pipeline layout: `<output_dir>/<hash>/<variant>/<variant>.pdf`.
+    # The variant subdir name is constrained to the closed whitelist and must
+    # match the filename stem; the hash is enforced one level up. The hash is
+    # already regex-validated upstream (`_validate_job_hash`), so this check
+    # combined with `Path.resolve(strict=True)` defeats traversal without
+    # needing a `TAILORED_RESUME_DIR` directory pin (which would conflict with
+    # the worker's `TAILOR_OUTPUT_DIR` env override).
+    parent_name = candidate_path.parent.name
+    if (
+        parent_name in _VARIANT_SUBDIR_NAMES
+        and candidate_path.parent.parent.name == job_hash
+        and candidate_path.name == f"{parent_name}.pdf"
+    ):
+        return True
+
+    # Legacy flat layout: `<hash>/resume_tailored.pdf`. Kept for pre-variant
+    # `tailor_runs` rows that still resolve through this validator. Once those
+    # rows age out, this branch can be removed.
+    if parent_name == job_hash and candidate_path.name == TAILORED_RESUME_FILENAME:
+        return True
+
+    return False
 
 
 def _resolve_artifact_path(raw_path: str) -> Path:

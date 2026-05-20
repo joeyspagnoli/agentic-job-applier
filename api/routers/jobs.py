@@ -13,7 +13,6 @@ from src.models.job_posting import JobPosting
 from api.config import DEFAULT_PAGE_SIZE
 from api.config import MAX_PAGE_SIZE
 from api.config import TAILORED_RESUME_DIR
-from api.config import TAILORED_RESUME_FILENAME
 from api.errors import _raise_api_error
 from api.schemas.common import JobImportRequest
 from api.services.salary import _build_pipeline_steps
@@ -21,7 +20,6 @@ from api.services.salary import _parse_gate_result
 from api.services.salary import _salary_display
 from api.services.sources import _source_filter_sql
 from api.services.sources import _source_label
-from api.services.tailored_resume import _is_safe_tailored_resume_path
 from api.services.tailored_resume import _require_tailored_resume_access
 from api.services.tailored_resume import _resolve_latest_tailored_resume_pdf_path
 from api.services.tailored_resume import _validate_job_hash
@@ -304,15 +302,12 @@ async def download_tailored_resume(job_hash: str, request: Request) -> FileRespo
     validated_hash = _validate_job_hash(job_hash)
     _require_tailored_resume_access(request)
 
+    # The DB query in `_resolve_latest_tailored_resume_pdf_path` already covers
+    # both `review_runs.selected_pdf_path` and `tailor_runs.artifact_pdf_path`,
+    # so any historical artifact a fallback could find is already accounted for.
+    # The 404 reports the per-job artifact directory rather than a synthesized
+    # filename, since the missing PDF could be any of the variant outputs.
     resume_pdf_path = await _resolve_latest_tailored_resume_pdf_path(validated_hash)
-    if resume_pdf_path is None:
-        legacy_path = TAILORED_RESUME_DIR / validated_hash / TAILORED_RESUME_FILENAME
-        if legacy_path.exists() and _is_safe_tailored_resume_path(
-            job_hash=validated_hash,
-            candidate_path=legacy_path,
-        ):
-            resume_pdf_path = legacy_path.resolve()
-
     if resume_pdf_path is None:
         _raise_api_error(
             status_code=404,
@@ -320,9 +315,7 @@ async def download_tailored_resume(job_hash: str, request: Request) -> FileRespo
             message="Tailored resume PDF does not exist for this job.",
             details={
                 "job_hash": validated_hash,
-                "path": str(
-                    TAILORED_RESUME_DIR / validated_hash / TAILORED_RESUME_FILENAME
-                ),
+                "path": str(TAILORED_RESUME_DIR / validated_hash),
             },
         )
     assert resume_pdf_path is not None
