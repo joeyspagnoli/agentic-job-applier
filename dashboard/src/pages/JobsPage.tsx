@@ -16,6 +16,7 @@ import {
   fetchJobs,
   fetchJobsNow,
   getTailoredResumeUrl,
+  retryTailorRun,
 } from "@/lib/api/client";
 import {
   COLOR_ON_SURFACE,
@@ -567,6 +568,13 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     },
   });
 
+  const retryMutation = useMutation({
+    mutationFn: (runId: number) => retryTailorRun(runId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+
   const tailorRun = row.tailorRun;
   const baseDownloadUrl = getTailoredResumeUrl(row.jobHash);
   const errorMessage = enqueueMutation.error
@@ -574,6 +582,9 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     : null;
   const deleteErrorMessage = deleteMutation.error
     ? (deleteMutation.error as Error).message
+    : null;
+  const retryErrorMessage = retryMutation.error
+    ? (retryMutation.error as Error).message
     : null;
 
   if (tailorRun === null) {
@@ -632,14 +643,14 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
           style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
           onClick={(e) => {
             e.stopPropagation();
-            deleteMutation.mutate(tailorRun.id);
+            retryMutation.mutate(tailorRun.id);
           }}
-          disabled={deleteMutation.isPending}
+          disabled={retryMutation.isPending}
         >
           Delete &amp; retry
         </button>
-        {deleteErrorMessage !== null ? (
-          <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+        {retryErrorMessage !== null ? (
+          <p style={{ color: "#b91c1c" }}>{retryErrorMessage}</p>
         ) : null}
       </div>
     );
@@ -699,14 +710,14 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
         onClick={(e) => {
           e.stopPropagation();
-          deleteMutation.mutate(tailorRun.id);
+          retryMutation.mutate(tailorRun.id);
         }}
-        disabled={deleteMutation.isPending}
+        disabled={retryMutation.isPending}
       >
         Delete &amp; retry
       </button>
-      {deleteErrorMessage !== null ? (
-        <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+      {retryErrorMessage !== null ? (
+        <p style={{ color: "#b91c1c" }}>{retryErrorMessage}</p>
       ) : null}
     </div>
   );
