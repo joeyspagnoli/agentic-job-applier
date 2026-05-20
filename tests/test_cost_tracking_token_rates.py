@@ -76,8 +76,8 @@ async def test_records_token_based_cost_when_rates_configured(
 ) -> None:
     """Known model + tokens → cost computed from per-1k rates."""
 
-    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_IN_USD", "0.002")
-    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_OUT_USD", "0.008")
+    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_MINI_IN_USD", "0.002")
+    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_MINI_OUT_USD", "0.008")
     recorder = _FakeCostRecorder()
 
     await cost_tracking.record_stage_cost_event(
@@ -86,7 +86,7 @@ async def test_records_token_based_cost_when_rates_configured(
         job_hash="abc",
         run_id="run-1",
         metadata={
-            "model": "openai/gpt-5.1-codex-mini",
+            "model": "openai/gpt-5-mini",
             "prompt_tokens": 1000,
             "completion_tokens": 500,
         },
@@ -103,8 +103,8 @@ async def test_known_model_with_zero_tokens_records_zero(
 ) -> None:
     """Known model + 0 tokens → records `0.0`, does NOT fall back to stage rate."""
 
-    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_IN_USD", "0.002")
-    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_OUT_USD", "0.008")
+    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_MINI_IN_USD", "0.002")
+    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_MINI_OUT_USD", "0.008")
     monkeypatch.setenv("COST_RATE_TAILOR_USD", "0.5")
     recorder = _FakeCostRecorder()
 
@@ -114,7 +114,7 @@ async def test_known_model_with_zero_tokens_records_zero(
         job_hash="abc",
         run_id="run-2",
         metadata={
-            "model": "openai/gpt-5.1-codex-mini",
+            "model": "openai/gpt-5-mini",
             "prompt_tokens": 0,
             "completion_tokens": 0,
         },
@@ -239,8 +239,8 @@ async def test_malformed_token_counts_fall_back_to_stage_rate(
         produce nonsense (e.g. negative) costs.
     """
 
-    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_IN_USD", "0.002")
-    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_OUT_USD", "0.008")
+    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_MINI_IN_USD", "0.002")
+    monkeypatch.setenv("COST_RATE_OPENAI_GPT_5_MINI_OUT_USD", "0.008")
     monkeypatch.setenv("COST_RATE_TAILOR_USD", "0.50")
     recorder = _FakeCostRecorder()
 
@@ -250,7 +250,7 @@ async def test_malformed_token_counts_fall_back_to_stage_rate(
         job_hash="abc",
         run_id="run-7",
         metadata={
-            "model": "openai/gpt-5.1-codex-mini",
+            "model": "openai/gpt-5-mini",
             "prompt_tokens": "1000",
             "completion_tokens": None,
         },
@@ -263,8 +263,13 @@ def test_env_var_names_for_model_sanitizes_slashes_dots_and_dashes() -> None:
     """The model-name transform matches the documented pattern."""
 
     in_env, out_env = cost_tracking._env_var_names_for_model(
-        "openai/gpt-5.1-codex-mini"
+        "openai/gpt-5-mini"
     )
 
-    assert in_env == "COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_IN_USD"
-    assert out_env == "COST_RATE_OPENAI_GPT_5_1_CODEX_MINI_OUT_USD"
+    assert in_env == "COST_RATE_OPENAI_GPT_5_MINI_IN_USD"
+    assert out_env == "COST_RATE_OPENAI_GPT_5_MINI_OUT_USD"
+
+    # Cover dot sanitization explicitly via a synthetic identifier so the
+    # assertion is not coupled to the current default model name.
+    in_env_dotted, _ = cost_tracking._env_var_names_for_model("foo/bar.baz")
+    assert in_env_dotted == "COST_RATE_FOO_BAR_BAZ_IN_USD"

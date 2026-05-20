@@ -10,9 +10,9 @@ validation, the library re-prompts with the error attached, up to
 
 Provider selection is driven by env vars so the rest of the pipeline
 does not need to know whether OpenAI, Anthropic, or another backend is
-in use. The default is OpenAI's `gpt-5-mini` — a prose-tuned model in
-the same cost tier as the coding-tuned `codex-mini` variants, which
-empirically declined to propose edits on resume-tailoring prompts.
+in use. The default is OpenAI's `gpt-5-mini` — a prose-tuned model that
+reliably proposes edits on resume-tailoring prompts (coding-tuned
+variants empirically bailed with empty edits; see issue #53).
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ def _build_client(qualified_model: str) -> tuple[Any, str]:
                 "OPENAI_API_KEY is not set; resume-tailor LLM calls cannot run."
             )
         # Use the OpenAI Responses API so newer "responses-only" models
-        # (gpt-5.x, codex-mini, o-series) work alongside legacy models.
+        # (including the gpt-5 family) work alongside legacy models.
         client = instructor.from_openai(
             OpenAI(), mode=instructor.Mode.RESPONSES_TOOLS,
         )

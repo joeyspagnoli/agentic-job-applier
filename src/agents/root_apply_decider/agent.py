@@ -16,7 +16,7 @@ from .schemas import GateDebugInfo
 from .schemas import GateRunResult
 
 DECIDER_PROVIDER = "openai"
-DECIDER_MODEL = "openai/gpt-5.1-codex-mini"
+DECIDER_MODEL = "openai/gpt-5-mini"
 
 
 def _extract_decision(value: Any) -> ApplyDecision | None:
@@ -165,7 +165,7 @@ def get_decider_model_name() -> str:
     Args:
         None.
     Output:
-        Returns the fully qualified model string `openai/gpt-5.1-codex-mini`.
+        Returns the fully qualified model string `openai/gpt-5-mini`.
     """
 
     return DECIDER_MODEL

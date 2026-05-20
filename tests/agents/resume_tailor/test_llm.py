@@ -24,17 +24,17 @@ from src.agents.resume_tailor import llm
 def test_split_provider_and_model_returns_two_parts_for_valid_id() -> None:
     """A `provider/model` string splits into two non-empty parts."""
 
-    provider, model = llm._split_provider_and_model("openai/gpt-5.1-codex-mini")
+    provider, model = llm._split_provider_and_model("openai/gpt-5-mini")
 
     assert provider == "openai"
-    assert model == "gpt-5.1-codex-mini"
+    assert model == "gpt-5-mini"
 
 
 def test_split_provider_and_model_raises_when_no_slash() -> None:
     """A bare model name without `/` raises `ValueError`."""
 
     with pytest.raises(ValueError, match="provider/model"):
-        llm._split_provider_and_model("gpt-5.1")
+        llm._split_provider_and_model("gpt-5-mini")
 
 
 def test_split_provider_and_model_raises_when_left_side_empty() -> None:
@@ -59,7 +59,7 @@ def test_build_client_raises_runtime_error_when_openai_key_missing(
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-        llm._build_client("openai/gpt-5.1-codex-mini")
+        llm._build_client("openai/gpt-5-mini")
 
 
 def test_build_client_returns_instructor_client_and_bare_model_for_openai(
@@ -85,13 +85,13 @@ def test_build_client_returns_instructor_client_and_bare_model_for_openai(
 
     monkeypatch.setattr(instructor, "from_openai", fake_from_openai)
 
-    client, bare_model = llm._build_client("openai/gpt-5.1-codex-mini")
+    client, bare_model = llm._build_client("openai/gpt-5-mini")
 
     assert client is sentinel_client
-    assert bare_model == "gpt-5.1-codex-mini"
+    assert bare_model == "gpt-5-mini"
     assert call_count["value"] == 1
     # Pin the Responses-API mode so a future regression that drops it
-    # (and silently breaks codex-mini / gpt-5.x) fails loudly here.
+    # (and silently breaks the gpt-5 family) fails loudly here.
     assert captured_mode["mode"] is instructor.Mode.RESPONSES_TOOLS
 
 
@@ -109,7 +109,7 @@ def test_build_client_raises_value_error_for_unsupported_provider(
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
     with pytest.raises(ValueError, match="Unsupported provider"):
-        llm._build_client("anthropic/claude-x")
+        llm._build_client("anthropic/gpt-5-mini")
 
 
 def test_extract_usage_returns_zeros_when_completion_has_no_usage() -> None:
@@ -183,10 +183,10 @@ def test_get_tailor_model_name_default_is_pinned_to_gpt_5_mini(
     """Pin the literal default tailor model to `openai/gpt-5-mini`.
 
     Purpose:
-        Issue #53 swapped away from `gpt-5.1-codex-mini` because the
-        coding-tuned model defaulted to emitting empty edits on resume
-        prompts. This test fails loudly if a future bump silently
-        re-introduces a codex-tuned (or any other) default.
+        Issue #53 swapped away from a coding-tuned default because that
+        variant emitted empty edits on resume prompts. This test fails
+        loudly if a future bump silently re-introduces a coding-tuned
+        (or any other) default.
     """
 
     monkeypatch.delenv(llm.TAILOR_MODEL_ENV_VAR, raising=False)
@@ -202,8 +202,8 @@ def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_mini(
     """Pin the literal default reviewer model to `openai/gpt-5-mini`.
 
     Purpose:
-        The reviewer was also swapped off `gpt-5.1-codex-mini` in #53 so
-        the tailor and reviewer share the same prose-tuned default.
+        The reviewer was also swapped off the coding-tuned default in
+        #53 so the tailor and reviewer share the same prose-tuned model.
     """
 
     monkeypatch.delenv(llm.REVIEWER_MODEL_ENV_VAR, raising=False)

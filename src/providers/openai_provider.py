@@ -20,8 +20,8 @@ from src.providers.types import (
     ProviderType,
 )
 
-DEFAULT_OPENAI_MODEL = "gpt-4o"
-DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o"
+DEFAULT_OPENAI_MODEL = "gpt-5-mini"
+DEFAULT_OPENROUTER_MODEL = "openai/gpt-5-mini"
 
 
 class OpenAIProvider:
