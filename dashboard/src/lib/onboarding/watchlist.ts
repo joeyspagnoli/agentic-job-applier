@@ -282,7 +282,7 @@ export async function seedKeylessBoards(
 ): Promise<void> {
   const blocks = buildKeylessBoardsBlocks(searchTerms);
   const current = await fetchSources();
-  let updatedYaml = current.yaml_text ?? "";
+  const updatedYaml = current.yaml_text ?? "";
   const hasJobBoards = /^job_boards:/m.test(updatedYaml);
   const hasLinkedinScraper = /^linkedin:/m.test(updatedYaml);
   if (hasJobBoards && hasLinkedinScraper) {

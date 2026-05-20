@@ -75,10 +75,12 @@ def test_build_client_returns_instructor_client_and_bare_model_for_openai(
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     call_count = {"value": 0}
+    captured_mode: dict[str, Any] = {}
     sentinel_client = object()
 
-    def fake_from_openai(_inner: object) -> object:
+    def fake_from_openai(_inner: object, *, mode: Any = None) -> object:
         call_count["value"] += 1
+        captured_mode["mode"] = mode
         return sentinel_client
 
     monkeypatch.setattr(instructor, "from_openai", fake_from_openai)
@@ -88,6 +90,9 @@ def test_build_client_returns_instructor_client_and_bare_model_for_openai(
     assert client is sentinel_client
     assert bare_model == "gpt-5.1-codex-mini"
     assert call_count["value"] == 1
+    # Pin the Responses-API mode so a future regression that drops it
+    # (and silently breaks codex-mini / gpt-5.x) fails loudly here.
+    assert captured_mode["mode"] is instructor.Mode.RESPONSES_TOOLS
 
 
 def test_build_client_raises_value_error_for_unsupported_provider(
