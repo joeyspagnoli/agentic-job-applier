@@ -141,33 +141,41 @@ def _format_resume_for_prompt(
 def _apply_edits_in_memory(
     resume_content: ResumeContent,
     edits: list[BulletEdit],
-) -> tuple[ResumeContent, int]:
+) -> tuple[ResumeContent, int, list[BulletEdit]]:
     """Apply bullet edits to a deep copy of the resume.
 
     Purpose:
         Honor the invariant that the on-disk base resume YAML is never
         mutated. Edits that reference unknown sections/listings/bullets
-        are skipped with a warning rather than aborting the run.
+        are skipped with a warning rather than aborting the run, and the
+        skipped edits are returned so the orchestrator can surface them
+        in the review report for debugging the LLM's ID hallucinations.
     Args:
         resume_content: Canonical base resume to clone and mutate.
         edits: Bullet edits emitted by the tailor or trim agent.
     Output:
-        Returns a tuple of `(new_resume_content, applied_count)`.
+        Returns `(new_resume_content, applied_count, dropped_edits)`
+        where `dropped_edits` contains every input edit that referenced
+        an unknown section, listing, or bullet ID (or was otherwise
+        non-applicable). The order matches the input edit order.
     """
 
     working_copy = resume_content.model_copy(deep=True)
     applied = 0
+    dropped: list[BulletEdit] = []
 
     for edit in edits:
         section_id = edit.section.strip().lower()
         if section_id not in EDITABLE_SECTION_IDS:
             logger.warning("Skipping edit: non-editable section {!r}", edit.section)
+            dropped.append(edit)
             continue
 
         target_section: Any = getattr(working_copy, section_id, None)
         listings = getattr(target_section, "listings", None)
         if listings is None:
             logger.warning("Skipping edit: section {!r} has no listings", section_id)
+            dropped.append(edit)
             continue
 
         listing = next((item for item in listings if item.id == edit.listing_id), None)
@@ -177,10 +185,12 @@ def _apply_edits_in_memory(
                 edit.listing_id,
                 section_id,
             )
+            dropped.append(edit)
             continue
 
         if section_id == "skills_achievements":
             if not isinstance(listing, SkillListing):
+                dropped.append(edit)
                 continue
             # Whole-row rewrite for skill rows; empty text disables the row.
             new_text = edit.new_text.strip()
@@ -195,6 +205,7 @@ def _apply_edits_in_memory(
             logger.warning(
                 "Skipping edit: bullet_id required for section {!r}", section_id
             )
+            dropped.append(edit)
             continue
 
         bullets: list[ResumeBullet] = getattr(listing, "bullets", [])
@@ -205,6 +216,7 @@ def _apply_edits_in_memory(
                 edit.bullet_id,
                 edit.listing_id,
             )
+            dropped.append(edit)
             continue
 
         new_text = edit.new_text.strip()
@@ -215,7 +227,7 @@ def _apply_edits_in_memory(
             bullet.text = new_text
         applied += 1
 
-    return working_copy, applied
+    return working_copy, applied, dropped
 
 
 def _render_and_compile_variant(
@@ -532,9 +544,35 @@ async def run_tailor_review_pipeline(
             )
         tailor_output = tailor_call.parsed
 
-        tailored_v1, applied_v1 = _apply_edits_in_memory(base_resume, tailor_output.edits)
+        edits_proposed_v1 = len(tailor_output.edits)
+        tailored_v1, applied_v1, dropped_edits_v1 = _apply_edits_in_memory(
+            base_resume, tailor_output.edits
+        )
 
         if applied_v1 == 0:
+            # Distinguish "tailor proposed nothing" from "tailor proposed edits
+            # but every one referenced an unknown listing/bullet ID and was
+            # silently dropped". The dashboard renders different copy per
+            # reason; both share the same NO_IMPROVEMENT DB verdict.
+            if edits_proposed_v1 == 0:
+                bail_reason = "tailor_bailed"
+            else:
+                bail_reason = "all_edits_dropped"
+            bail_payload: dict[str, Any] = {
+                "reason": bail_reason,
+                "summary": tailor_output.summary,
+                "edits_proposed": edits_proposed_v1,
+                "edits_applied": applied_v1,
+            }
+            if dropped_edits_v1:
+                bail_payload["dropped_edits"] = [
+                    {
+                        "section": dropped.section,
+                        "listing_id": dropped.listing_id,
+                        "bullet_id": dropped.bullet_id,
+                    }
+                    for dropped in dropped_edits_v1
+                ]
             review_run_id = await db.insert_pipeline_review_run(
                 job_hash=job_hash,
                 tailor_run_id=tailor_run_id,
@@ -542,9 +580,7 @@ async def run_tailor_review_pipeline(
                 selected_yaml_path=str(base_yaml_path),
                 selected_tex_path=str(base_tex_path),
                 selected_pdf_path=str(base_pdf_path),
-                review_report_json=json.dumps(
-                    {"reason": "no_edits_applied", "summary": tailor_output.summary}
-                ),
+                review_report_json=json.dumps(bail_payload),
                 fallback_base_yaml_path=str(base_yaml_path),
                 fallback_base_tex_path=str(base_tex_path),
                 fallback_base_pdf_path=str(base_pdf_path),
@@ -598,7 +634,7 @@ async def run_tailor_review_pipeline(
                     call_result=trim_call,
                 )
             trim_output = trim_call.parsed
-            trimmed_v1, _ = _apply_edits_in_memory(tailored_v1, trim_output.edits)
+            trimmed_v1, _, _ = _apply_edits_in_memory(tailored_v1, trim_output.edits)
             (
                 v1_yaml_path,
                 v1_tex_path,
@@ -689,7 +725,7 @@ async def run_tailor_review_pipeline(
                     call_result=retry_call,
                 )
             retry_output = retry_call.parsed
-            candidate_v2, applied_v2 = _apply_edits_in_memory(
+            candidate_v2, applied_v2, _ = _apply_edits_in_memory(
                 base_resume, retry_output.edits
             )
 
@@ -756,6 +792,8 @@ async def run_tailor_review_pipeline(
             "scores_tailored": final_scores_tailored.model_dump(),
             "rationale": final_rationale,
             "had_retry": tailored_v2 is not None,
+            "edits_proposed": edits_proposed_v1,
+            "edits_applied": applied_v1,
         }
 
         review_run_id = await db.insert_pipeline_review_run(

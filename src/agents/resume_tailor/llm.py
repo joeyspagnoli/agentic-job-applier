@@ -10,7 +10,9 @@ validation, the library re-prompts with the error attached, up to
 
 Provider selection is driven by env vars so the rest of the pipeline
 does not need to know whether OpenAI, Anthropic, or another backend is
-in use. The default is OpenAI's `gpt-5.1-codex-mini`.
+in use. The default is OpenAI's `gpt-5.1-mini` — a prose-tuned model in
+the same cost tier as the coding-tuned `codex-mini` variants, which
+empirically declined to propose edits on resume-tailoring prompts.
 """
 
 from __future__ import annotations
@@ -27,8 +29,8 @@ from openai import OpenAI
 from .pipeline_schemas import ReviewerOutput, TailorOutput
 from .prompts import REVIEWER_INSTRUCTION, TAILOR_INSTRUCTION, TRIM_INSTRUCTION
 
-DEFAULT_TAILOR_MODEL = "openai/gpt-5.1-codex-mini"
-DEFAULT_REVIEWER_MODEL = "openai/gpt-5.1-codex-mini"
+DEFAULT_TAILOR_MODEL = "openai/gpt-5.1-mini"
+DEFAULT_REVIEWER_MODEL = "openai/gpt-5.1-mini"
 
 TAILOR_MODEL_ENV_VAR = "RESUME_TAILOR_MODEL"
 REVIEWER_MODEL_ENV_VAR = "RESUME_REVIEWER_MODEL"

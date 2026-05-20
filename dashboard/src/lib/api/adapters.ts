@@ -34,6 +34,12 @@ export interface TailorRunSummaryModel {
   readonly pageCount: number | null;
   readonly error: string | null;
   readonly pdfUrl: string | null;
+  /**
+   * Structured reason from the latest review_runs row's `review_report_json`.
+   * Drives NO_IMPROVEMENT verdict copy in the jobs table; see
+   * `TailorRunSummaryDto.review_reason` for full semantics.
+   */
+  readonly reviewReason: string | null;
 }
 
 /** One normalized jobs row used by jobs-page table rendering. */
@@ -129,6 +135,7 @@ export function toJobsRows(dto: JobsResponseDto): readonly JobsRowModel[] {
             pageCount: item.tailor_run.page_count,
             error: item.tailor_run.error,
             pdfUrl: item.tailor_run.pdf_url,
+            reviewReason: item.tailor_run.review_reason ?? null,
           }
         : null,
   }));

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter
 from fastapi import Query
 from fastapi import Request
@@ -29,6 +31,40 @@ from api.services.tailored_resume import _validate_job_hash
 MANUAL_IMPORT_SOURCE = "manual_import"
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+
+def _extract_review_reason(review_report_json: object) -> str | None:
+    """Pull the structured `reason` field out of a stored review report.
+
+    Purpose:
+        The dashboard branches the NO_IMPROVEMENT verdict copy on this
+        field to distinguish "tailor bailed", "all edits dropped",
+        "page fit failed", and the legitimate "reviewer chose base"
+        cases. Malformed or missing payloads degrade to `None` so the
+        UI can fall back to the legitimate-reviewer copy.
+    Args:
+        review_report_json: Raw value from the `review_runs.review_report_json`
+            column. May be `None`, an empty string, or a JSON-encoded
+            object string.
+    Output:
+        Returns the `reason` string when present and parsable, else `None`.
+    """
+
+    if review_report_json is None:
+        return None
+    text = str(review_report_json).strip()
+    if text == "":
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    reason = parsed.get("reason")
+    if not isinstance(reason, str) or reason == "":
+        return None
+    return reason
 
 
 @router.get("")
@@ -207,7 +243,15 @@ async def get_jobs(
                       AND tr.deleted_at IS NULL
                     ORDER BY rr.started_at DESC, rr.id DESC
                     LIMIT 1
-                ) AS tailor_run_verdict
+                ) AS tailor_run_verdict,
+                (
+                    SELECT rr.review_report_json FROM review_runs rr
+                    JOIN tailor_runs tr ON tr.id = rr.tailor_run_id
+                    WHERE rr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY rr.started_at DESC, rr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_review_report_json
             FROM job_postings jp
             {where_clause}
             ORDER BY jp.fetched_at DESC, jp.id DESC
@@ -243,6 +287,9 @@ async def get_jobs(
                 "page_count": row["tailor_run_page_count"],
                 "error": row["tailor_run_error"],
                 "pdf_url": pdf_url,
+                "review_reason": _extract_review_reason(
+                    row["tailor_run_review_report_json"]
+                ),
             }
 
         job_items.append(
