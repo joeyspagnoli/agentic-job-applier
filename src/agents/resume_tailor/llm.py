@@ -136,7 +136,11 @@ def _build_client(qualified_model: str) -> tuple[Any, str]:
             raise RuntimeError(
                 "OPENAI_API_KEY is not set; resume-tailor LLM calls cannot run."
             )
-        client = instructor.from_openai(OpenAI())
+        # Use the OpenAI Responses API so newer "responses-only" models
+        # (gpt-5.x, codex-mini, o-series) work alongside legacy models.
+        client = instructor.from_openai(
+            OpenAI(), mode=instructor.Mode.RESPONSES_TOOLS,
+        )
         return client, bare_model
 
     raise ValueError(
@@ -162,8 +166,18 @@ def _extract_usage(raw_completion: Any) -> tuple[int, int, int]:
     usage = getattr(raw_completion, "usage", None)
     if usage is None:
         return 0, 0, 0
-    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
-    completion = int(getattr(usage, "completion_tokens", 0) or 0)
+    # Responses API uses input_tokens/output_tokens; Chat Completions uses
+    # prompt_tokens/completion_tokens. Read either spelling.
+    prompt = int(
+        getattr(usage, "prompt_tokens", None)
+        or getattr(usage, "input_tokens", 0)
+        or 0
+    )
+    completion = int(
+        getattr(usage, "completion_tokens", None)
+        or getattr(usage, "output_tokens", 0)
+        or 0
+    )
     total = int(getattr(usage, "total_tokens", prompt + completion) or 0)
     return prompt, completion, total
 
@@ -195,11 +209,11 @@ def _structured_call_sync(
     """
 
     client, bare_model = _build_client(qualified_model)
-    parsed, raw_completion = client.chat.completions.create_with_completion(
+    parsed, raw_completion = client.responses.create_with_completion(
         model=bare_model,
         response_model=response_model,
         max_retries=INSTRUCTOR_MAX_RETRIES,
-        messages=[
+        input=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
