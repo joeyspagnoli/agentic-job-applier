@@ -117,6 +117,36 @@ export interface EnqueueTailorRunResponseDto {
   readonly job_hash: string;
 }
 
+/**
+ * Response payload for `POST /api/tailor-runs/{id}/retry`.
+ *
+ * @remarks
+ * The shape depends on the active tailor automation mode. The backend
+ * branches on `retry_via`:
+ *
+ * * `"worker"` — autonomous mode. The soft-delete alone re-opens the
+ *   job for the worker; no new tailor_run was created.
+ * * `"user"` — opt_in / both. A fresh PENDING tailor_run was inserted
+ *   and the pipeline was scheduled in the background.
+ *
+ * Tests and callers should switch on `retry_via` before reading the
+ * mode-specific fields.
+ */
+export type RetryTailorRunResponseDto =
+  | {
+      readonly ok: true;
+      readonly retry_via: "worker";
+      readonly deleted_run_id: number;
+      readonly job_hash: string;
+    }
+  | {
+      readonly ok: true;
+      readonly retry_via: "user";
+      readonly tailor_run_id: number;
+      readonly status: string;
+      readonly job_hash: string;
+    };
+
 /** Response payload for `GET /api/tailor-runs/{id}`. */
 export interface TailorRunDetailDto {
   readonly ok: true;

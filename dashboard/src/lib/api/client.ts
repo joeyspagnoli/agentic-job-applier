@@ -17,6 +17,7 @@ import type {
   DashboardStatsDto,
   DiscoveryTrendDto,
   EnqueueTailorRunResponseDto,
+  RetryTailorRunResponseDto,
   FailuresResponseDto,
   HandoffMutationDto,
   HumanReviewResponseDto,
@@ -235,6 +236,36 @@ export async function deleteTailorRun(runId: number): Promise<void> {
       (payload?.details as Record<string, unknown> | undefined) ?? {},
     );
   }
+}
+
+/**
+ * Atomically soft-delete one tailor run and trigger a fresh attempt.
+ *
+ * @remarks
+ * Replaces the prior "delete then enqueue" sequence that the FAILED and
+ * SUCCESS-non-TAILORED branches of `TailoredResumeCell` used to fire
+ * from the client. The server picks the right strategy based on the
+ * tailor automation mode — see {@link RetryTailorRunResponseDto}.
+ *
+ * @param runId - Primary key of the tailor_runs row to retry.
+ * @returns Retry response keyed by `retry_via`.
+ */
+export async function retryTailorRun(
+  runId: number,
+): Promise<RetryTailorRunResponseDto> {
+  const response = await fetch(`/api/tailor-runs/${runId}/retry`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+    throw buildApiError(
+      payload?.message ?? `Tailor retry failed (HTTP ${response.status})`,
+      payload?.code ?? "TAILOR_RETRY_FAILED",
+      (payload?.details as Record<string, unknown> | undefined) ?? {},
+    );
+  }
+  return (await response.json()) as RetryTailorRunResponseDto;
 }
 
 /**

@@ -6,6 +6,8 @@ sidebar tab. Exposes:
 * `POST /api/jobs/{job_hash}/tailor` — enqueue a BackgroundTask run.
 * `GET /api/tailor-runs/{id}` — read the latest state for that row.
 * `DELETE /api/tailor-runs/{id}` — soft-delete + best-effort artifact cleanup.
+* `POST /api/tailor-runs/{id}/retry` — atomic soft-delete + re-enqueue
+  (or worker re-claim, depending on automation mode).
 
 The BackgroundTask handler opens its own `DatabaseManager` so the
 pipeline does not share a connection with the originating request — the
@@ -243,6 +245,35 @@ async def get_tailor_run(run_id: int) -> dict[str, object]:
     return {"ok": True, "tailor_run": _serialize_tailor_run_row(row)}
 
 
+def _cleanup_tailor_artifacts(run_id: int, row: dict[str, Any]) -> None:
+    """Best-effort removal of the on-disk artifact directory for a run.
+
+    Purpose:
+        Both `DELETE /tailor-runs/{id}` and `POST /tailor-runs/{id}/retry`
+        soft-delete the row and then need to drop the artifact directory.
+        Centralizing the cleanup keeps the two endpoints in lockstep and
+        guarantees neither raises from the filesystem path.
+    Args:
+        run_id: Primary key of the tailor_runs row (for log context).
+        row: Raw tailor_runs row mapping; only `artifact_pdf_path` is read.
+    Output:
+        Returns `None`. Filesystem errors are logged at WARNING and
+        swallowed — artifact cleanup must never break the HTTP response.
+    """
+
+    artifact_pdf = row.get("artifact_pdf_path")
+    if not isinstance(artifact_pdf, str) or not artifact_pdf:
+        return
+    artifact_dir = Path(artifact_pdf).parent
+    try:
+        if artifact_dir.exists():
+            shutil.rmtree(artifact_dir, ignore_errors=True)
+    except OSError as exc:
+        logger.warning(
+            "Tailor artifact cleanup failed for run_id={}: {}", run_id, exc
+        )
+
+
 @router.delete("/tailor-runs/{run_id}", status_code=204)
 async def delete_tailor_run(run_id: int) -> None:
     """Soft-delete one tailor run and best-effort remove the artifacts.
@@ -283,17 +314,132 @@ async def delete_tailor_run(run_id: int) -> None:
             )
 
         await db.soft_delete_tailor_run(run_id)
-
-        # Best-effort artifact cleanup — never raise from the cleanup path.
-        artifact_pdf = row.get("artifact_pdf_path")
-        if isinstance(artifact_pdf, str) and artifact_pdf:
-            artifact_dir = Path(artifact_pdf).parent
-            try:
-                if artifact_dir.exists():
-                    shutil.rmtree(artifact_dir, ignore_errors=True)
-            except OSError as exc:
-                logger.warning(
-                    "Tailor artifact cleanup failed for run_id={}: {}", run_id, exc
-                )
+        _cleanup_tailor_artifacts(run_id, row)
 
     return None
+
+
+@router.post("/tailor-runs/{run_id}/retry", status_code=202)
+async def retry_tailor_run(
+    run_id: int,
+    background_tasks: BackgroundTasks,
+) -> dict[str, object]:
+    """Atomically soft-delete one tailor run and trigger a fresh attempt.
+
+    Purpose:
+        Make "Delete & retry" a single server-side state transition. The
+        prior two-call frontend flow (delete then enqueue) produced
+        unrecoverable half-states on enqueue failure and triggered a 409
+        in autonomous mode where the soft-delete *is* the retry. This
+        endpoint branches on the active tailor automation mode:
+
+        * `autonomous` — soft-delete only; the worker re-claims the job
+          on its next poll once the failed run no longer counts against
+          `max_retries`.
+        * `opt_in` / `both` — soft-delete, re-check the monthly budget,
+          insert a fresh PENDING row via `insert_user_triggered_tailor_run`,
+          and schedule `_run_pipeline_background` exactly like the enqueue
+          endpoint.
+
+        Everything runs inside a single `DatabaseManager` context so the
+        soft-delete and the follow-up insert cannot drift apart.
+    Args:
+        run_id: Primary key of the tailor_runs row to retry.
+        background_tasks: Injected by FastAPI; schedules the new pipeline
+            only on the user-triggered branch.
+    Output:
+        Returns one of two 202 envelopes depending on `retry_via`:
+
+        * `{ok, retry_via: "worker", deleted_run_id, job_hash}` — the
+          worker will re-claim; no new tailor_run was created.
+        * `{ok, retry_via: "user", tailor_run_id, status, job_hash}` —
+          a fresh PENDING row was created and scheduled.
+    Raises:
+        HTTPException: 404 when the row is missing or already deleted;
+            409 when the monthly budget is exceeded on the user-triggered
+            branch.
+    """
+
+    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
+
+    db_path = str(_main.resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+
+        row = await db.get_tailor_run(run_id)
+        if row is None:
+            _raise_api_error(
+                status_code=404,
+                code="TAILOR_RUN_NOT_FOUND",
+                message="Tailor run not found.",
+                details={"run_id": run_id},
+            )
+        if row.get("deleted_at") is not None:
+            _raise_api_error(
+                status_code=404,
+                code="TAILOR_RUN_ALREADY_DELETED",
+                message="Tailor run was already deleted.",
+                details={"run_id": run_id},
+            )
+
+        job_hash = str(row.get("job_hash") or "")
+
+        await db.soft_delete_tailor_run(run_id)
+        _cleanup_tailor_artifacts(run_id, row)
+
+        mode = await db.get_automation_mode(TAILOR_MODE_KEY)
+        if mode == AUTONOMOUS_MODE:
+            # The soft-delete alone removes the FAILED row from the
+            # worker's `max_retries` count, so the daemon re-claims on
+            # its next poll. No new row is created here.
+            return {
+                "ok": True,
+                "retry_via": "worker",
+                "deleted_run_id": run_id,
+                "job_hash": job_hash,
+            }
+
+        if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_TAILOR):
+            _raise_api_error(
+                status_code=409,
+                code="BUDGET_EXCEEDED",
+                message=(
+                    "Monthly budget exceeded — raise the budget in Settings "
+                    "before triggering more tailor runs."
+                ),
+                details={"stage": PIPELINE_STAGE_TAILOR},
+            )
+
+        claim_result = await db.insert_user_triggered_tailor_run(job_hash=job_hash)
+        if claim_result is None:
+            # Should be impossible: we just soft-deleted the only active
+            # row for this job inside the same DB context. Treat as a
+            # race and surface a 409 rather than crashing.
+            _raise_api_error(
+                status_code=409,
+                code="RUN_ALREADY_EXISTS",
+                message=(
+                    "An active tailor run already exists for this job. "
+                    "Delete it before re-tailoring."
+                ),
+                details={"job_hash": job_hash},
+            )
+
+        tailor_run_id = claim_result["id"]
+
+    run_output_dir = TAILORED_RESUME_DIR / job_hash
+    background_tasks.add_task(
+        _run_pipeline_background,
+        db_path=db_path,
+        tailor_run_id=tailor_run_id,
+        job_hash=job_hash,
+        output_dir=run_output_dir,
+    )
+
+    return {
+        "ok": True,
+        "retry_via": "user",
+        "tailor_run_id": tailor_run_id,
+        "status": "PENDING",
+        "job_hash": job_hash,
+    }
