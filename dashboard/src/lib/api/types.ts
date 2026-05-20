@@ -87,6 +87,16 @@ export interface TailorRunSummaryDto {
   readonly page_count: number | null;
   readonly error: string | null;
   readonly pdf_url: string | null;
+  /**
+   * Structured reason pulled from `review_runs.review_report_json` when the
+   * verdict is `NO_IMPROVEMENT`. Possible values include `"tailor_bailed"`
+   * (the tailor model returned an empty edits list) and
+   * `"all_edits_dropped"` (every edit referenced an unknown ID). `null`
+   * for legitimate reviewer-decided no-improvement verdicts and for older
+   * runs predating this field. Optional so callers/fixtures that pre-date
+   * the field still type-check.
+   */
+  readonly review_reason?: string | null;
 }
 
 /** One jobs table item row returned by backend. */

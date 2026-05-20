@@ -37,9 +37,6 @@ Rules:
 - The final resume must still fit on one page; keep edits roughly the same
   length as the original text unless you have a clear length budget.
 - Keep tone consistent with the base resume.
-
-If no edits would meaningfully improve the resume for this posting, return
-`{"edits": [], "summary": "no changes warranted"}`.
 """
 
 TRIM_INSTRUCTION = """\

@@ -490,6 +490,43 @@ export function JobsPage({ hasTailorRunFilter = false }: JobsPageProps = {}): JS
   );
 }
 
+/** Copy shown when the tailor model returned an empty edits list. */
+const TAILOR_BAILED_COPY = "The tailor model declined to propose edits.";
+/** Copy shown when every proposed edit referenced an unknown listing/bullet ID. */
+const ALL_EDITS_DROPPED_COPY =
+  "The tailor's edits referenced unknown IDs and were dropped.";
+/** Copy shown when the reviewer genuinely chose the base resume over the tailor. */
+const REVIEWER_CHOSE_BASE_COPY =
+  "Reviewer thought the base resume was fine for this role.";
+
+/**
+ * Map a SUCCESS-state tailor run's verdict + reason to user-visible copy.
+ *
+ * @param verdict - Uppercase tailor-run verdict (`NO_IMPROVEMENT`,
+ *   `PAGE_FIT_FAILED`, or any other base-served outcome).
+ * @param reviewReason - Structured `reason` pulled from
+ *   `review_runs.review_report_json`, or `null` when absent.
+ * @returns Display string for the tailored-resume cell.
+ */
+function resolveVerdictCopy(
+  verdict: string,
+  reviewReason: string | null,
+): string {
+  if (verdict === "PAGE_FIT_FAILED") {
+    return "Couldn't fit on one page — served base.";
+  }
+  if (verdict === "NO_IMPROVEMENT") {
+    if (reviewReason === "tailor_bailed") {
+      return TAILOR_BAILED_COPY;
+    }
+    if (reviewReason === "all_edits_dropped") {
+      return ALL_EDITS_DROPPED_COPY;
+    }
+    return REVIEWER_CHOSE_BASE_COPY;
+  }
+  return "Served base resume.";
+}
+
 /** Props for the tailored-resume cell inside an expanded job row. */
 interface TailoredResumeCellProps {
   /** Row data including the embedded tailor_run snapshot. */
@@ -642,12 +679,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     );
   }
 
-  const verdictCopy =
-    verdict === "PAGE_FIT_FAILED"
-      ? "Couldn't fit on one page — served base."
-      : verdict === "NO_IMPROVEMENT"
-        ? "Reviewer thought the base resume was fine for this role."
-        : "Served base resume.";
+  const verdictCopy = resolveVerdictCopy(verdict, tailorRun.reviewReason);
 
   return (
     <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>

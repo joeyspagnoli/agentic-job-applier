@@ -26,7 +26,7 @@ import yaml
 
 from src.agents.resume_tailor import pipeline as pipeline_module
 from src.agents.resume_tailor.pipeline import run_tailor_review_pipeline
-from src.agents.resume_tailor.pipeline_schemas import ReviewerVerdict
+from src.agents.resume_tailor.pipeline_schemas import BulletEdit, ReviewerVerdict
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
 
@@ -569,6 +569,265 @@ async def test_uncaught_exception_records_pipeline_failed(
     assert row is not None
     assert row["status"] == "FAILED"
     assert str(row["error"]).startswith("pipeline_failed:")
+
+
+@pytest.mark.asyncio
+async def test_tailor_bailed_reason_payload_and_skips_reviewer(
+    db: DatabaseManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty `edits` from the tailor → `reason=tailor_bailed` + no reviewer call.
+
+    Purpose:
+        Lock the structured `review_report_json` payload added in commit
+        37dea37 for the `applied_v1 == 0` short-circuit when the tailor
+        proposes nothing. The dashboard branches its NO_IMPROVEMENT copy
+        on this exact reason, so the value is part of the contract.
+    """
+
+    tailor_run_id = await _seed_pipeline_inputs(db, job_hash="ab" * 20)
+    reviewer_invocations: list[str] = []
+
+    async def _tailor_stub(user_message: str) -> Any:
+        return make_tailor_result(edits=[], summary="nothing to do")
+
+    async def _reviewer_stub(user_message: str) -> Any:
+        reviewer_invocations.append(user_message)
+        raise AssertionError("Reviewer must not run when the tailor bails")
+
+    monkeypatch.setattr(pipeline_module, "call_tailor", _tailor_stub)
+    monkeypatch.setattr(pipeline_module, "call_reviewer", _reviewer_stub)
+    monkeypatch.setattr(
+        pipeline_module,
+        "_render_and_compile_variant",
+        _make_compile_stub(),
+    )
+
+    result = await run_tailor_review_pipeline(
+        db=db,
+        tailor_run_id=tailor_run_id,
+        job_hash="ab" * 20,
+        base_resume_yaml_path=resume_yaml_fixture_path(),
+        candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
+        output_dir=tmp_path / "out",
+        record_costs=False,
+    )
+
+    assert result.success is True
+    assert result.verdict == "NO_IMPROVEMENT"
+    assert reviewer_invocations == []
+
+    reviews = await db.get_review_runs_for_tailor_run(tailor_run_id)
+    assert len(reviews) == 1
+    payload = json.loads(str(reviews[0]["review_report_json"]))
+
+    assert payload["reason"] == "tailor_bailed"
+    assert payload["summary"] == "nothing to do"
+    assert payload["edits_proposed"] == 0
+    assert payload["edits_applied"] == 0
+    # The `dropped_edits` key only appears when there is at least one
+    # dropped edit; the pure-bail case must omit it entirely.
+    assert "dropped_edits" not in payload
+
+
+@pytest.mark.asyncio
+async def test_all_edits_dropped_reason_payload_and_skips_reviewer(
+    db: DatabaseManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tailor proposes edits with unknown IDs → `reason=all_edits_dropped`.
+
+    Purpose:
+        Distinguish the "tailor returned nothing" case from the
+        "tailor returned bullshit IDs that got silently dropped" case.
+        Both produce verdict NO_IMPROVEMENT, but the dashboard renders
+        different copy and the `dropped_edits` list is the only evidence
+        of which bullets the model hallucinated.
+    """
+
+    tailor_run_id = await _seed_pipeline_inputs(db, job_hash="cd" * 20)
+    reviewer_invocations: list[str] = []
+
+    bogus_edits = [
+        BulletEdit(
+            section="experience",
+            listing_id="exp_does_not_exist",
+            bullet_id="bullet_404",
+            new_text="rewritten",
+        ),
+        BulletEdit(
+            section="projects",
+            listing_id="proj_also_missing",
+            bullet_id="bullet_p_404",
+            new_text="rewritten too",
+        ),
+        BulletEdit(
+            section="skills_achievements",
+            listing_id="skill_does_not_exist",
+            bullet_id=None,
+            new_text="Rust, Go, Python",
+        ),
+    ]
+
+    async def _tailor_stub(user_message: str) -> Any:
+        return make_tailor_result(edits=list(bogus_edits), summary="proposed three")
+
+    async def _reviewer_stub(user_message: str) -> Any:
+        reviewer_invocations.append(user_message)
+        raise AssertionError(
+            "Reviewer must not run when every edit gets dropped"
+        )
+
+    monkeypatch.setattr(pipeline_module, "call_tailor", _tailor_stub)
+    monkeypatch.setattr(pipeline_module, "call_reviewer", _reviewer_stub)
+    monkeypatch.setattr(
+        pipeline_module,
+        "_render_and_compile_variant",
+        _make_compile_stub(),
+    )
+
+    result = await run_tailor_review_pipeline(
+        db=db,
+        tailor_run_id=tailor_run_id,
+        job_hash="cd" * 20,
+        base_resume_yaml_path=resume_yaml_fixture_path(),
+        candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
+        output_dir=tmp_path / "out",
+        record_costs=False,
+    )
+
+    assert result.success is True
+    assert result.verdict == "NO_IMPROVEMENT"
+    assert reviewer_invocations == []
+
+    reviews = await db.get_review_runs_for_tailor_run(tailor_run_id)
+    assert len(reviews) == 1
+    payload = json.loads(str(reviews[0]["review_report_json"]))
+
+    assert payload["reason"] == "all_edits_dropped"
+    assert payload["edits_proposed"] == len(bogus_edits)
+    assert payload["edits_applied"] == 0
+
+    dropped = payload["dropped_edits"]
+    assert isinstance(dropped, list)
+    assert len(dropped) == len(bogus_edits)
+    # Each dropped row carries the structured shape the dashboard inspects.
+    for entry, expected in zip(dropped, bogus_edits, strict=True):
+        assert set(entry.keys()) == {"section", "listing_id", "bullet_id"}
+        assert entry["section"] == expected.section
+        assert entry["listing_id"] == expected.listing_id
+        assert entry["bullet_id"] == expected.bullet_id
+
+
+@pytest.mark.asyncio
+async def test_success_review_report_records_edits_proposed_and_applied_no_retry(
+    db: DatabaseManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2-way success path records `edits_proposed`/`edits_applied` with `had_retry=False`."""
+
+    tailor_run_id = await _seed_pipeline_inputs(db, job_hash="ef" * 20)
+
+    async def _tailor_stub(user_message: str) -> Any:
+        return make_tailor_result(edits=[single_valid_edit()])
+
+    async def _reviewer_stub(user_message: str) -> Any:
+        return make_reviewer_result(verdict=ReviewerVerdict.TAILORED_BETTER)
+
+    monkeypatch.setattr(pipeline_module, "call_tailor", _tailor_stub)
+    monkeypatch.setattr(pipeline_module, "call_reviewer", _reviewer_stub)
+    monkeypatch.setattr(
+        pipeline_module,
+        "_render_and_compile_variant",
+        _make_compile_stub(base_pages=1, v1_pages=1),
+    )
+
+    result = await run_tailor_review_pipeline(
+        db=db,
+        tailor_run_id=tailor_run_id,
+        job_hash="ef" * 20,
+        base_resume_yaml_path=resume_yaml_fixture_path(),
+        candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
+        output_dir=tmp_path / "out",
+        record_costs=False,
+    )
+
+    assert result.success is True
+    assert result.verdict == "TAILORED"
+
+    reviews = await db.get_review_runs_for_tailor_run(tailor_run_id)
+    assert len(reviews) == 1
+    payload = json.loads(str(reviews[0]["review_report_json"]))
+
+    assert payload["had_retry"] is False
+    assert isinstance(payload["edits_proposed"], int)
+    assert isinstance(payload["edits_applied"], int)
+    assert payload["edits_proposed"] >= payload["edits_applied"]
+    assert payload["edits_applied"] > 0
+
+
+@pytest.mark.asyncio
+async def test_success_review_report_records_edit_counts_with_retry_three_way(
+    db: DatabaseManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """3-way (retry) success path still records v1 `edits_proposed`/`edits_applied`.
+
+    Purpose:
+        The counts in `review_report_json` reflect the v1 tailor attempt
+        even when `had_retry=True`, because the pipeline only tracks
+        `applied_v1` at the payload-build site. Lock that semantics so
+        a later refactor doesn't silently start reporting v2 counts.
+    """
+
+    tailor_run_id = await _seed_pipeline_inputs(db, job_hash="12" * 20)
+    reviewer_verdicts = iter(
+        [ReviewerVerdict.BASE_BETTER, ReviewerVerdict.TAILORED_BETTER]
+    )
+
+    async def _tailor_stub(user_message: str) -> Any:
+        return make_tailor_result(edits=[single_valid_edit()])
+
+    async def _reviewer_stub(user_message: str) -> Any:
+        return make_reviewer_result(
+            verdict=next(reviewer_verdicts),
+            feedback_for_retry="More keywords.",
+        )
+
+    monkeypatch.setattr(pipeline_module, "call_tailor", _tailor_stub)
+    monkeypatch.setattr(pipeline_module, "call_reviewer", _reviewer_stub)
+    monkeypatch.setattr(
+        pipeline_module,
+        "_render_and_compile_variant",
+        _make_compile_stub(base_pages=1, v1_pages=1, v2_pages=1),
+    )
+
+    result = await run_tailor_review_pipeline(
+        db=db,
+        tailor_run_id=tailor_run_id,
+        job_hash="12" * 20,
+        base_resume_yaml_path=resume_yaml_fixture_path(),
+        candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
+        output_dir=tmp_path / "out",
+        record_costs=False,
+    )
+
+    assert result.success is True
+    assert result.verdict == "TAILORED"
+
+    reviews = await db.get_review_runs_for_tailor_run(tailor_run_id)
+    assert len(reviews) == 1
+    payload = json.loads(str(reviews[0]["review_report_json"]))
+
+    assert payload["had_retry"] is True
+    assert isinstance(payload["edits_proposed"], int)
+    assert isinstance(payload["edits_applied"], int)
+    assert payload["edits_proposed"] >= payload["edits_applied"]
+    assert payload["edits_applied"] > 0
 
 
 @pytest.mark.asyncio

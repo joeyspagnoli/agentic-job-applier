@@ -172,6 +172,42 @@ def test_get_tailor_model_name_returns_default_when_env_unset(
     assert result == llm.DEFAULT_TAILOR_MODEL
 
 
+def test_get_tailor_model_name_default_is_pinned_to_gpt_5_1_mini(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the literal default tailor model to `openai/gpt-5.1-mini`.
+
+    Purpose:
+        Issue #53 swapped away from `gpt-5.1-codex-mini` because the
+        coding-tuned model defaulted to emitting empty edits on resume
+        prompts. This test fails loudly if a future bump silently
+        re-introduces a codex-tuned (or any other) default.
+    """
+
+    monkeypatch.delenv(llm.TAILOR_MODEL_ENV_VAR, raising=False)
+
+    result = llm.get_tailor_model_name()
+
+    assert result == "openai/gpt-5.1-mini"
+
+
+def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_1_mini(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the literal default reviewer model to `openai/gpt-5.1-mini`.
+
+    Purpose:
+        The reviewer was also swapped off `gpt-5.1-codex-mini` in #53 so
+        the tailor and reviewer share the same prose-tuned default.
+    """
+
+    monkeypatch.delenv(llm.REVIEWER_MODEL_ENV_VAR, raising=False)
+
+    result = llm.get_reviewer_model_name()
+
+    assert result == "openai/gpt-5.1-mini"
+
+
 def test_get_tailor_model_name_honors_env_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
