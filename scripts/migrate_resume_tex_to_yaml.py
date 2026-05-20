@@ -59,6 +59,34 @@ def _slugify(value: str) -> str:
     return normalized or "item"
 
 
+def _extract_brace_balanced_args(text: str, command: str) -> list[str]:
+    """Extract all arguments of `\\command{...}` with proper brace balancing.
+
+    Unlike a greedy/lazy regex, this walks character-by-character so nested
+    braces inside the argument (e.g. `\\textbf{foo}`) don't terminate early.
+    """
+    results: list[str] = []
+    search = f"\\{command}{{"
+    pos = 0
+    while True:
+        start = text.find(search, pos)
+        if start == -1:
+            break
+        # Position of the opening brace for the argument
+        arg_start = start + len(search)
+        depth = 1
+        i = arg_start
+        while i < len(text) and depth > 0:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        results.append(text[arg_start : i - 1])
+        pos = i
+    return results
+
+
 def _extract_section_blocks(tex_text: str) -> dict[str, str]:
     """Extract LaTeX section bodies keyed by heading text.
 
@@ -215,9 +243,7 @@ def _extract_experience_section(section_text: str) -> ExperienceSection:
         organization_match = re.search(r"\\textbf\{([^}]+)\}", listing_block)
         organization = organization_match.group(1).strip() if organization_match else ""
 
-        bullet_texts = re.findall(
-            r"\\resumeItem\{(.+?)\}", listing_block, flags=re.DOTALL
-        )
+        bullet_texts = _extract_brace_balanced_args(listing_block, "resumeItem")
         bullets: list[ResumeBullet] = []
         for bullet_index, bullet_text in enumerate(bullet_texts, start=1):
             bullets.append(
@@ -291,9 +317,7 @@ def _extract_projects_section(section_text: str) -> ProjectsSection:
             title = raw_title_stack
             tech_stack = ""
 
-        bullet_texts = re.findall(
-            r"\\resumeItem\{(.+?)\}", listing_block, flags=re.DOTALL
-        )
+        bullet_texts = _extract_brace_balanced_args(listing_block, "resumeItem")
         bullets: list[ResumeBullet] = []
         for bullet_index, bullet_text in enumerate(bullet_texts, start=1):
             bullets.append(
