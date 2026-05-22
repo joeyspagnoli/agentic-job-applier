@@ -63,6 +63,18 @@ Rules:
 - The final resume must still fit on one page; keep edits roughly the same
   length as the original text unless you have a clear length budget.
 - Keep tone consistent with the base resume.
+
+Markup contract:
+- Only `\\textbf{X}` and `\\textit{X}` are allowed LaTeX commands inside
+  `new_text`. Any other backslash sequence (`\\alpha`, `\\ETC`, `\\\\`,
+  `\\sum`, ...) will be stripped by the renderer — do not emit them.
+- Literal `&`, `%`, `_`, `#`, `$` can be written either as bare
+  characters (the renderer will auto-escape them to `\\&`, `\\%`, ...) or
+  pre-escaped. Either form is fine; do not invent new escape spellings.
+- Avoid `~` and `^` unless you genuinely need a tilde or caret glyph;
+  the renderer rewrites them to `\\textasciitilde{}` / `\\textasciicircum{}`.
+- Keep `\\textbf{...}` and `\\textit{...}` braces balanced. Unbalanced
+  braces will have their wrapper stripped, losing the emphasis.
 """
 
 TRIM_INSTRUCTION = """\

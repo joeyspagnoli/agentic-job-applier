@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .latex_sanitize import latex_safe
 from .schemas import LOCKED_SECTION_HEADINGS
 from .schemas import LOCKED_SECTION_ORDER
 from .schemas import ResumeContent
@@ -125,7 +126,10 @@ def _render_experience_section(resume_content: ResumeContent) -> list[str]:
         lines.append(f"    \\textbf{{{listing.organization}}}")
         lines.append("  \\resumeItemListStart")
         for bullet in listing.bullets:
-            lines.append(f"    \\resumeItem{{{bullet.text}}}")
+            # Sanitize every bullet body so LLM-authored content with bare
+            # `&`, `%`, unbalanced braces, or unknown commands like `\ETC`
+            # cannot abort the `latexmk` compile (issue #54).
+            lines.append(f"    \\resumeItem{{{latex_safe(bullet.text)}}}")
         lines.append("  \\resumeItemListEnd")
 
     lines.extend(["\\resumeSubHeadingListEnd", ""])
@@ -165,7 +169,9 @@ def _render_projects_section(resume_content: ResumeContent) -> list[str]:
         )
         lines.append("  \\resumeItemListStart")
         for bullet in listing.bullets:
-            lines.append(f"  \\resumeItem{{{bullet.text}}}")
+            # Sanitize for the same reason as in the experience section —
+            # the bullet body is LLM-editable and must not break compile.
+            lines.append(f"  \\resumeItem{{{latex_safe(bullet.text)}}}")
         lines.append("  \\resumeItemListEnd")
 
     lines.extend(["\\resumeSubHeadingListEnd", ""])
@@ -193,7 +199,11 @@ def _render_skills_section(resume_content: ResumeContent) -> list[str]:
     for listing in resume_content.skills_achievements.listings:
         if not listing.enabled:
             continue
-        lines.append(f"  \\item{{\\textbf{{{listing.category}}}: {listing.text}}}")
+        # The category half stays as user-managed base YAML; only `text`
+        # is LLM-editable and therefore needs sanitizing.
+        lines.append(
+            f"  \\item{{\\textbf{{{listing.category}}}: {latex_safe(listing.text)}}}"
+        )
 
     lines.extend(["\\resumeSubHeadingListEnd", ""])
     return lines
