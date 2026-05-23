@@ -1,7 +1,9 @@
 # Research pass: Autonomous-Apply North Star
 
+> **⚠️ CORRECTION POSTED 2026-05-22** — analysis-003 and analysis-004 evaluated `pi-mono` as if it were an *external* package under consideration. It's not: `pi-mono` is the **internal codename** for the resume-tailor's agent shape, and `src/agents/resume_tailor/schemas.py:456-477` already reserves (but does not yet wire) subprocess fields for `pi-coding-agent`. The actual current runtime uses **Instructor + OpenAI direct** (`src/agents/resume_tailor/llm.py:143-145`). The TypeScript dashboard does NOT host agent runtime — adding a Node sidecar would still mean adding Node to the worker deploy surface. **Read [`artifacts/analysis-005-codebase-context-correction.md`](./artifacts/analysis-005-codebase-context-correction.md) FIRST** — it supersedes analysis-003 and the agent-runtime parts of analysis-004. Updated recommendation: **OpenAI Agents SDK (Python), in-process**, as the primary harness.
+
 **Date:** 2026-05-22 20:47:03 UTC  
-**Topic:** How to wire `vercel-labs/agent-browser` + a `pi-mono`-class agent on top of Simplify Copilot to take a job posting from "user clicked Apply" all the way to "form is filled, awaiting human submit".  
+**Topic:** How to wire `vercel-labs/agent-browser` + an in-process Python agent harness on top of Simplify Copilot to take a job posting from "user clicked Apply" all the way to "form is filled, awaiting human submit".  
 **Mode:** `design` (architecture decision, three-way evaluation of harness + extension + agent runtime).  
 **Built on:** none. No prior pass covered the autonomous-apply pipeline.  
 **Linked GitHub issue:** [#59 — feat(dashboard): Apply button + 'tailor first?' modal on Jobs page](https://github.com/joeyspagnoli/agentic-job-applier/issues/59)
@@ -14,7 +16,7 @@
 |---|---|
 | Is `vercel-labs/agent-browser` the right harness? | **Partial fit — steal the accessibility-tree snapshot pattern (`@eN` refs over `Accessibility.getFullAXTree`), skip the Rust binary dependency.** |
 | Should Simplify Copilot stay in the flow? | **Yes — Strategy (a) "Simplify-first, agent-second" wins on cost, coverage, and maintenance vs. agent-only or DIY-autofill.** |
-| Is `pi-mono` real, and does it fit? | **Real (`badlogic/pi-mono` → `earendil-works/pi`, 52K ⭐ TS monorepo). Strong fit as the agent loop. Open choice: TS sidecar via JSON-RPC vs. ~600-line Python re-implementation.** |
+| Is `pi-mono` real, and does it fit? | **CORRECTED** — `pi-mono` in this repo is the internal codename for the resume-tailor agent shape (schema hooks for `pi-coding-agent` reserved but inactive; runtime uses Instructor+OpenAI). The npm `pi-mono` is a real external project but NOT installed here. For the browser-agent loop, **OpenAI Agents SDK (Python), in-process** is the better fit. See `analysis-005`. |
 | Architecture for the new "long-tail" LLM browser agent | **AX-tree snapshot + 6 tools (click/type/select/wait/goto/snapshot) + triple-defense safety (filter + hook + existing `dry_run=True`) + system prompt baking Simplify's known-gap list.** |
 
 **One-sentence north-star path:** Ship issue #59 (Apply button + modal + new `POST /api/jobs/{hash}/apply` endpoint) → add a "long-tail finisher" stage to the existing apply-worker that runs AFTER Simplify Autofill and BEFORE the NEEDS_REVIEW handoff → that finisher uses an in-process LLM browser-agent loop driven by AX-tree snapshots, with auto-submit still hard-disabled.
@@ -78,8 +80,8 @@ All three sub-agents wrote into this same pass's `artifacts/` directory per the 
 3. **Layer 3 (NEW) — LLM "long-tail finisher"**:
    - AX-tree snapshot via `Accessibility.getFullAXTree` over CDP, serialized as `@eN` refs (idea stolen from agent-browser, replicated in ~200 lines of Python; shadow-DOM piercing is free).
    - ~6 tools: `snapshot`, `click(@ref)`, `type(@ref, text)`, `select(@ref, option)`, `wait_for`, `goto`.
-   - Agent loop: open choice — pi-mono Node sidecar via JSON-RPC OR ~600-line Python in-process loop. **Lean: Python first, pi-mono later if we need session/event sophistication.**
-   - Triple-defense no-Submit: snapshot filter (model never sees Submit nodes) + `beforeToolCall` hook (refuses if a Submit-ish click slips past the filter) + existing `dry_run=True` wrapper.
+   - Agent loop: **OpenAI Agents SDK (Python), in-process** — same provider as the existing Instructor+OpenAI stack, no new runtime, ~200 LOC integration. Alternates (in order): Claude Agent SDK (Python or TS, if we want Claude for browser), custom loop on `openai` SDK directly (~150 LOC), `pi-coding-agent` Node sidecar (deferred; schema hooks exist but never wired). **See `artifacts/analysis-005-codebase-context-correction.md` for why this supersedes the original analysis-004 recommendation.**
+   - Triple-defense no-Submit: snapshot filter (model never sees Submit nodes) + agent SDK Guardrail / `beforeToolCall` hook (refuses if a Submit-ish click slips past the filter) + existing `dry_run=True` wrapper.
    - System prompt bakes Simplify's known-empty field map from `analysis-002` so the agent doesn't rediscover the gap every apply.
 4. **Layer 4 — handoff** stays as-is. `NEEDS_REVIEW` outcome, human submits, per-field telemetry recorded so we can empirically measure "fraction of fields touched by humans" over time.
 
@@ -138,8 +140,9 @@ artifacts/
   ├── gh-001-pi-mono-github-search.md
   ├── analysis-001-agent-browser-fit-for-job-apply.md      ← verdict per source thread
   ├── analysis-002-simplify-capability-gap.md
-  ├── analysis-003-pi-mono-fit-for-browser-agent.md
-  └── analysis-004-north-star-synthesis.md                  ← centerpiece, interleaves all three
+  ├── analysis-003-pi-mono-fit-for-browser-agent.md         ← SUPERSEDED by analysis-005 (treats pi-mono as external; it's not)
+  ├── analysis-004-north-star-synthesis.md                  ← centerpiece; agent-runtime section superseded by analysis-005
+  └── analysis-005-codebase-context-correction.md           ← READ FIRST — corrects analysis-003/004 with in-tree evidence
 ```
 
-Read order: `README.md` → `analysis-004` → the `analysis-001/002/003` files for the per-thread verdicts → the per-source artifacts for evidence.
+Read order: `README.md` → **`analysis-005` (correction)** → `analysis-004` (centerpiece, with the correction in mind) → `analysis-001/002` for the per-thread verdicts on agent-browser + Simplify → the per-source artifacts for evidence. Skip `analysis-003` — superseded.
