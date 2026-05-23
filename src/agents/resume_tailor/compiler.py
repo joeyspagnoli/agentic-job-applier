@@ -25,11 +25,14 @@ def compile_resume_tex(
     pdf_output_path: str | Path | None = None,
     timeout_seconds: int = DEFAULT_LATEX_TIMEOUT_SECONDS,
 ) -> Path:
-    """Compile one resume `.tex` file into a PDF using `latexmk`.
+    """Compile one resume `.tex` file into a PDF using `tectonic`.
 
     Purpose:
         Provide deterministic local PDF compilation with actionable errors for
-        the resume-tailor workflow.
+        the resume-tailor workflow. Tectonic is a self-contained LaTeX engine
+        that resolves missing packages on demand from CTAN and caches them in
+        XDG_CACHE_HOME/Tectonic, so the runtime image stays small and free of
+        TeX Live packaging gaps.
     Args:
         tex_path: Source LaTeX file path to compile.
         pdf_output_path: Optional destination PDF path to copy the compiled
@@ -38,7 +41,7 @@ def compile_resume_tex(
     Output:
         Returns the absolute path of the compiled PDF artifact.
     Raises:
-        ResumeCompileError: When `latexmk` is missing, times out, returns
+        ResumeCompileError: When `tectonic` is missing, times out, returns
             non-zero, or fails to produce a PDF file.
     """
 
@@ -47,18 +50,18 @@ def compile_resume_tex(
         raise ResumeCompileError(f"LaTeX source file not found: {source_tex_path}")
 
     output_directory = source_tex_path.parent
-    latexmk_command = [
-        "latexmk",
-        "-pdf",
-        "-interaction=nonstopmode",
-        "-halt-on-error",
-        "-file-line-error",
-        source_tex_path.name,
+    tectonic_command = [
+        "tectonic",
+        "--keep-logs",
+        "--keep-intermediates",
+        "--outdir",
+        str(output_directory),
+        str(source_tex_path),
     ]
 
     try:
         completed_process = subprocess.run(
-            latexmk_command,
+            tectonic_command,
             check=False,
             text=True,
             capture_output=True,
@@ -67,16 +70,16 @@ def compile_resume_tex(
         )
     except FileNotFoundError as exc:
         raise ResumeCompileError(
-            "latexmk is not available in PATH; install TeX Live latexmk"
+            "tectonic is not available in PATH; install the tectonic LaTeX engine"
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise ResumeCompileError(
-            f"latexmk timed out after {timeout_seconds} seconds"
+            f"tectonic timed out after {timeout_seconds} seconds"
         ) from exc
 
     if completed_process.returncode != 0:
         error_message = (
-            "latexmk failed with non-zero exit code. "
+            "tectonic failed with non-zero exit code. "
             f"stdout:\n{completed_process.stdout}\n"
             f"stderr:\n{completed_process.stderr}"
         )
@@ -85,7 +88,7 @@ def compile_resume_tex(
     generated_pdf_path = output_directory / f"{source_tex_path.stem}.pdf"
     if not generated_pdf_path.exists():
         raise ResumeCompileError(
-            f"latexmk completed but PDF was not found at {generated_pdf_path}"
+            f"tectonic completed but PDF was not found at {generated_pdf_path}"
         )
 
     if pdf_output_path is None:

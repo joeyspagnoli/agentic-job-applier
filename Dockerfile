@@ -57,29 +57,26 @@ EXPOSE 8000
 #   - Node.js + pi CLI  (AI-powered resume rewriting)
 #
 # Services: tailor, review
-# Estimated build time: +8-12 min  (texlive-fonts-extra is
-# the slow step — needed for the newtx font family)
+# Estimated build time: +1-2 min  (tectonic is a single ~50 MB
+# binary; CTAN packages are fetched at runtime on first compile
+# and cached in /tectonic-cache so subsequent compiles are fast)
 # ============================================================
 FROM base AS latex
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    poppler-utils \
-    texlive-latex-base \
-    texlive-latex-recommended \
-    texlive-latex-extra \
-    texlive-fonts-recommended \
-    texlive-fonts-extra \
-    latexmk \
-    nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+# Tectonic is a self-contained LaTeX engine. We ship a prebuilt linux-musl
+# binary directly via COPY so the build does not depend on apt-get reaching
+# Debian mirrors (buildkit's DNS to deb.debian.org has been flaky locally).
+# To bump the version: rerun `deploy/tectonic/fetch.sh` from the host.
+COPY deploy/tectonic/tectonic.tar.gz /tmp/tectonic.tar.gz
+RUN tar -xzf /tmp/tectonic.tar.gz -C /usr/local/bin tectonic \
+    && chmod +x /usr/local/bin/tectonic \
+    && rm /tmp/tectonic.tar.gz \
+    && /usr/local/bin/tectonic --version
 
-# Pinned for reproducible builds. Bump these together when upgrading.
-ARG PI_CODING_AGENT_VERSION=0.129.0
-ARG CODEX_CLI_VERSION=0.129.0
-RUN npm install -g \
-        @anthropic-ai/pi-coding-agent@${PI_CODING_AGENT_VERSION} \
-        @openai/codex@${CODEX_CLI_VERSION}
+# Tectonic stores its on-demand package cache here. docker-compose mounts
+# a named volume at this path so the cache survives container restarts.
+ENV XDG_CACHE_HOME=/tectonic-cache
+RUN mkdir -p /tectonic-cache && chmod 0777 /tectonic-cache
 
 # ============================================================
 # Stage 4: full — adds browser-based job applying

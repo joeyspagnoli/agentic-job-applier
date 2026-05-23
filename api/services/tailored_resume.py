@@ -66,6 +66,10 @@ def _require_tailored_resume_access(request: Request) -> None:
     Purpose:
         Reduce accidental resume exposure by limiting default access to local
         clients, while supporting explicit remote access via a shared secret.
+        Set `TAILORED_RESUME_ALLOW_REMOTE=true` to skip the localhost check
+        entirely — useful when the API is reached through Docker's port
+        forward (Docker Desktop on macOS rewrites the source IP to its
+        internal vpnkit proxy address, so it never looks like 127.0.0.1).
     Args:
         request: Incoming request used to inspect client host and auth header.
     Output:
@@ -86,6 +90,12 @@ def _require_tailored_resume_access(request: Request) -> None:
             )
         return
 
+    # Escape hatch for Docker port-forwarded deployments: when set to true the
+    # localhost-only check is skipped, on the assumption that the operator has
+    # already chosen the network exposure by mapping the port in docker-compose.
+    if os.getenv("TAILORED_RESUME_ALLOW_REMOTE", "").strip().lower() in {"1", "true", "yes"}:
+        return
+
     client_host = (request.client.host if request.client is not None else "").lower()
     if client_host not in LOCAL_TAILORED_RESUME_CLIENT_HOSTS:
         _raise_api_error(
@@ -93,7 +103,9 @@ def _require_tailored_resume_access(request: Request) -> None:
             code="FORBIDDEN",
             message=(
                 "Tailored resume downloads are restricted to local clients unless "
-                f"{TAILORED_RESUME_TOKEN_ENV_KEY} is configured."
+                f"{TAILORED_RESUME_TOKEN_ENV_KEY} is configured. "
+                "If you reach the API through Docker port forwarding, set "
+                "TAILORED_RESUME_ALLOW_REMOTE=true to disable this check."
             ),
             details={"client_host": client_host or "unknown"},
         )

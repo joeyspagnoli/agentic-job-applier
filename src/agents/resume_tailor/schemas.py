@@ -31,7 +31,6 @@ LOCKED_SECTION_HEADINGS: dict[str, str] = {
     "skills_achievements": "Skills and Achievements",
 }
 NON_EDITABLE_SECTION_IDS: tuple[str, ...] = ("personal", "education")
-DEFAULT_PI_CODING_AGENT_TIMEOUT_SECONDS = 14_400
 
 
 class ResumeLink(BaseModel):
@@ -433,72 +432,6 @@ class TailorJobRef(BaseModel):
         if self.job_hash is not None:
             self.job_hash = self.job_hash.strip()
         return self
-
-
-class TailorInvocationContract(BaseModel):
-    """Represent the V1 runtime contract for pi-mono resume tailoring.
-
-    Purpose:
-        Define one stable invocation payload for scripts and orchestration so
-        all runtime knobs remain explicit and validated.
-    """
-
-    job_ref: TailorJobRef
-    database_path: str
-    resume_yaml_path: str
-    render_template_path: str = ""
-    output_tex_path: str
-    output_pdf_path: str
-    page_limit: int = 1
-    content_readjust_attempts: int = 2
-    layout_bounds_profile: Literal["balanced"] = "balanced"
-    pi_model: str | None = "openai/gpt-5-mini"
-    pi_coding_agent_command_argv: list[str] | None = None
-    pi_coding_agent_command: str | None = None
-    pi_coding_agent_workspace_dir: str | None = None
-    pi_coding_agent_timeout_seconds: int = DEFAULT_PI_CODING_AGENT_TIMEOUT_SECONDS
-    pi_coding_agent_env_allowlist: list[str] = Field(
-        default_factory=lambda: [
-            "PATH",
-            "HOME",
-            "SHELL",
-            "LANG",
-            "LC_ALL",
-            "LC_CTYPE",
-            "TERM",
-            "TMPDIR",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GOOGLE_API_KEY",
-            "GEMINI_API_KEY",
-            "PI_CODING_AGENT_DIR",
-            "OPENCLAW_AGENT_DIR",
-        ]
-    )
-    create_git_branch: bool = False
-    branch_prefix: str = "resume-tailor"
-    branch_base_ref: str | None = None
-    branch_allow_dirty: bool = False
-
-    @field_validator("pi_coding_agent_timeout_seconds")
-    @classmethod
-    def _validate_pi_timeout(cls, value: int) -> int:
-        """Validate timeout configuration for pi-coding-agent subprocess runs.
-
-        Purpose:
-            Prevent invalid timeout values that would disable runtime failure
-            handling for hung pi-coding-agent executions.
-        Args:
-            value: Candidate timeout value in seconds.
-        Output:
-            Returns validated positive timeout value.
-        Raises:
-            ValueError: When timeout is zero or negative.
-        """
-
-        if value <= 0:
-            raise ValueError("pi_coding_agent_timeout_seconds must be > 0")
-        return value
 
 
 class TailorAttemptRecord(BaseModel):

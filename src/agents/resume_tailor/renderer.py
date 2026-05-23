@@ -244,7 +244,9 @@ def render_resume_tex(resume_content: ResumeContent) -> str:
         "\\usepackage{enumitem}",
         "\\usepackage{fancyhdr}",
         "\\usepackage[english]{babel}",
-        "\\input{glyphtounicode}",
+        # Note: \input{glyphtounicode} + \pdfgentounicode=1 used to live here for
+        # pdftex unicode mapping. They are dropped because tectonic uses XeTeX,
+        # which produces unicode-aware PDFs natively.
         "% Use Times New Roman font",
         "\\usepackage{newtxtext,newtxmath}",
         "\\usepackage[hidelinks]{hyperref}",
@@ -269,8 +271,8 @@ def render_resume_tex(resume_content: ResumeContent) -> str:
             f"{{{_format_decimal(layout.section_spacing_after_pt)}pt}}"
         ),
         "",
-        "% Ensure machine-readable PDF",
-        "\\pdfgentounicode=1",
+        "% Machine-readable PDF: XeTeX (via tectonic) handles this natively;",
+        "% no \\pdfgentounicode needed.",
         "",
         "% List commands",
         (

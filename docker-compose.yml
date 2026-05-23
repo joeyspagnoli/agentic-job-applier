@@ -14,6 +14,7 @@ x-base-volumes: &base-volumes
     - ./config:/app/config
     - app-data:/app/data
     - app-logs:/app/logs
+    - tectonic-cache:/tectonic-cache
 
 x-base-service: &base-service
   build:
@@ -34,7 +35,9 @@ services:
   api:
     build:
       context: .
-      target: base
+      # latex stage: opt-in tailor runs execute as FastAPI BackgroundTasks
+      # in this container, so it needs the tectonic LaTeX engine.
+      target: latex
     command: uv run --no-dev uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "${API_PORT:-8000}:8000"
@@ -118,3 +121,4 @@ volumes:
   app-logs:
   chrome-profile:
   codex-auth:
+  tectonic-cache:
