@@ -1,0 +1,187 @@
+personas:
+  - id: nurse
+    name: Sarah Mitchell
+    email: sarah.mitchell.test@example.com
+    phone: "+1-555-201-3001"
+    location: "Boston, MA"
+    linkedin: https://linkedin.com/in/sarah-mitchell-rn-test
+    summary: >
+      Registered Nurse with 4 years of acute care experience in cardiac and
+      ICU settings. Comfortable with telemetry, medication administration,
+      and family communication. Looking for hospital-based RN roles in the
+      Northeast.
+    target_titles:
+      - Registered Nurse
+      - ICU Nurse
+      - Cardiac Nurse
+      - Critical Care Nurse
+    strongest_areas:
+      - Critical care
+      - Cardiac monitoring
+      - Patient assessment
+      - Care coordination
+    experience_highlights:
+      - "Cared for 5+ ICU patients per shift across 3-year tenure at Mass General."
+      - "Trained 8 new graduate nurses on telemetry interpretation."
+      - "Reduced medication administration errors 22% by piloting double-check protocol."
+    search_terms:
+      - registered nurse
+      - ICU nurse
+      - cardiac nurse
+    filters:
+      min_salary: 75000
+      job_types: [full-time, contract]
+      remote: hybrid
+      title_excludes:
+        - manager
+        - director
+        - chief
+      company_blocklist: []
+
+  - id: finance-bro
+    name: Tyler Brooks
+    email: tyler.brooks.test@example.com
+    phone: "+1-555-201-3002"
+    location: "New York, NY"
+    linkedin: https://linkedin.com/in/tyler-brooks-test
+    summary: >
+      Investment-banking analyst with 3 years of M&A advisory experience at a
+      bulge-bracket firm. Strong in financial modeling, DCF/LBO analysis, and
+      pitch-deck production. Targeting associate-track buy-side roles.
+    target_titles:
+      - Investment Banking Associate
+      - Private Equity Associate
+      - Hedge Fund Analyst
+      - Buy-Side Analyst
+    strongest_areas:
+      - Financial modeling
+      - LBO and DCF analysis
+      - Pitch books
+      - Excel + PowerPoint
+    experience_highlights:
+      - "Built 14 LBO models across $200M–$2B middle-market deals."
+      - "Closed two cross-border M&A transactions totaling $1.4B."
+      - "Mentored 4 summer analysts; 3 received return offers."
+    search_terms:
+      - investment banking associate
+      - private equity associate
+      - buy-side analyst
+    filters:
+      min_salary: 150000
+      job_types: [full-time]
+      remote: in-person
+      title_excludes:
+        - intern
+        - VP
+      company_blocklist: []
+
+  - id: law-student
+    name: Priya Nair
+    email: priya.nair.test@example.com
+    phone: "+1-555-201-3003"
+    location: "Washington, DC"
+    linkedin: https://linkedin.com/in/priya-nair-test
+    summary: >
+      Third-year JD candidate at Georgetown Law, top-15% class rank, with
+      summer internships at the DOJ Antitrust Division and a major DC firm.
+      Targeting summer associate and clerkship roles for 2027.
+    target_titles:
+      - Summer Associate
+      - Law Clerk
+      - Judicial Clerk
+      - Legal Intern
+    strongest_areas:
+      - Legal research
+      - Antitrust law
+      - Bluebook citation
+      - Brief writing
+    experience_highlights:
+      - "Drafted 6 motions reviewed by senior partner at DLA Piper."
+      - "Co-authored amicus brief cited in 9th Circuit opinion."
+      - "Edited 12 articles for Georgetown Law Review (Vol. 113)."
+    search_terms:
+      - summer associate
+      - judicial clerk
+      - law clerk
+    filters:
+      min_salary: 0
+      job_types: [internship, full-time]
+      remote: in-person
+      title_excludes:
+        - paralegal
+      company_blocklist: []
+
+  - id: cs-major
+    name: Daniel Chen
+    email: daniel.chen.test@example.com
+    phone: "+1-555-201-3004"
+    location: "Mountain View, CA"
+    linkedin: https://linkedin.com/in/daniel-chen-cs-test
+    summary: >
+      CS undergraduate at UC Berkeley, graduating May 2027. Internships at
+      mid-size SaaS companies, comfortable across the full stack. Targeting
+      summer 2027 SWE internships at Big Tech and high-growth startups.
+    target_titles:
+      - Software Engineering Intern
+      - SWE Intern
+      - Backend Engineering Intern
+      - Full-Stack Intern
+    strongest_areas:
+      - Python
+      - TypeScript / React
+      - Distributed systems
+      - LeetCode-style algorithms
+    experience_highlights:
+      - "Shipped a metrics-aggregation service at Datadog handling 50k req/s."
+      - "Open-source PRs merged in pandas, FastAPI, and httpx."
+      - "ICPC Pacific Northwest regional finalist (4th of 86 teams)."
+    search_terms:
+      - software engineering intern
+      - swe intern
+      - backend intern
+    filters:
+      min_salary: 0
+      job_types: [internship]
+      remote: hybrid
+      title_excludes:
+        - senior
+        - staff
+        - manager
+      company_blocklist: []
+
+  - id: env-sci
+    name: Maya Larsen
+    email: maya.larsen.test@example.com
+    phone: "+1-555-201-3005"
+    location: "Portland, OR"
+    linkedin: https://linkedin.com/in/maya-larsen-test
+    summary: >
+      Environmental scientist with an MS in Ecology and 3 years of fieldwork
+      experience in watershed restoration. Looking for sustainability analyst
+      and ecological consultant roles in the Pacific Northwest.
+    target_titles:
+      - Environmental Scientist
+      - Sustainability Analyst
+      - Ecological Consultant
+      - Watershed Specialist
+    strongest_areas:
+      - GIS and spatial analysis
+      - Water quality monitoring
+      - Habitat assessment
+      - Stakeholder reporting
+    experience_highlights:
+      - "Led 18-month watershed restoration on the Columbia River tributary."
+      - "Authored sustainability reports for 4 mid-size manufacturers."
+      - "Trained 12 field technicians on macroinvertebrate sampling."
+    search_terms:
+      - environmental scientist
+      - sustainability analyst
+      - ecological consultant
+    filters:
+      min_salary: 60000
+      job_types: [full-time, contract]
+      remote: hybrid
+      title_excludes:
+        - intern
+        - junior
+      company_blocklist: []

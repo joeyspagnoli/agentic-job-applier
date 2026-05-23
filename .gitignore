@@ -88,7 +88,7 @@ dashboard/build/
 # =============================================================================
 # Internal scratch (not committed to OSS)
 # =============================================================================
-.research/
+# .research/ is intentionally committed — see .research/index.md
 .codex-review-artifacts/
 reference-repos/
 temp-resume/
