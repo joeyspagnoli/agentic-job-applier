@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Build React dashboard
 # ============================================================
-FROM node:22-slim AS dashboard-build
+FROM node:26-slim AS dashboard-build
 WORKDIR /app/dashboard
 COPY dashboard/package.json dashboard/package-lock.json ./
 RUN npm install
