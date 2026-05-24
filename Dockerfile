@@ -78,6 +78,18 @@ RUN tar -xzf /tmp/tectonic.tar.gz -C /usr/local/bin tectonic \
 ENV XDG_CACHE_HOME=/tectonic-cache
 RUN mkdir -p /tectonic-cache && chmod 0777 /tectonic-cache
 
+# Pre-warm the CTAN cache during the build so the first user-tailor
+# compile doesn't pay the full package-fetch round trip. The stub
+# imports every package any of the 10 curated templates uses.
+COPY deploy/tectonic-prewarm.tex /tmp/prewarm.tex
+RUN cd /tmp \
+    && tectonic -X compile --outdir /tmp prewarm.tex \
+    && rm -f /tmp/prewarm.tex /tmp/prewarm.pdf /tmp/prewarm.log /tmp/prewarm.aux
+
+# Plan §3.2 raised the default compile timeout to 240s to accommodate
+# cold-cache compiles. Operators can override per-deployment.
+ENV TECTONIC_TIMEOUT_SECONDS=240
+
 # ============================================================
 # Stage 4: full — adds browser-based job applying
 #

@@ -1,0 +1,20 @@
+% Pre-warm stub for the tectonic CTAN cache. Compiled during the
+% `latex` Dockerfile stage build so subsequent first-tailor compiles
+% don't pay the full package-fetch round trip. Pulls in every package
+% any of the 10 curated templates in docs/resume-tex-contract.md uses.
+\documentclass[letterpaper,10pt]{article}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{newtxtext,newtxmath}
+\usepackage[hidelinks]{hyperref}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{fullpage}
+\input{glyphtounicode}
+\begin{document}
+prewarm
+\end{document}
