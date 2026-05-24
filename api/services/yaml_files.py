@@ -13,9 +13,6 @@ import yaml
 from fastapi import UploadFile
 from pydantic import ValidationError
 
-from src.agents.resume_tailor.schemas import ResumeContent
-from src.agents.resume_tailor.schemas import validate_locked_structure
-
 from api.config import SETTINGS_BACKUP_FILE_LIMIT
 from api.config import SETTINGS_BACKUP_TIMESTAMP_FORMAT
 from api.errors import _raise_api_error
@@ -189,39 +186,6 @@ def _normalize_candidate_profile_output(
     }
 
 
-def _validate_resume_document(payload: Mapping[str, object]) -> ResumeContent:
-    """Validate one resume mapping against canonical schema and lock rules.
-
-    Purpose:
-        Ensure every resume write path enforces the same Pydantic schema and
-        immutable section lock constraints before persistence.
-    Args:
-        payload: Parsed resume mapping payload from YAML or structured request.
-    Output:
-        Returns validated `ResumeContent` model.
-    Raises:
-        HTTPException: When schema or lock validation fails.
-    """
-
-    try:
-        resume_document = ResumeContent.model_validate(payload)
-        validate_locked_structure(resume_document)
-        return resume_document
-    except (ValidationError, ValueError) as exc:
-        details: dict[str, object]
-        if isinstance(exc, ValidationError):
-            details = {"errors": exc.errors()}
-        else:
-            details = {"error": str(exc)}
-        _raise_api_error(
-            status_code=422,
-            code="INVALID_RESUME_SHAPE",
-            message="Resume settings payload is invalid.",
-            details=details,
-        )
-    raise AssertionError("Unreachable: _raise_api_error always raises HTTPException.")
-
-
 def _persist_yaml_mapping(path: Path, *, payload: Mapping[str, object]) -> str:
     """Persist mapping payload to YAML with deterministic serialization.
 
@@ -331,26 +295,6 @@ def _backup_settings_file(path: Path, *, file_label: str) -> None:
         )
 
     _prune_settings_backups(path, file_label=file_label)
-
-
-def _resume_counts(resume_document: ResumeContent) -> dict[str, int]:
-    """Compute lightweight resume section counts for API responses.
-
-    Purpose:
-        Return concise migration/save diagnostics that help settings UI confirm
-        the persisted resume structure at a glance.
-    Args:
-        resume_document: Validated resume model.
-    Output:
-        Returns per-section listing count values.
-    """
-
-    return {
-        "education_entries": len(resume_document.education.entries),
-        "experience_listings": len(resume_document.experience.listings),
-        "project_listings": len(resume_document.projects.listings),
-        "skill_rows": len(resume_document.skills_achievements.listings),
-    }
 
 
 async def _read_uploaded_text(file: UploadFile) -> str:

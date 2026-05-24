@@ -1,197 +1,160 @@
-"""Tests for `src/agents/resume_tailor/latex_sanitize.py` (issue #54).
+"""Tests for the simplified `latex_safe` (Phase 4 of #60).
 
 Purpose:
-    Lock down the `latex_safe` policy from issue #54 so a tailored bullet
-    containing bare LaTeX-active characters, unknown control sequences,
-    or unbalanced emphasis braces can no longer abort the `latexmk`
-    compile. Coverage is layered: a parametrized table of the policy
-    rows, two Hypothesis properties, and a round-trip check against the
-    real `config/resume_content.yaml` so the load-bearing
-    `\\textbf{20\\%}`-style markup keeps surviving sanitization.
+    The Phase 4 sanitizer escapes only the five hard-break LaTeX-active
+    characters (`&`, `%`, `$`, `#`, `_`) and leaves everything else —
+    macros, braces, tildes, carets, backslashes — alone. The tailor
+    prompt is the discipline ("copy macros verbatim"); the sanitizer
+    is no longer a safety net for malformed LaTeX.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 from hypothesis import given
-from hypothesis import settings
+from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
 
 from src.agents.resume_tailor.latex_sanitize import latex_safe
-from src.agents.resume_tailor.yaml_io import load_resume_yaml
+from src.agents.resume_tailor.locator import build_bullet_manifest
 
 
-# Policy table from issue #54, expressed as (input, expected_output, id).
-# Every entry corresponds to one row in the docstring decision table for
-# `latex_safe` — keep these in sync if the contract ever changes.
+# (input, expected_output, id). Each row pins one behavior the
+# simplified contract from plan §3.6 / R1 must satisfy.
 POLICY_CASES: list[tuple[str, str, str]] = [
     ("", "", "empty_string_in_empty_string_out"),
     ("plain text", "plain text", "plain_text_passes_through"),
     ("Q&A", "Q\\&A", "bare_ampersand_is_escaped"),
     ("20%", "20\\%", "bare_percent_is_escaped"),
+    ("$5", "\\$5", "bare_dollar_is_escaped"),
+    ("#tag", "\\#tag", "bare_hash_is_escaped"),
+    ("under_score", "under\\_score", "bare_underscore_is_escaped"),
     (
-        "a $ b # c _ d",
-        "a \\$ b \\# c \\_ d",
+        "a $ b # c _ d & e % f",
+        "a \\$ b \\# c \\_ d \\& e \\% f",
         "all_bare_specials_are_escaped_in_one_pass",
     ),
     ("\\&", "\\&", "preescaped_ampersand_is_preserved"),
     ("\\%", "\\%", "preescaped_percent_is_preserved"),
+    ("\\$", "\\$", "preescaped_dollar_is_preserved"),
     (
-        "\\textbf{20\\%}",
-        "\\textbf{20\\%}",
-        "load_bearing_textbf_with_preescaped_percent",
-    ),
-    ("\\textbf{X}", "\\textbf{X}", "wellformed_textbf_is_preserved"),
-    ("\\textit{Y}", "\\textit{Y}", "wellformed_textit_is_preserved"),
-    ("\\textbf{}", "", "empty_textbf_arg_drops_entirely"),
-    ("\\textbf{X", "X", "unbalanced_textbf_strips_wrapper_and_keeps_tail"),
-    (
-        "\\textbf{X \\textit{Y}}",
-        "\\textbf{X \\textit{Y}}",
-        "nested_emphasis_round_trips",
+        "\\textbf{bold}",
+        "\\textbf{bold}",
+        "textbf_macro_survives_untouched",
     ),
     (
-        "\\textbf{Q&A}",
-        "\\textbf{Q\\&A}",
-        "textbf_inner_argument_is_sanitized_recursively",
-    ),
-    ("\\ETC", "ETC", "unknown_command_strips_backslash_keeps_word"),
-    (
-        "\\alpha rocks",
-        "alpha rocks",
-        "unknown_command_in_running_text_strips_backslash",
+        "\\highlight{ML/AI}",
+        "\\highlight{ML/AI}",
+        "user_defined_macro_survives_untouched",
     ),
     (
-        "tools th\\ETC.",
-        "tools thETC.",
-        "issue_54_op_failure_case_compiles_to_text",
-    ),
-    ("\\\\", "", "double_backslash_line_break_is_stripped"),
-    ("end\\\\", "end", "trailing_double_backslash_is_stripped"),
-    ("end\\", "end", "trailing_lone_backslash_is_stripped"),
-    ("~", "\\textasciitilde{}", "bare_tilde_becomes_glyph_macro"),
-    ("^", "\\textasciicircum{}", "bare_caret_becomes_glyph_macro"),
-    (
-        "\\textasciitilde{}",
-        "\\textasciitilde{}",
-        "glyph_macro_textasciitilde_is_idempotent",
+        "{nested {braces}}",
+        "{nested {braces}}",
+        "raw_braces_are_left_alone",
     ),
     (
-        "\\textasciicircum{}",
-        "\\textasciicircum{}",
-        "glyph_macro_textasciicircum_is_idempotent",
+        "non-breaking~space",
+        "non-breaking~space",
+        "tilde_is_left_alone",
     ),
-    ("{x}", "\\{x\\}", "bare_braces_are_escaped"),
-    ("\\{x\\}", "\\{x\\}", "preescaped_braces_are_preserved"),
+    (
+        "exponent^2",
+        "exponent^2",
+        "caret_is_left_alone",
+    ),
+    (
+        "line\\\\break",
+        "line\\\\break",
+        "double_backslash_is_left_alone",
+    ),
+    (
+        "\\textbf{Reduced cost by 20\\%}",
+        "\\textbf{Reduced cost by 20\\%}",
+        "macro_with_preescaped_specials_survives",
+    ),
+    (
+        "M&Ms cost $5 + 20% tax_inclusive",
+        "M\\&Ms cost \\$5 + 20\\% tax\\_inclusive",
+        "real_world_mixed_specials_escape_correctly",
+    ),
 ]
 
 
 @pytest.mark.parametrize(
-    ("raw_input", "expected_output"),
-    [(raw, expected) for raw, expected, _ in POLICY_CASES],
+    "raw_text, expected, _case_id",
+    POLICY_CASES,
     ids=[case_id for _, _, case_id in POLICY_CASES],
 )
-def test_latex_safe_matches_policy_table(
-    raw_input: str,
-    expected_output: str,
+def test_latex_safe_satisfies_policy_table(
+    raw_text: str,
+    expected: str,
+    _case_id: str,
 ) -> None:
-    """Every row of the issue #54 policy table maps input to expected output."""
-
-    # Arrange / Act
-    sanitized_text = latex_safe(raw_input)
-
-    # Assert
-    assert sanitized_text == expected_output
+    assert latex_safe(raw_text) == expected
 
 
-@given(st.text(max_size=200))
-@settings(max_examples=200)
-def test_latex_safe_is_idempotent(arbitrary_text: str) -> None:
-    """Property: running the sanitizer twice equals running it once."""
-
-    sanitized_once = latex_safe(arbitrary_text)
-    sanitized_twice = latex_safe(sanitized_once)
-
-    assert sanitized_once == sanitized_twice
-
-
-# Regex that matches every backslash-prefixed token in sanitizer output.
-# Group 1 captures the command word (alphabetic) when present so we can
-# check it against the allowlist; group 2 captures a single special
-# character (`&%$#_{}`) so we can confirm only those forms appear escaped.
-SANITIZER_OUTPUT_BACKSLASH_PATTERN = re.compile(r"\\([A-Za-z]+)|\\([&%$#_{}])")
-
-# Commands that may legally appear in sanitizer output. Anything outside
-# this set means an unknown control sequence leaked through.
-ALLOWED_OUTPUT_COMMANDS: frozenset[str] = frozenset(
-    {"textbf", "textit", "textasciitilde", "textasciicircum"}
+@pytest.mark.parametrize(
+    "raw_text, _expected, _case_id",
+    POLICY_CASES,
+    ids=[case_id for _, _, case_id in POLICY_CASES],
 )
-
-
-@given(st.text(max_size=200))
-@settings(max_examples=200)
-def test_latex_safe_output_only_contains_allowed_backslash_tokens(
-    arbitrary_text: str,
+def test_latex_safe_is_idempotent_on_policy_rows(
+    raw_text: str,
+    _expected: str,
+    _case_id: str,
 ) -> None:
-    """Property: every `\\<word>` in the output is on the allowlist."""
+    once = latex_safe(raw_text)
+    twice = latex_safe(once)
 
-    sanitized_text = latex_safe(arbitrary_text)
-
-    leaked_commands = [
-        match.group(1)
-        for match in SANITIZER_OUTPUT_BACKSLASH_PATTERN.finditer(sanitized_text)
-        if match.group(1) is not None and match.group(1) not in ALLOWED_OUTPUT_COMMANDS
-    ]
-
-    assert leaked_commands == []
+    assert once == twice
 
 
-# Characters that LaTeX treats as active and that must NEVER appear bare
-# in sanitizer output. `\` is excluded because every `\` in the output is
-# part of an allowed escape or command (validated by the previous test).
-BARE_ACTIVE_CHARACTERS: tuple[str, ...] = ("~", "^")
+@given(arbitrary_text=st.text(max_size=200))
+@hypothesis_settings(max_examples=200)
+def test_latex_safe_is_idempotent_on_arbitrary_text(arbitrary_text: str) -> None:
+    once = latex_safe(arbitrary_text)
+    twice = latex_safe(once)
+
+    assert once == twice
 
 
-@pytest.mark.parametrize("forbidden_character", BARE_ACTIVE_CHARACTERS)
-@given(st.text(max_size=200))
-@settings(max_examples=100)
-def test_latex_safe_output_never_contains_bare_tilde_or_caret(
-    forbidden_character: str,
-    arbitrary_text: str,
-) -> None:
-    """Property: `~` and `^` are always rewritten to glyph macros."""
+@given(arbitrary_text=st.text(max_size=200))
+@hypothesis_settings(max_examples=200)
+def test_latex_safe_output_contains_no_bare_specials(arbitrary_text: str) -> None:
+    """After sanitizing, every special is either escaped or absent."""
 
-    sanitized_text = latex_safe(arbitrary_text)
+    sanitized = latex_safe(arbitrary_text)
 
-    assert forbidden_character not in sanitized_text
+    # Walk the sanitized text; every special character must be preceded
+    # by a backslash.
+    for index, character in enumerate(sanitized):
+        if character not in {"&", "%", "$", "#", "_"}:
+            continue
+        assert index > 0 and sanitized[index - 1] == "\\", (
+            f"unescaped {character!r} at position {index} in {sanitized!r}"
+        )
 
 
 def test_dogfood_resume_tex_bullets_are_idempotent_under_sanitize() -> None:
     """Every bullet body in `config/resume.tex` round-trips through latex_safe.
 
     Purpose:
-        Phase 3 (#60) migrated the dogfood resume from YAML to `.tex`.
-        The locator now extracts bullet bodies; we still want to assert
-        that running them through the sanitizer is a no-op (the user's
-        own resume should never produce sanitizer drift).
+        The user's own resume should never produce sanitizer drift.
     """
-
-    from src.agents.resume_tailor.locator import build_bullet_manifest
 
     repo_root = Path(__file__).resolve().parents[3]
     resume_tex_path = repo_root / "config" / "resume.tex"
     tex_text = resume_tex_path.read_text(encoding="utf-8")
     manifest = build_bullet_manifest(tex_text)
 
-    rewritten_bullets: list[tuple[str, str]] = []
+    drift: list[tuple[str, str]] = []
     for section in manifest.sections:
         for entry in section.entries:
             for bullet in entry.bullets:
-                sanitized_text = latex_safe(bullet.text)
-                if sanitized_text != bullet.text:
-                    rewritten_bullets.append((bullet.text, sanitized_text))
+                sanitized = latex_safe(bullet.text)
+                if sanitized != bullet.text:
+                    drift.append((bullet.text, sanitized))
 
-    assert rewritten_bullets == []
+    assert drift == []
