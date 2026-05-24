@@ -125,8 +125,18 @@ body {
     0 8px 24px oklch(0.58 0.13 280 / 0.06);
 }
 
+.scale-98-on-click {
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+.scale-98-on-click:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
 .scale-98-on-click:active {
   transform: scale(0.98);
+}
+.scale-98-on-click:disabled {
+  cursor: not-allowed;
 }
 
 /* Fluid type scale */
