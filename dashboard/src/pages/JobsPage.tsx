@@ -598,8 +598,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         ) : (
           <button
             type="button"
-            className="rounded-lg px-3 py-1 text-xs font-semibold border"
-            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all scale-98-on-click disabled:opacity-60"
+            style={{ backgroundColor: COLOR_PRIMARY }}
             onClick={(e) => {
               e.stopPropagation();
               enqueueMutation.mutate();
