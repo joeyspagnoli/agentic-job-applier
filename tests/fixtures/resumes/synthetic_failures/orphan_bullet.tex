@@ -1,0 +1,19 @@
+% Fires CONTRACT_ORPHAN_BULLET — `\resumeItem` appears in the
+% Experience section before any recognized entry header.
+\documentclass[letterpaper,10pt]{article}
+
+\newcommand{\resumeItem}[1]{\item #1}
+\newcommand{\resumeSubheading}[4]{\item \textbf{#1} \hfill \textbf{#2}\\ #3 \hfill #4}
+
+\begin{document}
+
+\section{Experience}
+\begin{itemize}
+  \resumeItem{This bullet has no entry header above it — orphan.}
+  \resumeSubheading{Engineer}{2024}{Acme}{Remote}
+    \begin{itemize}
+      \resumeItem{This one is fine.}
+    \end{itemize}
+\end{itemize}
+
+\end{document}

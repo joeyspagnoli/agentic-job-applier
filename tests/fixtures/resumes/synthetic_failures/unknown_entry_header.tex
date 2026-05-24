@@ -1,0 +1,20 @@
+% Fires CONTRACT_UNKNOWN_ENTRY_HEADER — the Experience section has
+% bullets but uses an unrecognized macro (`\achievement`) for every
+% entry-header line. No pattern in the contract matches.
+\documentclass[letterpaper,10pt]{article}
+
+\newcommand{\achievement}[3]{\textbf{#1} -- #2 -- #3}
+
+\begin{document}
+
+\section{Experience}
+\begin{itemize}
+  \achievement{Senior Engineer}{Acme}{2024 -- Present}
+  \item Built something cool.
+  \item Built another thing.
+
+  \achievement{Engineer}{Beta}{2021 -- 2024}
+  \item And another.
+\end{itemize}
+
+\end{document}

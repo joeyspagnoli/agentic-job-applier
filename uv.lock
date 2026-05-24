@@ -40,6 +40,7 @@ dependencies = [
     { name = "python-jobspy" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "texsoup" },
     { name = "uvicorn" },
 ]
 
@@ -80,6 +81,7 @@ requires-dist = [
     { name = "python-jobspy", specifier = "==1.1.82" },
     { name = "python-multipart", specifier = "==0.0.22" },
     { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "texsoup", specifier = "==0.3.3" },
     { name = "uvicorn", specifier = "==0.40.0" },
 ]
 
@@ -3758,6 +3760,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0a/d4/2b0cd0fe285e14b36db076e78c93766ff1d529d70408bd1d2a5a84f1d929/tenacity-9.1.2.tar.gz", hash = "sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb", size = 48036, upload-time = "2025-04-02T08:25:09.966Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138", size = 28248, upload-time = "2025-04-02T08:25:07.678Z" },
+]
+
+[[package]]
+name = "texsoup"
+version = "0.3.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/87/e15640e4a12579a70d764f45953f3fab07a5c7e8923e77904837966ffd57/texsoup-0.3.3.tar.gz", hash = "sha256:a3e22b61ce890a602eed006c80119f64b1697e48e39f13c0b094c2efc1dc1abf", size = 41438, upload-time = "2026-04-05T11:43:53.071Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/60/388c55709eccb28c4245bd809fada603905e09507b722f0a7e0065beb8f7/texsoup-0.3.3-py3-none-any.whl", hash = "sha256:0ad8643f7b51a4903de87c3763a090343fc73eaf87cd70202e2bfe6b22e0ac97", size = 33271, upload-time = "2026-04-05T11:43:51.655Z" },
 ]
 
 [[package]]

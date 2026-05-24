@@ -1,0 +1,34 @@
+% Smallest possible compliant resume — exercises Jake's-family entry
+% header + `\resumeItem{...}` bullets so the locator + validator have
+% something to chew on without the noise of a real-world template.
+\documentclass[letterpaper,10pt]{article}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{titlesec}
+
+\newcommand{\resumeItem}[1]{\item #1}
+\newcommand{\resumeSubheading}[4]{\item \textbf{#1} \hfill \textbf{#2}\\ #3 \hfill #4}
+
+\begin{document}
+
+\section{Experience}
+\begin{itemize}
+  \resumeSubheading{Senior Engineer}{2024 -- Present}{Acme Corp}{Remote}
+    \begin{itemize}
+      \resumeItem{Shipped the new ingestion service handling 5M events per day.}
+      \resumeItem{Cut p99 latency from 1200ms to 280ms via async batching.}
+    \end{itemize}
+  \resumeSubheading{Engineer}{2021 -- 2024}{Beta LLC}{NYC}
+    \begin{itemize}
+      \resumeItem{Owned the billing pipeline and a $\&$ revenue dashboard.}
+    \end{itemize}
+\end{itemize}
+
+\section{Projects}
+\begin{itemize}
+  \resumeSubheading{Open-source PDF redactor}{2023}{Side project}{}
+    \begin{itemize}
+      \resumeItem{Built a CLI that strips PII from arbitrary PDFs.}
+    \end{itemize}
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,33 @@
+% Generic-template fixture exercising Fallback B (`\textbf{Role}\hfill
+% Dates` on a line by itself). No macro family is used — this is the
+% lowest-common-denominator pattern a hand-rolled template might use.
+\documentclass[letterpaper,10pt]{article}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{enumitem}
+
+\begin{document}
+
+{\Large \textbf{Alex Doe}} \\
+alex@example.com
+
+\section{Experience}
+
+\textbf{Senior Software Engineer at Globex}\hfill 2024 -- Present \\
+\begin{itemize}
+  \item Led a 4-person team rebuilding the search relevance pipeline.
+  \item Reduced query latency by 38\% via inverted-index reshaping.
+\end{itemize}
+
+\textbf{Software Engineer}\hfill Jun 2021 -- 2024 \\
+\begin{itemize}
+  \item Migrated the billing service from monolith to event-driven actors.
+\end{itemize}
+
+\section{Projects}
+
+\textbf{tiny-db}\hfill 2022 \\
+\begin{itemize}
+  \item Tutorial-grade B-tree key-value store in 800 lines of Rust.
+\end{itemize}
+
+\end{document}

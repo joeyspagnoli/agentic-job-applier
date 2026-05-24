@@ -1,0 +1,19 @@
+% Fires CONTRACT_UNBALANCED_BULLET — the `\resumeItem{...}` body has
+% an opening `{` with no matching `}` before the next entry header.
+\documentclass[letterpaper,10pt]{article}
+
+\newcommand{\resumeItem}[1]{\item #1}
+\newcommand{\resumeSubheading}[4]{\item \textbf{#1} \hfill \textbf{#2}\\ #3 \hfill #4}
+
+\begin{document}
+
+\section{Experience}
+\begin{itemize}
+  \resumeSubheading{Engineer}{2024}{Acme}{Remote}
+    \begin{itemize}
+      \resumeItem{Body that opens a group { and never closes it before the next entry header.
+      \resumeItem{Second bullet, but the first never balanced.}
+    \end{itemize}
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,22 @@
+% Fires CONTRACT_COMPILE_FAILED — the document references an undefined
+% control sequence (`\thisCommandDoesNotExist`) so tectonic exits non-zero.
+% The static checks below would otherwise pass (Experience is a tailorable
+% section with a Jake's-family entry + bullets).
+\documentclass[letterpaper,10pt]{article}
+
+\newcommand{\resumeItem}[1]{\item #1}
+\newcommand{\resumeSubheading}[4]{\item \textbf{#1} \hfill \textbf{#2}\\ #3 \hfill #4}
+
+\begin{document}
+
+\section{Experience}
+\begin{itemize}
+  \resumeSubheading{Engineer}{2024}{Acme}{Remote}
+    \begin{itemize}
+      \resumeItem{This will compile.}
+    \end{itemize}
+\end{itemize}
+
+\thisCommandDoesNotExist{boom}
+
+\end{document}
