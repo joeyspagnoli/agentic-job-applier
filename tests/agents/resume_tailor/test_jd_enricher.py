@@ -465,7 +465,11 @@ def _patch_httpx_client(
         instances.append(client)
         return client
 
-    monkeypatch.setattr(jd_enricher.httpx, "AsyncClient", factory)
+    # Patch at the real httpx module: ``jd_enricher`` looks up
+    # ``httpx.AsyncClient`` through its imported ``httpx`` reference,
+    # so attribute-replacing on the module object covers it without
+    # tripping mypy strict on a non-exported attribute access.
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
     return instances
 
 
