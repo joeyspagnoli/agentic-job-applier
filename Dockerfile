@@ -24,7 +24,7 @@ RUN npm run build
 # `latexmk` is also no longer installed; tectonic is the only
 # LaTeX engine and is verified at startup.
 # ============================================================
-FROM python:3.11-slim-bookworm AS app
+FROM python:3.14-slim-bookworm AS app
 
 # Multi-arch tectonic shipping (issue #61 §"Locked design decisions" item 5):
 # tectonic does not publish a container image, so we COPY a host-prebuilt
