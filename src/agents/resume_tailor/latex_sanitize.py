@@ -11,6 +11,14 @@ Purpose:
     tectonic will fail to compile and the pipeline ships the base PDF
     via the existing failure path.
 
+`$` has dual meaning in LaTeX — literal currency *and* math-mode
+delimiter (`$R^2$`, `$O(n)$`). Eagerly escaping every `$` breaks math
+mode (issue #54 hot-fix): the contents (`^`, `_`) become invalid
+outside math mode and tectonic aborts with "Missing $ inserted". We
+therefore treat `$` pairwise — an even count of unescaped `$` in the
+bullet is assumed to be math-mode delimiters and passes through; an
+odd count is treated as a stray literal and every bare `$` is escaped.
+
 The function remains idempotent — already-escaped sequences pass
 through unchanged.
 """
@@ -18,8 +26,29 @@ through unchanged.
 from __future__ import annotations
 
 # Characters LaTeX treats as active and that must appear as `\<char>`
-# inside running text to render literally.
+# inside running text to render literally. `$` is in this set so the
+# idempotency check still recognizes `\$`, but it is handled apart
+# from the others (see module docstring) because of its dual meaning.
 ESCAPABLE_SPECIALS: frozenset[str] = frozenset({"&", "%", "$", "#", "_"})
+_ALWAYS_ESCAPE: frozenset[str] = ESCAPABLE_SPECIALS - {"$"}
+
+
+def _count_unescaped_dollars(text: str) -> int:
+    count = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        if (
+            text[index] == "\\"
+            and index + 1 < length
+            and text[index + 1] == "$"
+        ):
+            index += 2
+            continue
+        if text[index] == "$":
+            count += 1
+        index += 1
+    return count
 
 
 def latex_safe(text: str) -> str:
@@ -29,7 +58,8 @@ def latex_safe(text: str) -> str:
         Stop tailored bullets from breaking the tectonic compile when
         the LLM emits a bare `&` / `%` / `$` / `#` / `_`. Pre-escaped
         sequences (`\\&`, `\\%`, ...) are recognized so a second pass
-        produces the same output as the first.
+        produces the same output as the first. Balanced `$...$` math
+        mode is preserved (see module docstring).
     Args:
         text: Raw bullet replacement text emitted by the tailor LLM.
     Output:
@@ -39,6 +69,9 @@ def latex_safe(text: str) -> str:
 
     if not text:
         return ""
+
+    unescaped_dollars = _count_unescaped_dollars(text)
+    dollars_are_paired = unescaped_dollars > 0 and unescaped_dollars % 2 == 0
 
     output_fragments: list[str] = []
     index = 0
@@ -58,7 +91,12 @@ def latex_safe(text: str) -> str:
             index += 2
             continue
 
-        if current_char in ESCAPABLE_SPECIALS:
+        if current_char == "$":
+            output_fragments.append("$" if dollars_are_paired else "\\$")
+            index += 1
+            continue
+
+        if current_char in _ALWAYS_ESCAPE:
             output_fragments.append(f"\\{current_char}")
             index += 1
             continue

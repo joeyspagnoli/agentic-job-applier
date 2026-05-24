@@ -79,6 +79,26 @@ POLICY_CASES: list[tuple[str, str, str]] = [
         "M\\&Ms cost \\$5 + 20\\% tax\\_inclusive",
         "real_world_mixed_specials_escape_correctly",
     ),
+    (
+        "$R^2$ score 0.958",
+        "$R^2$ score 0.958",
+        "balanced_math_mode_dollars_preserved",
+    ),
+    (
+        "achieved $O(n)$ time complexity",
+        "achieved $O(n)$ time complexity",
+        "balanced_big_o_math_mode_preserved",
+    ),
+    (
+        "$5 cost and $10 revenue",
+        "$5 cost and $10 revenue",
+        "two_literal_dollars_look_like_math_pair_known_limitation",
+    ),
+    (
+        "$5 cost only",
+        "\\$5 cost only",
+        "single_literal_dollar_still_escaped",
+    ),
 ]
 
 
