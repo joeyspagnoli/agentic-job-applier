@@ -1,0 +1,63 @@
+{
+  "sections": [
+    {
+      "id": "experience",
+      "kind": "experience",
+      "heading": "Experience",
+      "entries": [
+        {
+          "id": "experience_senior_engineer_2024_present_acme_corp_remote_0",
+          "role_context": "\\resumeSubheading{Senior Engineer}{2024 -- Present}{Acme Corp}{Remote}",
+          "header_byte_start": 488,
+          "bullets": [
+            {
+              "id": "experience_senior_engineer_2024_present_acme_corp_remote_0_b0",
+              "text": "Shipped the new ingestion service handling 5M events per day.",
+              "byte_start": 599,
+              "byte_end": 660
+            },
+            {
+              "id": "experience_senior_engineer_2024_present_acme_corp_remote_0_b1",
+              "text": "Cut p99 latency from 1200ms to 280ms via async batching.",
+              "byte_start": 680,
+              "byte_end": 736
+            }
+          ]
+        },
+        {
+          "id": "experience_engineer_2021_2024_beta_llc_nyc_1",
+          "role_context": "\\resumeSubheading{Engineer}{2021 -- 2024}{Beta LLC}{NYC}",
+          "header_byte_start": 756,
+          "bullets": [
+            {
+              "id": "experience_engineer_2021_2024_beta_llc_nyc_1_b0",
+              "text": "Owned the billing pipeline and a $\\&$ revenue dashboard.",
+              "byte_start": 853,
+              "byte_end": 909
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "projects",
+      "kind": "projects",
+      "heading": "Projects",
+      "entries": [
+        {
+          "id": "projects_open_source_pdf_redactor_2023_side_project_0",
+          "role_context": "\\resumeSubheading{Open-source PDF redactor}{2023}{Side project}{}",
+          "header_byte_start": 979,
+          "bullets": [
+            {
+              "id": "projects_open_source_pdf_redactor_2023_side_project_0_b0",
+              "text": "Built a CLI that strips PII from arbitrary PDFs.",
+              "byte_start": 1085,
+              "byte_end": 1133
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

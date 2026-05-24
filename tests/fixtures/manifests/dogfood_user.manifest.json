@@ -1,0 +1,164 @@
+{
+  "sections": [
+    {
+      "id": "experience",
+      "kind": "experience",
+      "heading": "Experience",
+      "entries": [
+        {
+          "id": "experience_ai_solutions_engineer_intern_jan_2026_0",
+          "role_context": "\\item {\\textbf{AI Solutions Engineer Intern}} \\hfill {\\textbf{Jan. 2026 -- Present}}\\\\",
+          "header_byte_start": 2172,
+          "bullets": [
+            {
+              "id": "experience_ai_solutions_engineer_intern_jan_2026_0_b0",
+              "text": "Built an \\textbf{Agentic} QA Review application whose \\textbf{pi-mono} Director agent orchestrates specialized sub-agents across codebase and webapp reviews to generate \\textbf{bug reports, test plans, and repo specs}.",
+              "byte_start": 2346,
+              "byte_end": 2564
+            },
+            {
+              "id": "experience_ai_solutions_engineer_intern_jan_2026_0_b1",
+              "text": "Created a PR QA gate with \\textbf{GitHub Agentic Workflows} in \\textbf{GitHub Actions} that reviews changed Python files and all files in a \\textbf{1-hop blast radius}, posts a bug report and test plan, and blocks merges on \\textbf{Critical/High} findings.",
+              "byte_start": 2582,
+              "byte_end": 2838
+            }
+          ]
+        },
+        {
+          "id": "experience_ai_scholars_researcher_aug_2025_1",
+          "role_context": "\\item {\\textbf{AI Scholars Researcher}} \\hfill {\\textbf{Aug. 2025 -- Present}}\\\\",
+          "header_byte_start": 2861,
+          "bullets": [
+            {
+              "id": "experience_ai_scholars_researcher_aug_2025_1_b0",
+              "text": "Published research in the \\textbf{UF Journal of Undergraduate Research} on using \\textbf{machine learning} to predict whether safety warning signals are audible or masked in 4-second construction-noise clips.",
+              "byte_start": 3073,
+              "byte_end": 3281
+            },
+            {
+              "id": "experience_ai_scholars_researcher_aug_2025_1_b1",
+              "text": "Built an \\textbf{end-to-end audio ML pipeline} that preprocessed UrbanSound8K construction-noise clips, synthesized warning signals, generated labeled mixtures, derived acoustic features and\n  mel-spectrograms, and trained models to detect masked safety alarms.",
+              "byte_start": 3299,
+              "byte_end": 3560
+            }
+          ]
+        },
+        {
+          "id": "experience_system_administrator_intern_may_2025_2",
+          "role_context": "\\item {\\textbf{System Administrator Intern}} \\hfill {\\textbf{May 2025 -- Present}}\\\\",
+          "header_byte_start": 3583,
+          "bullets": [
+            {
+              "id": "experience_system_administrator_intern_may_2025_2_b0",
+              "text": "Managed technology needs for \\textbf{25+ faculty}, providing technical support and leading system maintenance, imaging, and deployment to ensure seamless technology integration and reliability.",
+              "byte_start": 3753,
+              "byte_end": 3946
+            },
+            {
+              "id": "experience_system_administrator_intern_may_2025_2_b1",
+              "text": "Created a dedicated laptop \\textbf{OU} in \\textbf{Active Directory} and linked a custom \\textbf{GPO} to automate biweekly maintenance, running Dell Command Update and Windows security updates every other Sunday.",
+              "byte_start": 3964,
+              "byte_end": 4175
+            }
+          ]
+        },
+        {
+          "id": "experience_ai_engineer_intern_jun_2025_3",
+          "role_context": "\\item {\\textbf{AI Engineer Intern}} \\hfill {\\textbf{Jun. 2025 -- Aug. 2025}}\\\\",
+          "header_byte_start": 4198,
+          "bullets": [
+            {
+              "id": "experience_ai_engineer_intern_jun_2025_3_b0",
+              "text": "Reduced manual anomaly detection time by \\textbf{12 hours} by assisting in the development of an \\textbf{autoencoder} using \\textbf{PyTorch} to detect anomalies for ISS ARED machine sensor faults, processing over \\textbf{11,000} data points per exercise set in \\textbf{large-scale time-series data}.",
+              "byte_start": 4376,
+              "byte_end": 4675
+            },
+            {
+              "id": "experience_ai_engineer_intern_jun_2025_3_b1",
+              "text": "Engineering a comprehensive dashboard using \\textbf{Dash, Plotly, and SciPy}, implemented a \\textbf{CI/CD pipeline} with \\textbf{PyTest} and GitLab runners to ensure code quality and deployed an \\textbf{end-to-end data pipeline} with \\textbf{Dagster}.",
+              "byte_start": 4693,
+              "byte_end": 4944
+            }
+          ]
+        },
+        {
+          "id": "experience_undergraduate_research_assistant_oct_2024_4",
+          "role_context": "\\item {\\textbf{Undergraduate Research Assistant}} \\hfill {\\textbf{Oct. 2024 -- May 2025}}\\\\",
+          "header_byte_start": 4967,
+          "bullets": [
+            {
+              "id": "experience_undergraduate_research_assistant_oct_2024_4_b0",
+              "text": "Developed a \\textbf{CTGAN synthesizer} using \\textbf{SDV} and Python to generate high-fidelity synthetic data, enabling initial \\textbf{neural network training} in the absence of real-world data.",
+              "byte_start": 5190,
+              "byte_end": 5385
+            },
+            {
+              "id": "experience_undergraduate_research_assistant_oct_2024_4_b1",
+              "text": "Identified and analyzed key \\textbf{physiological (5–8)} and \\textbf{environmental (12–13)} variables to inform early model development for predicting heat-related illness risk in construction settings.",
+              "byte_start": 5403,
+              "byte_end": 5605
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "projects",
+      "kind": "projects",
+      "heading": "Projects",
+      "entries": [
+        {
+          "id": "projects_experiencecurator_ai_python_fastapi_postgresql_pg",
+          "role_context": "\\item{\\textbf{ExperienceCurator AI $|$ Python, FastAPI, PostgreSQL, pgvector, ADK, Docker, React/TypeScript}}\\hfill\\textbf{Dec. 2025 -- Present}",
+          "header_byte_start": 5741,
+          "bullets": [
+            {
+              "id": "projects_experiencecurator_ai_python_fastapi_postgresql_pg_b0",
+              "text": "Built a \"career memory\" system with \\textbf{agent-orchestrated RAG workflows} to ingest docs and codebases, normalize content, generate embeddings, and serve evidence-grounded answers through a FastAPI REST API with pgvector retrieval.",
+              "byte_start": 5925,
+              "byte_end": 6160
+            },
+            {
+              "id": "projects_experiencecurator_ai_python_fastapi_postgresql_pg_b1",
+              "text": "Implemented \\textbf{multi-agent} resume tailoring and interview preparation tools, reducing resume customization time by \\textbf{30\\%} through \\textbf{citation-grounded} bullet suggestions and generating concise, sourced answers to user-created interview questions.",
+              "byte_start": 6176,
+              "byte_end": 6441
+            }
+          ]
+        },
+        {
+          "id": "projects_evochess_python_pytorch_mlflow_dagster_aws_1",
+          "role_context": "\\item{\\textbf{EvoChess $|$ Python, PyTorch, MLflow, Dagster, AWS S3, Docker, Google Cloud Run}}\\hfill\\textbf{Mar. 2025 -- Apr. 2025}",
+          "header_byte_start": 6464,
+          "bullets": [
+            {
+              "id": "projects_evochess_python_pytorch_mlflow_dagster_aws_1_b0",
+              "text": "Orchestrated an \\textbf{automated MLOps pipeline} with Dagster to ETL chess game data from Lichess into AWS S3 for \\textbf{CNN model} training with PyTorch, and deployed the final model as a containerized API using Docker and Google Cloud Run.",
+              "byte_start": 6636,
+              "byte_end": 6879
+            },
+            {
+              "id": "projects_evochess_python_pytorch_mlflow_dagster_aws_1_b1",
+              "text": "Trained a Convolutional Neural Network in PyTorch on a filtered dataset of \\textbf{9,000,000+ games rated 2000+ elo}, engineering a data processing workflow to predict optimal move sequences from any given board state.",
+              "byte_start": 6895,
+              "byte_end": 7113
+            }
+          ]
+        },
+        {
+          "id": "projects_data_driven_resource_optimization_python_matplotl",
+          "role_context": "\\item{\\textbf{Data-Driven Resource Optimization $|$ Python, Matplotlib, Scikit-learn}}\\hfill\\textbf{Jul. 2024 -- Aug. 2024}",
+          "header_byte_start": 7136,
+          "bullets": [
+            {
+              "id": "projects_data_driven_resource_optimization_python_matplotl_b0",
+              "text": "Developed a \\textbf{gradient descent} algorithm to minimize Mean Squared Error (MSE) for predicting event resource needs, achieving an \\textbf{R² score of 0.958} with Scikit-learn and reducing costs by \\textbf{20\\%} with an \\textbf{85\\%} decrease in waste.",
+              "byte_start": 7301,
+              "byte_end": 7557
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
