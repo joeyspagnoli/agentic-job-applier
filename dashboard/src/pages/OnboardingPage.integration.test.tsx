@@ -43,8 +43,7 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("@/lib/api/client", () => ({
   updateProfileStructured: vi.fn().mockResolvedValue(undefined),
-  uploadResume: vi.fn().mockResolvedValue(undefined),
-  uploadResumePdf: vi.fn().mockResolvedValue(undefined),
+  uploadResumeTex: vi.fn().mockResolvedValue(undefined),
   updateFiltersYaml: vi.fn().mockResolvedValue(undefined),
   fetchSourcesSettings: vi.fn().mockResolvedValue({ yaml_text: "greenhouse_companies:\n" }),
   updateSourcesYaml: vi.fn().mockResolvedValue(undefined),

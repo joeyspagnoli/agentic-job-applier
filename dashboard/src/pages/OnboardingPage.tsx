@@ -17,8 +17,7 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  uploadResume,
-  uploadResumePdf,
+  uploadResumeTex,
   fetchSourcesSettings,
   updateSourcesYaml,
 } from "@/lib/api/client";
@@ -80,8 +79,7 @@ export function OnboardingPage(): JSX.Element {
   const [notOnGreenhouseWarning, setNotOnGreenhouseWarning] = useState<string | null>(null);
 
   const resumeMutation = useMutation({
-    mutationFn: (file: File) =>
-      file.type === "application/pdf" ? uploadResumePdf(file) : uploadResume(file),
+    mutationFn: (file: File) => uploadResumeTex(file),
     onSuccess: () => {
       setResumeUploaded(true);
     },
