@@ -48,6 +48,7 @@ from src.utils.cost_tracking import (
 
 from .compiler import compile_resume_tex, get_pdf_page_count
 from .db_verdict import DBReviewVerdict
+from .jd_enricher import _maybe_enrich_job_description
 from .llm import (
     LlmCallResult,
     call_reviewer,
@@ -496,6 +497,16 @@ async def run_tailor_review_pipeline(
             job_hash=job_hash,
             error_message=f"job_not_found: {job_hash}",
         )
+
+    # Opportunistic JD backfill for LinkedIn/iCIMS rows whose
+    # discovery adapter only stored a placeholder or empty string.
+    # The helper swallows every fetch failure and falls back to the
+    # original row — by contract the tailor run continues either way.
+    job_row = await _maybe_enrich_job_description(
+        db=db,
+        job_row=job_row,
+        job_hash=job_hash,
+    )
 
     # Load + re-validate the user's .tex. Phase 0 enforced the contract
     # at upload time, but we guard against on-disk drift between upload

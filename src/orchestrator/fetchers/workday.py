@@ -23,10 +23,14 @@ from src.utils.logger import log_crawl_summary
 # Per-company crawl ceilings.  Workday tenants for large enterprises (Merck,
 # J&J) can return 800+ listings; without this guard the orchestrator runs
 # blockingly serial and a single slow/hung tenant stalls every later source
-# family.  Detail-fetching is left to the gate agent on a per-job basis, so
-# the discovery loop only needs title/location/company at insert time.
+# family.
 WORKDAY_PER_COMPANY_TIMEOUT_SEC = 120
-WORKDAY_FETCH_DESCRIPTIONS = False
+
+# Per-job detail enrichment is on so the tailor receives a real JD body
+# instead of an empty string.  Roughly doubles per-tenant wall-clock but
+# `INTER_PAGE_SLEEP` inside `WorkdayFetcher` already paces requests well
+# under typical Workday 429 thresholds.
+WORKDAY_FETCH_DESCRIPTIONS = True
 
 
 async def fetch_workday_jobs(

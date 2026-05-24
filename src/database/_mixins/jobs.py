@@ -210,6 +210,37 @@ class JobsMixin(_BaseMixin):
 
         return existing_hashes
 
+    async def update_job_description(
+        self,
+        *,
+        job_hash: str,
+        description: str,
+    ) -> None:
+        """Persist a freshly-fetched job description back to the row.
+
+        Purpose:
+            Cache a lazy-fetched JD body so subsequent tailor runs and
+            debug queries see the real text instead of the empty string
+            or synthetic placeholder that discovery wrote at insert time.
+        Args:
+            self: The database manager performing the update.
+            job_hash: Stable deduplication hash for the target job.
+            description: Plain-text description body to persist.
+        Output:
+            Returns `None` after updating the row and committing.
+        """
+
+        conn = self._require_conn()
+        await conn.execute(
+            """
+            UPDATE job_postings
+            SET description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE job_hash = ?
+            """,
+            (description, job_hash),
+        )
+        await conn.commit()
+
     async def update_job_status(self, job_hash: str, status: str) -> None:
         """Update the workflow status for one stored job.
 
