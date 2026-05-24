@@ -79,16 +79,114 @@ Rules:
   profile and the original bullet text. Never invent companies,
   dates, skills, or metrics — the reviewer enforces factuality as a
   veto and a hallucination loses the run.
-- Keep `new_text` roughly the same length as the original body.
-  Drastic length changes break the one-page fit.
-- Copy any LaTeX macro you see in the original (`\\textbf{X}`,
-  `\\textit{Y}`, user-defined macros like `\\highlight{...}`)
-  verbatim in `new_text`. Do not invent new macros.
-- Plain text + the 5 LaTeX escapes (`\\&`, `\\%`, `\\$`, `\\#`,
-  `\\_`) is all you need. The renderer escapes bare specials
-  automatically.
 - If a bullet shouldn't be touched, omit it OR set `action='keep'`
   with a brief rationale (the reviewer reads keep rationales too).
+
+Why and how to bold in LaTeX (`\\textbf{...}`):
+
+Bolding is the recruiter's six-second-scan eye-anchor and an ATS
+keyword-density signal. Every `\\textbf{X}` in the original bullet
+MUST appear in `new_text` verbatim — stripping bolds is a hard
+regression. Beyond preservation, *elevate* terms to bold when:
+
+- The term is a technology, framework, library, language, or named
+  system (e.g. `\\textbf{Kotlin}`, `\\textbf{AWS EKS}`,
+  `\\textbf{Kafka}`, `\\textbf{Redis}`).
+- The term is a metric or measurable outcome (e.g. `\\textbf{40\\%}`,
+  `\\textbf{2M events per day}`, `\\textbf{p99 latency}`).
+- The term is an acronym or proper noun introduced for the first
+  time (e.g. `\\textbf{tier-1 incident}`).
+- The term is explicitly named in the JD AND already present in the
+  bullet's plain text. Promotion is fair game; invention is not.
+
+Do NOT bold generic verbs ("built", "developed"), filler
+("comprehensive", "robust"), or any term that wasn't already
+truthfully in the bullet.
+
+Plain text + the 5 LaTeX escapes (`\\&`, `\\%`, `\\$`, `\\#`, `\\_`)
+is all you need beyond `\\textbf{}`. If the original bullet uses
+`\\textit{X}`, `$math$`, or a user-defined macro like
+`\\highlight{X}`, copy it verbatim — never invent new macros.
+
+Hard rules — violations make your output useless:
+
+- `new_text` must be within +/-15% of the original character count.
+  Compressing a 200-character bullet to 90 characters is a regression
+  even if keywords match. The reviewer scores information density,
+  not concision.
+- Never set `new_text` to an empty string when `action="rewrite"`.
+  Bullet removal is a trim-stage operation, not a tailor-stage one.
+- If the original bullet contains one or more `\\textbf{X}` macros,
+  `new_text` MUST contain at least as many. Stripping all bolds from
+  a bolded bullet is a hard reject.
+- Never invent companies, tools, frameworks, metrics, dates, or
+  skills. If a JD keyword is not already truthfully present in the
+  bullet or the candidate profile, do not add it.
+
+EXAMPLE — a worked tailoring run
+
+Job posting excerpt:
+  Backend Engineer, Payments Platform. Own services in Kotlin/Java
+  running on AWS EKS, heavy use of Kafka for event streaming and
+  Redis for low-latency caches. Responsible for p99 latency SLOs and
+  reducing tier-1 incidents across the checkout path. Familiarity
+  with distributed systems and observability tooling required.
+
+Manifest excerpt:
+{
+  "sections": [{
+    "kind": "experience",
+    "heading": "Experience",
+    "entries": [{
+      "id": "exp.checkout",
+      "role_context": "Senior Software Engineer | Checkout Platform Team",
+      "bullets": [
+        {"id": "exp.checkout.b1", "text": "Built a notifications service in \\textbf{Kotlin} on EKS that fanned out events through Kafka to mobile, email, and webhook subscribers, processing roughly \\textbf{2M events per day} with at-least-once delivery."},
+        {"id": "exp.checkout.b2", "text": "Reduced p99 checkout latency by \\textbf{40\\%} by replacing a synchronous tax lookup with a precomputed Redis cache, eliminating a recurring tier-1 incident class that had paged the team six times in a quarter."},
+        {"id": "exp.checkout.b3", "text": "Co-authored an internal RFC adopted by three product teams that standardized our retry/backoff policy for upstream API calls."},
+        {"id": "exp.checkout.b4", "text": "Mentored two summer interns through their first production deploys, including pairing on rollback drills."}
+      ]
+    }]
+  }]
+}
+
+A strong output for this input:
+{
+  "rewrite_plan": "Targeting the Kotlin/EKS/Kafka/Redis stack in the JD. b1 and b2 already contain every keyword the JD asks for — they just aren't bolded. The win is bold elevation, not new content. b3 is leadership work with no JD-relevant tech to elevate; keep. b4 is mentorship and unrelated to the platform focus; skip.",
+  "bullets": [
+    {
+      "id": "exp.checkout.b1",
+      "rationale": "EKS, Kafka, and 'distributed' are already in the bullet text but unbolded. The JD asks for all three explicitly. Elevating to bold raises ATS keyword density and recruiter scan-ability without changing the underlying claim.",
+      "action": "rewrite",
+      "new_text": "Built a \\textbf{distributed} notifications service in \\textbf{Kotlin} on \\textbf{AWS EKS} that fanned out events through \\textbf{Kafka} to mobile, email, and webhook subscribers, processing roughly \\textbf{2M events per day} with at-least-once delivery."
+    },
+    {
+      "id": "exp.checkout.b2",
+      "rationale": "p99 latency, Redis, and tier-1 incidents are explicit JD requirements that already appear verbatim in the bullet but are unbolded. Elevating these makes the bullet's relevance unambiguous on a six-second scan.",
+      "action": "rewrite",
+      "new_text": "Reduced \\textbf{p99 checkout latency} by \\textbf{40\\%} by replacing a synchronous tax lookup with a precomputed \\textbf{Redis} cache, eliminating a recurring \\textbf{tier-1 incident} class that had paged the team six times in a quarter."
+    },
+    {
+      "id": "exp.checkout.b3",
+      "rationale": "Specificity is already high (RFC, three teams, concrete policy area). The JD does not foreground influence or design-doc work, and there are no JD-keyword tech terms in the bullet to elevate. Rewriting would dilute the leadership signal without surfacing any keyword.",
+      "action": "keep",
+      "new_text": ""
+    }
+  ],
+  "skipped_bullets": [
+    {
+      "id": "exp.checkout.b4",
+      "reason": "Mentorship is unrelated to the backend/payments platform focus of the JD. Reframing toward the JD would be a stretch, and the bullet's existing framing is reasonable on its own. Left untouched."
+    }
+  ]
+}
+
+Note how every rewrite preserves every original `\\textbf{X}`, adds
+new bolds only for words already in the original text, stays within
++/-15% of original character length, and skips/keeps bullets with no
+JD-relevant content rather than padding them. Treat the IDs above
+(`exp.checkout.*`) as illustrative only — never copy them into your
+real output; always use IDs from the manifest you were given.
 """
 
 TRIM_INSTRUCTION = """\
