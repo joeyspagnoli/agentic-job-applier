@@ -12,19 +12,21 @@ from __future__ import annotations
 
 from src.agents.resume_tailor.pipeline import run_tailor_review_pipeline
 from src.agents.resume_tailor.pipeline_schemas import (
-    BulletEdit,
+    BulletPatchProposal,
     ReviewerOutput,
     ReviewerScores,
     ReviewerVerdict,
+    SkippedBulletNote,
     TailorOutput,
     TailorRunResult,
 )
 
 __all__ = [
-    "BulletEdit",
+    "BulletPatchProposal",
     "ReviewerOutput",
     "ReviewerScores",
     "ReviewerVerdict",
+    "SkippedBulletNote",
     "TailorOutput",
     "TailorRunResult",
     "run_tailor_review_pipeline",

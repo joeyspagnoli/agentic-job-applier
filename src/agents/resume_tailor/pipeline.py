@@ -1,24 +1,33 @@
-"""Orchestrator for the tailor → render → reviewer → pick pipeline.
+"""Orchestrator for the tailor → patch → compile → reviewer → pick pipeline.
 
-Public entry point: `run_tailor_review_pipeline`. Both the worker daemon
-(`scripts/process_qualified_jobs.py`) and the API BackgroundTasks path
-(`POST /api/jobs/{hash}/tailor`) call this same function. Each LLM stage
-is one structured Instructor call validated against a Pydantic schema
-(see `pipeline_schemas.py`).
+Public entry point: `run_tailor_review_pipeline`. Both the worker
+daemon (`scripts/process_qualified_jobs.py`) and the API
+BackgroundTasks path (`POST /api/jobs/{hash}/tailor`) call this same
+function. Each LLM stage is one structured Instructor call validated
+against a Pydantic schema (see `pipeline_schemas.py`).
 
-Stages, in order:
+Phase 2 (#60) replaced the YAML-edit-list flow with a `.tex`
+manifest + byte-offset patcher flow. Stages, in order (plan §7):
 
-1. Mark the tailor run RUNNING.
-2. Load base resume YAML, candidate profile YAML, and job posting row.
-3. Run the tailor agent (1 LLM call) → in-memory bullet edits.
-4. Render the tailored variant; compile to PDF.
-5. If >1 page → trim agent (1 LLM call), re-render, recompile.
-6. If still >1 page → fall back to base PDF with verdict PAGE_FIT_FAILED.
-7. Otherwise run the reviewer (1 LLM call, 2-way).
-8. If verdict is `base_better` → re-tailor with feedback once, re-review
-   (1 LLM call, 3-way).
-9. Persist the selected artifacts on `tailor_runs` and `review_runs`.
-10. Return `TailorRunResult`.
+ 1. Mark the tailor run RUNNING.
+ 2. Load job context.
+ 3. Read + re-validate the user's `.tex` (skip compile check — Phase 0
+    enforced it at upload time; we just guard against drift).
+ 4. Compile the base PDF.
+ 5. Build the deterministic bullet manifest.
+ 6. Tailor LLM call → `TailorOutput`.
+ 7. Resolve patches, sanitize, apply via `patcher.apply_patches`.
+ 8. Compile tailored_v1 PDF.
+ 9. Page-fit retry: one trim LLM call when >1 page; still >1 page →
+    verdict=PAGE_FIT_FAILED, ship base, return.
+10. Zero applicable edits → verdict=NO_IMPROVEMENT, ship base, return.
+11. Reviewer LLM call (single, rubric + factuality veto).
+12. If verdict=base_better → re-tailor with feedback once → re-apply
+    → recompile → 3-way reviewer.
+13. Persist tailor_runs + review_runs.
+
+The on-disk `.tex` is never mutated by a tailor run — every patched
+variant lives in a per-run artifact dir.
 """
 
 from __future__ import annotations
@@ -44,30 +53,25 @@ from .llm import (
     call_reviewer,
     call_tailor,
     call_trim,
-    get_reviewer_model_name,
-    get_tailor_model_name,
 )
+from .locator import build_bullet_manifest
+from .manifest import BulletManifest
+from .patcher import BulletPatch, apply_patches, write_patched_tex_atomically
 from .pipeline_schemas import (
-    EDITABLE_SECTION_IDS,
-    BulletEdit,
+    BulletPatchProposal,
     ReviewerOutput,
     ReviewerScores,
     ReviewerVerdict,
     TailorOutput,
     TailorRunResult,
 )
-from .renderer import render_resume_tex
-from .schemas import (
-    ResumeBullet,
-    ResumeContent,
-    SkillListing,
-)
-from .yaml_io import load_resume_yaml, save_resume_yaml
+from .validator import validate_resume_tex
 
 PAGE_LIMIT = 1
 BASE_VARIANT_NAME = "base"
 TAILORED_V1_VARIANT_NAME = "tailored_v1"
 TAILORED_V2_VARIANT_NAME = "tailored_v2"
+
 
 def _format_candidate_profile_snippet(profile_yaml_path: Path) -> str:
     """Read candidate profile YAML into a short prompt snippet.
@@ -77,10 +81,11 @@ def _format_candidate_profile_snippet(profile_yaml_path: Path) -> str:
         strongest areas and experience highlights without dumping the
         full profile document.
     Args:
-        profile_yaml_path: Filesystem path to `config/candidate_profile.yaml`.
+        profile_yaml_path: Filesystem path to
+            `config/candidate_profile.yaml`.
     Output:
-        Returns a YAML-formatted string slice containing the profile,
-        truncated to a safe size for the prompt context.
+        YAML-formatted string slice containing the profile, truncated
+        to a safe size for the prompt context.
     """
 
     if not profile_yaml_path.exists():
@@ -99,8 +104,8 @@ def _format_job_snippet(job_row: dict[str, Any]) -> str:
     Args:
         job_row: Mapping of job_postings columns for the target job.
     Output:
-        Returns a multi-line text block bracketed by `<job_posting>` tags
-        so the model treats it as untrusted content.
+        Multi-line text block bracketed by `<job_posting>` tags so the
+        model treats it as untrusted content.
     """
 
     fields = (
@@ -116,223 +121,85 @@ def _format_job_snippet(job_row: dict[str, Any]) -> str:
     return f"<job_posting>\n{body}\n</job_posting>"
 
 
-def _format_resume_for_prompt(
-    resume_content: ResumeContent,
-    *,
-    label: str,
-) -> str:
-    """Render one resume variant as YAML text inside a labeled tag.
+def _load_user_tex(tex_path: Path) -> str:
+    """Read the user's `.tex` file from disk.
 
     Purpose:
-        Provide the agents with the exact bullet IDs they must reference
-        in their edits while making the variant boundary obvious.
+        Centralize the read so the read site can be monkeypatched in
+        tests and so errors carry a meaningful path in the message.
     Args:
-        resume_content: Canonical resume model to serialize.
-        label: Tag label (e.g. `base`, `tailored_v1`).
+        tex_path: Filesystem path to the user's `config/resume.tex`.
     Output:
-        Returns the YAML text wrapped in `<resume label="...">` tags.
+        Raw `.tex` text.
+    Raises:
+        FileNotFoundError: When the path does not exist.
     """
 
-    payload = resume_content.model_dump(mode="json")
-    body = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False, width=120)
-    return f'<resume label="{label}">\n{body}\n</resume>'
+    return Path(tex_path).read_text(encoding="utf-8")
 
 
-def _apply_edits_in_memory(
-    resume_content: ResumeContent,
-    edits: list[BulletEdit],
-) -> tuple[ResumeContent, int, list[BulletEdit]]:
-    """Apply bullet edits to a deep copy of the resume.
+def _format_manifest_block(manifest: BulletManifest) -> str:
+    """Render a `BulletManifest` as a JSON block for the tailor prompt.
 
     Purpose:
-        Honor the invariant that the on-disk base resume YAML is never
-        mutated. Edits that reference unknown sections/listings/bullets
-        are skipped with a warning rather than aborting the run, and the
-        skipped edits are returned so the orchestrator can surface them
-        in the review report for debugging the LLM's ID hallucinations.
+        Give the LLM a compact view of every bullet it may rewrite +
+        the entry header it lives under. The `byte_start` / `byte_end`
+        offsets are included only as informational hints — the LLM
+        emits IDs, never offsets.
     Args:
-        resume_content: Canonical base resume to clone and mutate.
-        edits: Bullet edits emitted by the tailor or trim agent.
+        manifest: Manifest emitted by `build_bullet_manifest`.
     Output:
-        Returns `(new_resume_content, applied_count, dropped_edits)`
-        where `dropped_edits` contains every input edit that referenced
-        an unknown section, listing, or bullet ID (or was otherwise
-        non-applicable). The order matches the input edit order.
+        JSON text inside a `<bullet_manifest>` tag.
     """
 
-    working_copy = resume_content.model_copy(deep=True)
-    applied = 0
-    dropped: list[BulletEdit] = []
-
-    for edit in edits:
-        section_id = edit.section.strip().lower()
-        if section_id not in EDITABLE_SECTION_IDS:
-            logger.warning("Skipping edit: non-editable section {!r}", edit.section)
-            dropped.append(edit)
-            continue
-
-        target_section: Any = getattr(working_copy, section_id, None)
-        listings = getattr(target_section, "listings", None)
-        if listings is None:
-            logger.warning("Skipping edit: section {!r} has no listings", section_id)
-            dropped.append(edit)
-            continue
-
-        listing = next((item for item in listings if item.id == edit.listing_id), None)
-        if listing is None:
-            logger.warning(
-                "Skipping edit: listing_id={!r} not found in section {!r}",
-                edit.listing_id,
-                section_id,
-            )
-            dropped.append(edit)
-            continue
-
-        if section_id == "skills_achievements":
-            if not isinstance(listing, SkillListing):
-                dropped.append(edit)
-                continue
-            # Whole-row rewrite for skill rows; empty text disables the row.
-            new_text = edit.new_text.strip()
-            if new_text == "":
-                listing.enabled = False
-            else:
-                listing.text = new_text
-            applied += 1
-            continue
-
-        if edit.bullet_id is None:
-            logger.warning(
-                "Skipping edit: bullet_id required for section {!r}", section_id
-            )
-            dropped.append(edit)
-            continue
-
-        bullets: list[ResumeBullet] = getattr(listing, "bullets", [])
-        bullet = next((item for item in bullets if item.id == edit.bullet_id), None)
-        if bullet is None:
-            logger.warning(
-                "Skipping edit: bullet_id={!r} not found in listing {!r}",
-                edit.bullet_id,
-                edit.listing_id,
-            )
-            dropped.append(edit)
-            continue
-
-        new_text = edit.new_text.strip()
-        if new_text == "":
-            # Empty replacement removes the bullet entirely.
-            listing.bullets = [item for item in bullets if item.id != edit.bullet_id]
-        else:
-            bullet.text = new_text
-        applied += 1
-
-    return working_copy, applied, dropped
+    payload = manifest.model_dump(mode="json")
+    body = json.dumps(payload, indent=2, ensure_ascii=False)
+    return f"<bullet_manifest>\n{body}\n</bullet_manifest>"
 
 
-def _render_and_compile_variant(
-    *,
-    resume_content: ResumeContent,
-    variant_dir: Path,
-    variant_name: str,
-) -> tuple[Path, Path, Path, int]:
-    """Render a resume variant to TeX, compile to PDF, count pages.
+def _format_tex_variant(*, label: str, tex_text: str) -> str:
+    """Wrap one `.tex` variant in a labeled block for the reviewer.
 
     Purpose:
-        Centralize the file-output side-effects so the orchestrator's
-        control flow stays readable.
+        Reviewer prompts compare 2 or 3 variants side-by-side. The
+        labeled tag makes the boundary obvious without leaking the
+        prompt into the model's reasoning.
     Args:
-        resume_content: Resume model to render.
-        variant_dir: Directory that will hold the YAML/TeX/PDF artifacts.
-        variant_name: Filename stem (e.g. `tailored_v1`).
+        label: Tag label (`base`, `tailored_v1`, `tailored_v2`).
+        tex_text: Full `.tex` text of the variant.
     Output:
-        Returns `(yaml_path, tex_path, pdf_path, page_count)`.
+        `<resume label="...">{tex}</resume>` block.
     """
 
-    variant_dir.mkdir(parents=True, exist_ok=True)
-    yaml_path = variant_dir / f"{variant_name}.yaml"
-    tex_path = variant_dir / f"{variant_name}.tex"
-    pdf_path = variant_dir / f"{variant_name}.pdf"
-
-    save_resume_yaml(path=yaml_path, resume_content=resume_content)
-    tex_text = render_resume_tex(resume_content)
-    with open(tex_path, "w", encoding="utf-8") as tex_file:
-        tex_file.write(tex_text)
-    compile_resume_tex(tex_path=tex_path, pdf_output_path=pdf_path)
-    log_path = tex_path.with_suffix(".log")
-    page_count = get_pdf_page_count(pdf_path=pdf_path, log_path=log_path)
-    return yaml_path, tex_path, pdf_path, page_count
-
-
-def _build_reviewer_message(
-    *,
-    job_block: str,
-    base_resume: ResumeContent,
-    tailored_v1: ResumeContent,
-    tailored_v2: Optional[ResumeContent],
-    feedback_for_retry: Optional[str],
-) -> str:
-    """Assemble the reviewer prompt body covering 2 or 3 variants.
-
-    Purpose:
-        Keep the reviewer agent stateless — the prompt body carries every
-        variant and any retry feedback. The verdict semantics differ for
-        2-way and 3-way comparisons; the prompt makes the count explicit.
-    Args:
-        job_block: Pre-formatted `<job_posting>` block.
-        base_resume: Base resume content.
-        tailored_v1: First tailor attempt content.
-        tailored_v2: Optional second tailor attempt content.
-        feedback_for_retry: Optional feedback that motivated the retry.
-    Output:
-        Returns the assembled user-role message text.
-    """
-
-    parts: list[str] = [job_block, _format_resume_for_prompt(base_resume, label="base")]
-    parts.append(_format_resume_for_prompt(tailored_v1, label="tailored_v1"))
-    if tailored_v2 is not None:
-        parts.append(_format_resume_for_prompt(tailored_v2, label="tailored_v2"))
-        if feedback_for_retry:
-            parts.append(
-                "<retry_feedback>\n"
-                f"{feedback_for_retry}\n"
-                "</retry_feedback>"
-            )
-        parts.append(
-            "Compare base, tailored_v1, and tailored_v2. Pick the strongest. "
-            "Do not use base_better for a 3-way comparison."
-        )
-    else:
-        parts.append("Compare base and tailored_v1. Pick the better one.")
-    return "\n\n".join(parts)
+    return f'<resume label="{label}">\n{tex_text}\n</resume>'
 
 
 def _build_tailor_message(
     *,
     job_block: str,
-    base_resume: ResumeContent,
+    manifest: BulletManifest,
     candidate_profile_text: str,
     retry_feedback: Optional[str] = None,
 ) -> str:
     """Assemble the tailor agent's user-role message.
 
     Purpose:
-        Keep prompt assembly out of `run_tailor_review_pipeline` so the
-        orchestrator can stay focused on control flow.
+        Keep prompt assembly out of `run_tailor_review_pipeline` so
+        the orchestrator stays focused on control flow.
     Args:
         job_block: Pre-formatted `<job_posting>` block.
-        base_resume: Base resume content.
+        manifest: Bullet manifest the tailor may edit.
         candidate_profile_text: YAML candidate profile snippet.
-        retry_feedback: Optional reviewer feedback from a `base_better`
-            verdict that drives a re-tailor attempt.
+        retry_feedback: Optional reviewer feedback that drives a
+            re-tailor attempt.
     Output:
-        Returns the assembled user-role message text.
+        Assembled user-role message text.
     """
 
     sections = [
         job_block,
         f"<candidate_profile>\n{candidate_profile_text}\n</candidate_profile>",
-        _format_resume_for_prompt(base_resume, label="base"),
+        _format_manifest_block(manifest),
     ]
     if retry_feedback:
         sections.append(
@@ -348,50 +215,183 @@ def _build_tailor_message(
 def _build_trim_message(
     *,
     job_block: str,
-    overflow_resume: ResumeContent,
+    manifest: BulletManifest,
     measured_page_count: int,
 ) -> str:
     """Assemble the trim agent's user-role message.
 
     Purpose:
         Tell the trim agent how far over the page budget the current
-        variant is so it does not over-trim.
+        variant is so it doesn't over-trim.
     Args:
         job_block: Pre-formatted `<job_posting>` block.
-        overflow_resume: Tailored variant that exceeded the page limit.
-        measured_page_count: Last measured page count.
+        manifest: Manifest built from the overflowing tailored `.tex`.
+        measured_page_count: Page count of the overflowing variant.
     Output:
-        Returns the assembled user-role message text.
+        Assembled user-role message text.
     """
 
     return "\n\n".join(
         (
             job_block,
-            _format_resume_for_prompt(overflow_resume, label="tailored_v1"),
+            _format_manifest_block(manifest),
             f"<overflow>\nMeasured page count: {measured_page_count}. "
             f"Trim to {PAGE_LIMIT} page.\n</overflow>",
         )
     )
 
 
+def _build_reviewer_message(
+    *,
+    job_block: str,
+    base_tex: str,
+    tailored_v1_tex: str,
+    tailored_v2_tex: Optional[str],
+    feedback_for_retry: Optional[str],
+) -> str:
+    """Assemble the reviewer prompt body covering 2 or 3 `.tex` variants.
+
+    Purpose:
+        Keep the reviewer stateless — the prompt body carries every
+        variant and any retry feedback. The verdict semantics differ
+        for 2-way and 3-way comparisons; the prompt makes the count
+        explicit.
+    Args:
+        job_block: Pre-formatted `<job_posting>` block.
+        base_tex: Base `.tex` text.
+        tailored_v1_tex: First tailor attempt `.tex` text.
+        tailored_v2_tex: Optional second tailor attempt `.tex` text.
+        feedback_for_retry: Optional feedback that motivated the retry.
+    Output:
+        Assembled user-role message text.
+    """
+
+    parts: list[str] = [
+        job_block,
+        _format_tex_variant(label="base", tex_text=base_tex),
+        _format_tex_variant(label="tailored_v1", tex_text=tailored_v1_tex),
+    ]
+    if tailored_v2_tex is not None:
+        parts.append(_format_tex_variant(label="tailored_v2", tex_text=tailored_v2_tex))
+        if feedback_for_retry:
+            parts.append(
+                "<retry_feedback>\n"
+                f"{feedback_for_retry}\n"
+                "</retry_feedback>"
+            )
+        parts.append(
+            "Compare base, tailored_v1, and tailored_v2. Pick the strongest. "
+            "Do not use base_better for a 3-way comparison."
+        )
+    else:
+        parts.append("Compare base and tailored_v1. Pick the better one.")
+    return "\n\n".join(parts)
+
+
+def _resolve_patches_from_proposals(
+    *,
+    proposals: list[BulletPatchProposal],
+    manifest: BulletManifest,
+) -> tuple[list[BulletPatch], list[BulletPatchProposal]]:
+    """Map tailor-LLM proposals onto byte-offset patches via the manifest.
+
+    Purpose:
+        The tailor emits bullet IDs; the patcher needs `(byte_start,
+        byte_end)`. This lookup also drops proposals that reference
+        unknown IDs or `keep` actions, returning the dropped set so
+        the pipeline can record `all_edits_dropped` distinctly from
+        `tailor_bailed`.
+    Args:
+        proposals: Per-bullet decisions emitted by the tailor LLM.
+        manifest: Manifest the IDs were drawn from.
+    Output:
+        Tuple `(patches, dropped_proposals)`. `patches` covers only
+        proposals with `action="rewrite"` whose ID matched a manifest
+        bullet. `dropped_proposals` contains everything else (unknown
+        IDs only — `keep` actions are intentionally excluded from the
+        dropped list since they're not edits).
+    """
+
+    bullet_index: dict[str, tuple[int, int]] = {}
+    for section in manifest.sections:
+        for entry in section.entries:
+            for bullet in entry.bullets:
+                bullet_index[bullet.id] = (bullet.byte_start, bullet.byte_end)
+
+    patches: list[BulletPatch] = []
+    dropped: list[BulletPatchProposal] = []
+    for proposal in proposals:
+        if proposal.action != "rewrite":
+            continue
+        span = bullet_index.get(proposal.id)
+        if span is None:
+            logger.warning(
+                "Tailor proposal references unknown bullet id {!r}; dropping",
+                proposal.id,
+            )
+            dropped.append(proposal)
+            continue
+        byte_start, byte_end = span
+        patches.append(
+            BulletPatch(
+                bullet_id=proposal.id,
+                byte_start=byte_start,
+                byte_end=byte_end,
+                new_text=proposal.new_text,
+            )
+        )
+
+    return patches, dropped
+
+
+def _write_and_compile_variant(
+    *,
+    tex_text: str,
+    variant_dir: Path,
+    variant_name: str,
+) -> tuple[Path, Path, int]:
+    """Write `tex_text` to `variant_dir/<name>.tex` and compile to PDF.
+
+    Purpose:
+        Centralize the per-variant file output so the orchestrator's
+        control flow stays readable.
+    Args:
+        tex_text: Patched `.tex` text to write.
+        variant_dir: Directory that holds the variant's artifacts.
+        variant_name: Filename stem (e.g. `tailored_v1`).
+    Output:
+        Tuple `(tex_path, pdf_path, page_count)`.
+    """
+
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    tex_path = variant_dir / f"{variant_name}.tex"
+    pdf_path = variant_dir / f"{variant_name}.pdf"
+
+    write_patched_tex_atomically(tex_text=tex_text, target_path=tex_path)
+    compile_resume_tex(tex_path=tex_path, pdf_output_path=pdf_path)
+    log_path = tex_path.with_suffix(".log")
+    page_count = get_pdf_page_count(pdf_path=pdf_path, log_path=log_path)
+    return tex_path, pdf_path, page_count
+
+
 def _select_final_variant(
     *,
     verdict: ReviewerVerdict,
-    base_artifacts: tuple[Path, Path, Path],
-    tailored_artifacts: tuple[Path, Path, Path],
-) -> tuple[str, tuple[Path, Path, Path]]:
-    """Resolve the reviewer verdict into a stored verdict + artifact triple.
+    base_artifacts: tuple[Path, Path],
+    tailored_artifacts: tuple[Path, Path],
+) -> tuple[str, tuple[Path, Path]]:
+    """Resolve the reviewer verdict into a stored verdict + artifact pair.
 
     Purpose:
-        Keep the verdict-to-artifact mapping centralized so the DB write
-        path is straightforward.
+        Keep the verdict-to-artifact mapping centralized so the DB
+        write path is straightforward.
     Args:
         verdict: Reviewer's verdict enum.
-        base_artifacts: `(yaml, tex, pdf)` paths for the base variant.
-        tailored_artifacts: `(yaml, tex, pdf)` paths for the chosen tailored
+        base_artifacts: `(tex, pdf)` paths for the base variant.
+        tailored_artifacts: `(tex, pdf)` paths for the chosen tailored
             variant.
     Output:
-        Returns `(db_verdict_string, (yaml, tex, pdf))` for persistence.
+        Tuple `(db_verdict_string, (tex, pdf))` for persistence.
     """
 
     if verdict == ReviewerVerdict.TAILORED_BETTER:
@@ -413,10 +413,10 @@ async def _record_cost(
     """Best-effort wrapper around `record_stage_cost_event`.
 
     Purpose:
-        Cost recording is observational — never let a recording failure
-        kill a real pipeline run. Token usage flows in from the
-        Instructor result so per-call metadata stays accurate without a
-        second provider round-trip.
+        Cost recording is observational — never let a recording
+        failure kill a real pipeline run. Token usage flows in from
+        the Instructor result so per-call metadata stays accurate
+        without a second provider round-trip.
     Args:
         db: Connected database manager.
         stage: Pipeline stage constant (`TAILOR` or `REVIEW`).
@@ -458,59 +458,68 @@ async def run_tailor_review_pipeline(
     output_dir: str | Path,
     record_costs: bool = True,
 ) -> TailorRunResult:
-    """Run the full tailor → render → reviewer → pick pipeline.
+    """Run the full tailor → patch → compile → reviewer → pick pipeline.
 
     Purpose:
-        Single entry point used by both the autonomous worker daemon and
-        the opt-in API BackgroundTask. The function owns every DB write
-        for the run: marking the tailor row RUNNING, writing the artifact
-        paths on success, recording the failure on hard errors, and
-        inserting the matching review_runs row.
+        Single entry point used by both the autonomous worker daemon
+        and the opt-in API BackgroundTask. The function owns every DB
+        write for the run: marking the tailor row RUNNING, writing the
+        artifact paths on success, recording the failure on hard
+        errors, and inserting the matching review_runs row.
     Args:
         db: Connected database manager (already inside a context manager).
         tailor_run_id: Primary key of the PENDING tailor_runs row.
         job_hash: Stable job identifier.
-        base_resume_yaml_path: Path to `config/resume_content.yaml`.
-        candidate_profile_yaml_path: Path to `config/candidate_profile.yaml`.
-        output_dir: Per-run artifact directory; each variant gets a subdir.
+        base_resume_yaml_path: Path to the user's resume — interpreted
+            as a `.tex` file in Phase 2+ (the kwarg name keeps the old
+            spelling until Phase 3 renames it across callers).
+        candidate_profile_yaml_path: Path to
+            `config/candidate_profile.yaml`.
+        output_dir: Per-run artifact directory; each variant gets a
+            subdir.
         record_costs: When `True`, emit per-stage cost events.
     Output:
-        Returns a populated `TailorRunResult`.
+        Populated `TailorRunResult`.
     """
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    tex_path = Path(base_resume_yaml_path)
 
     await db.mark_tailor_running(run_id=tailor_run_id)
 
     job_row = await db.get_resume_tailor_job_context(job_hash=job_hash)
     if job_row is None:
-        error_message = f"job_not_found: {job_hash}"
-        await db.record_tailor_failure(
-            run_id=tailor_run_id,
-            error=error_message,
-            next_retry_at=None,
-        )
-        return TailorRunResult(
-            success=False,
-            job_hash=job_hash,
+        return await _fail_run(
+            db=db,
             tailor_run_id=tailor_run_id,
-            error=error_message,
+            job_hash=job_hash,
+            error_message=f"job_not_found: {job_hash}",
         )
 
+    # Load + re-validate the user's .tex. Phase 0 enforced the contract
+    # at upload time, but we guard against on-disk drift between upload
+    # and tailor run. The compile check is skipped — Phase 1's compiler
+    # runs against the base PDF a few lines below and would catch any
+    # compile-time failure anyway.
     try:
-        base_resume = load_resume_yaml(base_resume_yaml_path)
+        base_tex_text = _load_user_tex(tex_path)
     except Exception as exc:
-        error_message = f"base_resume_load_failed: {exc}"
-        logger.exception("Base resume load failed for job {}", job_hash)
-        await db.record_tailor_failure(
-            run_id=tailor_run_id, error=error_message, next_retry_at=None
-        )
-        return TailorRunResult(
-            success=False,
-            job_hash=job_hash,
+        return await _fail_run(
+            db=db,
             tailor_run_id=tailor_run_id,
-            error=error_message,
+            job_hash=job_hash,
+            error_message=f"base_resume_load_failed: {exc}",
+        )
+
+    contract_report = validate_resume_tex(base_tex_text, run_compile_check=False)
+    if not contract_report.ok:
+        codes = ",".join(error.code for error in contract_report.errors)
+        return await _fail_run(
+            db=db,
+            tailor_run_id=tailor_run_id,
+            job_hash=job_hash,
+            error_message=f"invalid_resume_tex_at_runtime: {codes}",
         )
 
     candidate_profile_text = _format_candidate_profile_snippet(
@@ -518,18 +527,30 @@ async def run_tailor_review_pipeline(
     )
     job_block = _format_job_snippet(job_row)
 
+    # Compile the base PDF first so the DB row always has an artifact
+    # to fall back to if every later stage fails.
     base_variant_dir = output_dir / BASE_VARIANT_NAME
-    base_yaml_path, base_tex_path, base_pdf_path, _ = _render_and_compile_variant(
-        resume_content=base_resume,
-        variant_dir=base_variant_dir,
-        variant_name=BASE_VARIANT_NAME,
-    )
-    base_artifacts = (base_yaml_path, base_tex_path, base_pdf_path)
+    try:
+        base_tex_artifact, base_pdf_artifact, _ = _write_and_compile_variant(
+            tex_text=base_tex_text,
+            variant_dir=base_variant_dir,
+            variant_name=BASE_VARIANT_NAME,
+        )
+    except Exception as exc:
+        return await _fail_run(
+            db=db,
+            tailor_run_id=tailor_run_id,
+            job_hash=job_hash,
+            error_message=f"base_compile_failed: {exc}",
+        )
+
+    base_artifacts: tuple[Path, Path] = (base_tex_artifact, base_pdf_artifact)
+    base_manifest = build_bullet_manifest(base_tex_text)
 
     try:
         tailor_message = _build_tailor_message(
             job_block=job_block,
-            base_resume=base_resume,
+            manifest=base_manifest,
             candidate_profile_text=candidate_profile_text,
         )
         tailor_call = await call_tailor(tailor_message)
@@ -542,85 +563,65 @@ async def run_tailor_review_pipeline(
                 phase="tailor",
                 call_result=tailor_call,
             )
-        tailor_output = tailor_call.parsed
+        tailor_output: TailorOutput = tailor_call.parsed
 
-        edits_proposed_v1 = len(tailor_output.edits)
-        tailored_v1, applied_v1, dropped_edits_v1 = _apply_edits_in_memory(
-            base_resume, tailor_output.edits
+        bullets_proposed_v1 = sum(
+            1 for proposal in tailor_output.bullets if proposal.action == "rewrite"
+        )
+        v1_patches, v1_dropped = _resolve_patches_from_proposals(
+            proposals=tailor_output.bullets,
+            manifest=base_manifest,
         )
 
-        if applied_v1 == 0:
-            # Distinguish "tailor proposed nothing" from "tailor proposed edits
-            # but every one referenced an unknown listing/bullet ID and was
-            # silently dropped". The dashboard renders different copy per
-            # reason; both share the same NO_IMPROVEMENT DB verdict.
-            if edits_proposed_v1 == 0:
-                bail_reason = "tailor_bailed"
-            else:
-                bail_reason = "all_edits_dropped"
-            bail_payload: dict[str, Any] = {
-                "reason": bail_reason,
-                "summary": tailor_output.summary,
-                "edits_proposed": edits_proposed_v1,
-                "edits_applied": applied_v1,
-            }
-            if dropped_edits_v1:
-                bail_payload["dropped_edits"] = [
-                    {
-                        "section": dropped.section,
-                        "listing_id": dropped.listing_id,
-                        "bullet_id": dropped.bullet_id,
-                    }
-                    for dropped in dropped_edits_v1
-                ]
-            review_run_id = await db.insert_pipeline_review_run(
-                job_hash=job_hash,
-                tailor_run_id=tailor_run_id,
-                verdict=DBReviewVerdict.NO_IMPROVEMENT.value,
-                selected_yaml_path=str(base_yaml_path),
-                selected_tex_path=str(base_tex_path),
-                selected_pdf_path=str(base_pdf_path),
-                review_report_json=json.dumps(bail_payload),
-                fallback_base_yaml_path=str(base_yaml_path),
-                fallback_base_tex_path=str(base_tex_path),
-                fallback_base_pdf_path=str(base_pdf_path),
+        if not v1_patches:
+            # Distinguish "tailor proposed nothing" from "tailor
+            # proposed rewrites but every ID was unknown and got
+            # dropped". Same DB verdict either way (NO_IMPROVEMENT)
+            # but different reason in the review_report.
+            bail_reason = (
+                "tailor_bailed" if bullets_proposed_v1 == 0 else "all_edits_dropped"
             )
-            await db.record_tailor_success(
-                run_id=tailor_run_id,
-                artifact_yaml_path=str(base_yaml_path),
-                artifact_tex_path=str(base_tex_path),
-                artifact_pdf_path=str(base_pdf_path),
-                page_count=PAGE_LIMIT,
-            )
-            return TailorRunResult(
-                success=True,
-                job_hash=job_hash,
+            return await _ship_base_with_reason(
+                db=db,
                 tailor_run_id=tailor_run_id,
-                review_run_id=review_run_id,
+                job_hash=job_hash,
+                base_tex_path=base_tex_artifact,
+                base_pdf_path=base_pdf_artifact,
+                review_payload={
+                    "reason": bail_reason,
+                    "rewrite_plan": tailor_output.rewrite_plan,
+                    "bullets_proposed": bullets_proposed_v1,
+                    "bullets_applied": 0,
+                    "skipped_bullets": [
+                        note.model_dump() for note in tailor_output.skipped_bullets
+                    ],
+                    "dropped_bullets": [
+                        {"id": dropped.id, "rationale": dropped.rationale}
+                        for dropped in v1_dropped
+                    ],
+                },
                 verdict=DBReviewVerdict.NO_IMPROVEMENT.value,
-                selected_pdf_path=str(base_pdf_path),
-                selected_yaml_path=str(base_yaml_path),
-                selected_tex_path=str(base_tex_path),
                 page_count=PAGE_LIMIT,
             )
 
+        v1_tex_text = apply_patches(base_tex_text, v1_patches)
         v1_dir = output_dir / TAILORED_V1_VARIANT_NAME
         (
-            v1_yaml_path,
-            v1_tex_path,
-            v1_pdf_path,
+            v1_tex_artifact,
+            v1_pdf_artifact,
             v1_page_count,
-        ) = _render_and_compile_variant(
-            resume_content=tailored_v1,
+        ) = _write_and_compile_variant(
+            tex_text=v1_tex_text,
             variant_dir=v1_dir,
             variant_name=TAILORED_V1_VARIANT_NAME,
         )
 
         # Page-fit trim pass — at most one extra LLM call.
         if v1_page_count > PAGE_LIMIT:
+            trim_manifest = build_bullet_manifest(v1_tex_text)
             trim_message = _build_trim_message(
                 job_block=job_block,
-                overflow_resume=tailored_v1,
+                manifest=trim_manifest,
                 measured_page_count=v1_page_count,
             )
             trim_call = await call_trim(trim_message)
@@ -633,60 +634,49 @@ async def run_tailor_review_pipeline(
                     phase="trim",
                     call_result=trim_call,
                 )
-            trim_output = trim_call.parsed
-            trimmed_v1, _, _ = _apply_edits_in_memory(tailored_v1, trim_output.edits)
-            (
-                v1_yaml_path,
-                v1_tex_path,
-                v1_pdf_path,
-                v1_page_count,
-            ) = _render_and_compile_variant(
-                resume_content=trimmed_v1,
-                variant_dir=v1_dir,
-                variant_name=TAILORED_V1_VARIANT_NAME,
+            trim_output: TailorOutput = trim_call.parsed
+            trim_patches, _ = _resolve_patches_from_proposals(
+                proposals=trim_output.bullets,
+                manifest=trim_manifest,
             )
-            tailored_v1 = trimmed_v1
+            if trim_patches:
+                v1_tex_text = apply_patches(v1_tex_text, trim_patches)
+                (
+                    v1_tex_artifact,
+                    v1_pdf_artifact,
+                    v1_page_count,
+                ) = _write_and_compile_variant(
+                    tex_text=v1_tex_text,
+                    variant_dir=v1_dir,
+                    variant_name=TAILORED_V1_VARIANT_NAME,
+                )
 
         if v1_page_count > PAGE_LIMIT:
-            review_run_id = await db.insert_pipeline_review_run(
-                job_hash=job_hash,
+            return await _ship_base_with_reason(
+                db=db,
                 tailor_run_id=tailor_run_id,
-                verdict=DBReviewVerdict.PAGE_FIT_FAILED.value,
-                selected_yaml_path=str(base_yaml_path),
-                selected_tex_path=str(base_tex_path),
-                selected_pdf_path=str(base_pdf_path),
-                review_report_json=json.dumps(
-                    {"reason": "page_fit_failed", "final_page_count": v1_page_count}
-                ),
-                fallback_base_yaml_path=str(base_yaml_path),
-                fallback_base_tex_path=str(base_tex_path),
-                fallback_base_pdf_path=str(base_pdf_path),
-            )
-            await db.record_tailor_success(
-                run_id=tailor_run_id,
-                artifact_yaml_path=str(v1_yaml_path),
-                artifact_tex_path=str(v1_tex_path),
-                artifact_pdf_path=str(v1_pdf_path),
-                page_count=v1_page_count,
-            )
-            return TailorRunResult(
-                success=True,
                 job_hash=job_hash,
-                tailor_run_id=tailor_run_id,
-                review_run_id=review_run_id,
+                base_tex_path=base_tex_artifact,
+                base_pdf_path=base_pdf_artifact,
+                review_payload={
+                    "reason": "page_fit_failed",
+                    "final_page_count": v1_page_count,
+                },
                 verdict=DBReviewVerdict.PAGE_FIT_FAILED.value,
-                selected_pdf_path=str(base_pdf_path),
-                selected_yaml_path=str(base_yaml_path),
-                selected_tex_path=str(base_tex_path),
                 page_count=v1_page_count,
+                # The base row in tailor_runs should still point at the
+                # tailored artifact for debugging, even though we serve
+                # the base PDF.
+                artifact_tex_override=v1_tex_artifact,
+                artifact_pdf_override=v1_pdf_artifact,
             )
 
         # Reviewer — 2-way base vs v1.
         reviewer_message = _build_reviewer_message(
             job_block=job_block,
-            base_resume=base_resume,
-            tailored_v1=tailored_v1,
-            tailored_v2=None,
+            base_tex=base_tex_text,
+            tailored_v1_tex=v1_tex_text,
+            tailored_v2_tex=None,
             feedback_for_retry=None,
         )
         reviewer_call = await call_reviewer(reviewer_message)
@@ -699,18 +689,20 @@ async def run_tailor_review_pipeline(
                 phase="two_way",
                 call_result=reviewer_call,
             )
-        reviewer_output = reviewer_call.parsed
+        reviewer_output: ReviewerOutput = reviewer_call.parsed
 
-        tailored_v2: Optional[ResumeContent] = None
-        v2_artifacts: Optional[tuple[Path, Path, Path]] = None
+        v2_tex_text: Optional[str] = None
+        v2_artifacts: Optional[tuple[Path, Path]] = None
         v2_page_count: Optional[int] = None
 
         # Re-tailor at most once when reviewer prefers the base resume.
         if reviewer_output.verdict == ReviewerVerdict.BASE_BETTER:
-            feedback = reviewer_output.feedback_for_retry or reviewer_output.rationale
+            feedback = (
+                reviewer_output.feedback_for_retry or reviewer_output.rationale
+            )
             retry_message = _build_tailor_message(
                 job_block=job_block,
-                base_resume=base_resume,
+                manifest=base_manifest,
                 candidate_profile_text=candidate_profile_text,
                 retry_feedback=feedback,
             )
@@ -724,34 +716,34 @@ async def run_tailor_review_pipeline(
                     phase="retailor",
                     call_result=retry_call,
                 )
-            retry_output = retry_call.parsed
-            candidate_v2, applied_v2, _ = _apply_edits_in_memory(
-                base_resume, retry_output.edits
+            retry_output: TailorOutput = retry_call.parsed
+            retry_patches, _ = _resolve_patches_from_proposals(
+                proposals=retry_output.bullets,
+                manifest=base_manifest,
             )
-
-            if applied_v2 > 0:
+            if retry_patches:
+                candidate_v2_tex = apply_patches(base_tex_text, retry_patches)
                 v2_dir = output_dir / TAILORED_V2_VARIANT_NAME
                 (
-                    v2_yaml,
-                    v2_tex,
-                    v2_pdf,
+                    v2_tex_artifact,
+                    v2_pdf_artifact,
                     v2_page_count,
-                ) = _render_and_compile_variant(
-                    resume_content=candidate_v2,
+                ) = _write_and_compile_variant(
+                    tex_text=candidate_v2_tex,
                     variant_dir=v2_dir,
                     variant_name=TAILORED_V2_VARIANT_NAME,
                 )
                 if v2_page_count <= PAGE_LIMIT:
-                    tailored_v2 = candidate_v2
-                    v2_artifacts = (v2_yaml, v2_tex, v2_pdf)
+                    v2_tex_text = candidate_v2_tex
+                    v2_artifacts = (v2_tex_artifact, v2_pdf_artifact)
 
         # If a usable v2 exists, run a 3-way reviewer pass.
-        if tailored_v2 is not None and v2_artifacts is not None:
+        if v2_tex_text is not None and v2_artifacts is not None:
             three_way_message = _build_reviewer_message(
                 job_block=job_block,
-                base_resume=base_resume,
-                tailored_v1=tailored_v1,
-                tailored_v2=tailored_v2,
+                base_tex=base_tex_text,
+                tailored_v1_tex=v1_tex_text,
+                tailored_v2_tex=v2_tex_text,
                 feedback_for_retry=reviewer_output.feedback_for_retry,
             )
             three_way_call = await call_reviewer(three_way_message)
@@ -764,19 +756,19 @@ async def run_tailor_review_pipeline(
                     phase="three_way",
                     call_result=three_way_call,
                 )
-            three_way_output = three_way_call.parsed
+            three_way_output: ReviewerOutput = three_way_call.parsed
             final_verdict = three_way_output.verdict
             final_scores_base = three_way_output.scores_base
             final_scores_tailored = three_way_output.scores_tailored
             final_rationale = three_way_output.rationale
-            tailored_artifacts = v2_artifacts
+            tailored_artifacts: tuple[Path, Path] = v2_artifacts
             tailored_page_count = v2_page_count or v1_page_count
         else:
             final_verdict = reviewer_output.verdict
             final_scores_base = reviewer_output.scores_base
             final_scores_tailored = reviewer_output.scores_tailored
             final_rationale = reviewer_output.rationale
-            tailored_artifacts = (v1_yaml_path, v1_tex_path, v1_pdf_path)
+            tailored_artifacts = (v1_tex_artifact, v1_pdf_artifact)
             tailored_page_count = v1_page_count
 
         db_verdict, selected_artifacts = _select_final_variant(
@@ -784,39 +776,43 @@ async def run_tailor_review_pipeline(
             base_artifacts=base_artifacts,
             tailored_artifacts=tailored_artifacts,
         )
-        selected_yaml, selected_tex, selected_pdf = selected_artifacts
+        selected_tex, selected_pdf = selected_artifacts
 
         review_report_payload = {
             "verdict": final_verdict.value,
             "scores_base": final_scores_base.model_dump(),
             "scores_tailored": final_scores_tailored.model_dump(),
             "rationale": final_rationale,
-            "had_retry": tailored_v2 is not None,
-            "edits_proposed": edits_proposed_v1,
-            "edits_applied": applied_v1,
+            "rewrite_plan": tailor_output.rewrite_plan,
+            "had_retry": v2_tex_text is not None,
+            "bullets_proposed": bullets_proposed_v1,
+            "bullets_applied": len(v1_patches),
+            "skipped_bullets": [
+                note.model_dump() for note in tailor_output.skipped_bullets
+            ],
         }
 
+        # YAML-path columns are semantically dead in Phase 2+; write
+        # empty strings per plan §6 and let the future cleanup PR drop
+        # the columns. Tex + PDF paths are the live source of truth.
         review_run_id = await db.insert_pipeline_review_run(
             job_hash=job_hash,
             tailor_run_id=tailor_run_id,
             verdict=db_verdict,
-            selected_yaml_path=str(selected_yaml),
+            selected_yaml_path="",
             selected_tex_path=str(selected_tex),
             selected_pdf_path=str(selected_pdf),
             review_report_json=json.dumps(review_report_payload),
-            fallback_base_yaml_path=str(base_yaml_path),
-            fallback_base_tex_path=str(base_tex_path),
-            fallback_base_pdf_path=str(base_pdf_path),
+            fallback_base_yaml_path="",
+            fallback_base_tex_path=str(base_tex_artifact),
+            fallback_base_pdf_path=str(base_pdf_artifact),
         )
 
-        # The artifact paths on tailor_runs always point at the tailored work,
-        # not the served PDF — review_runs.selected_pdf_path is authoritative
-        # for "what we serve". Page count reflects the tailored variant.
         await db.record_tailor_success(
             run_id=tailor_run_id,
-            artifact_yaml_path=str(tailored_artifacts[0]),
-            artifact_tex_path=str(tailored_artifacts[1]),
-            artifact_pdf_path=str(tailored_artifacts[2]),
+            artifact_yaml_path="",
+            artifact_tex_path=str(tailored_artifacts[0]),
+            artifact_pdf_path=str(tailored_artifacts[1]),
             page_count=tailored_page_count,
         )
 
@@ -827,7 +823,7 @@ async def run_tailor_review_pipeline(
             review_run_id=review_run_id,
             verdict=db_verdict,
             selected_pdf_path=str(selected_pdf),
-            selected_yaml_path=str(selected_yaml),
+            selected_yaml_path="",
             selected_tex_path=str(selected_tex),
             page_count=tailored_page_count,
             scores_base=final_scores_base,
@@ -847,3 +843,114 @@ async def run_tailor_review_pipeline(
             tailor_run_id=tailor_run_id,
             error=error_message,
         )
+
+
+async def _fail_run(
+    *,
+    db: DatabaseManager,
+    tailor_run_id: int,
+    job_hash: str,
+    error_message: str,
+) -> TailorRunResult:
+    """Record a hard failure on the tailor row and return the result.
+
+    Purpose:
+        Shared early-exit path so the orchestrator stays linear. Used
+        for missing job rows, missing/invalid `.tex`, and compile
+        failures on the base variant.
+    Args:
+        db: Connected database manager.
+        tailor_run_id: Owning tailor run primary key.
+        job_hash: Stable job identifier.
+        error_message: Short error code + detail to persist.
+    Output:
+        Populated `TailorRunResult` with `success=False`.
+    """
+
+    await db.record_tailor_failure(
+        run_id=tailor_run_id,
+        error=error_message[:2000],
+        next_retry_at=None,
+    )
+    return TailorRunResult(
+        success=False,
+        job_hash=job_hash,
+        tailor_run_id=tailor_run_id,
+        error=error_message,
+    )
+
+
+async def _ship_base_with_reason(
+    *,
+    db: DatabaseManager,
+    tailor_run_id: int,
+    job_hash: str,
+    base_tex_path: Path,
+    base_pdf_path: Path,
+    review_payload: dict[str, Any],
+    verdict: str,
+    page_count: int,
+    artifact_tex_override: Path | None = None,
+    artifact_pdf_override: Path | None = None,
+) -> TailorRunResult:
+    """Persist a "ship the base PDF" verdict + return the result.
+
+    Purpose:
+        Three pipeline branches (`tailor_bailed`, `all_edits_dropped`,
+        `page_fit_failed`) need the same DB write shape. This helper
+        centralizes the persistence so the orchestrator branches stay
+        short.
+    Args:
+        db: Connected database manager.
+        tailor_run_id: Owning tailor run primary key.
+        job_hash: Stable job identifier.
+        base_tex_path: Path to the compiled base `.tex` artifact.
+        base_pdf_path: Path to the compiled base PDF artifact.
+        review_payload: JSON-serializable dict for `review_report_json`.
+        verdict: DB verdict string from `DBReviewVerdict`.
+        page_count: Page count to record on `tailor_runs`.
+        artifact_tex_override: Optional override for the tailor_runs
+            artifact_tex_path (page-fit-failed records the tailored
+            artifact even though the base ships).
+        artifact_pdf_override: Optional override for the tailor_runs
+            artifact_pdf_path.
+    Output:
+        Populated `TailorRunResult`.
+    """
+
+    artifact_tex = artifact_tex_override or base_tex_path
+    artifact_pdf = artifact_pdf_override or base_pdf_path
+
+    review_run_id = await db.insert_pipeline_review_run(
+        job_hash=job_hash,
+        tailor_run_id=tailor_run_id,
+        verdict=verdict,
+        selected_yaml_path="",
+        selected_tex_path=str(base_tex_path),
+        selected_pdf_path=str(base_pdf_path),
+        review_report_json=json.dumps(review_payload),
+        fallback_base_yaml_path="",
+        fallback_base_tex_path=str(base_tex_path),
+        fallback_base_pdf_path=str(base_pdf_path),
+    )
+    await db.record_tailor_success(
+        run_id=tailor_run_id,
+        artifact_yaml_path="",
+        artifact_tex_path=str(artifact_tex),
+        artifact_pdf_path=str(artifact_pdf),
+        page_count=page_count,
+    )
+    return TailorRunResult(
+        success=True,
+        job_hash=job_hash,
+        tailor_run_id=tailor_run_id,
+        review_run_id=review_run_id,
+        verdict=verdict,
+        selected_pdf_path=str(base_pdf_path),
+        selected_yaml_path="",
+        selected_tex_path=str(base_tex_path),
+        page_count=page_count,
+    )
+
+
+__all__ = ["run_tailor_review_pipeline"]

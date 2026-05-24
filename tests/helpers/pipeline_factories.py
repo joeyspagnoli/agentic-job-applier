@@ -1,9 +1,14 @@
-"""Builders for `ResumeContent` and reviewer payloads used by pipeline tests.
+"""Builders for bullet manifests + reviewer payloads used by pipeline tests.
 
 Purpose:
-    Concentrate fixture construction so each test reads as a sequence of
-    behaviors rather than a wall of nested dicts. Every factory returns a
-    fully validated Pydantic model so tests fail fast on schema drift.
+    Concentrate fixture construction so each test reads as a sequence
+    of behaviors rather than a wall of nested dicts. Every factory
+    returns a fully validated Pydantic model so tests fail fast on
+    schema drift.
+
+Phase 2 (#60) replaced the YAML-edit factories with manifest +
+patch-proposal factories — the pipeline no longer consumes
+`ResumeContent`.
 """
 
 from __future__ import annotations
@@ -12,26 +17,15 @@ from pathlib import Path
 from typing import cast
 
 from src.agents.resume_tailor.llm import LlmCallResult
+from src.agents.resume_tailor.locator import build_bullet_manifest
+from src.agents.resume_tailor.manifest import BulletManifest
 from src.agents.resume_tailor.pipeline_schemas import (
-    BulletEdit,
+    BulletPatchProposal,
     ReviewerOutput,
     ReviewerScores,
     ReviewerVerdict,
+    SkippedBulletNote,
     TailorOutput,
-)
-from src.agents.resume_tailor.schemas import (
-    EducationEntry,
-    EducationSection,
-    ExperienceListing,
-    ExperienceSection,
-    PersonalSection,
-    ProjectListing,
-    ProjectsSection,
-    ResumeBullet,
-    ResumeContent,
-    ResumeLink,
-    SkillListing,
-    SkillsAchievementsSection,
 )
 
 
@@ -45,7 +39,7 @@ def row_int(row: dict[str, object] | None, key: str) -> int:
         row: Database row mapping returned by `DatabaseManager` methods.
         key: Field name to extract.
     Output:
-        Returns the integer value.
+        Integer value at `key`.
     """
 
     assert row is not None, "expected a row, got None"
@@ -53,96 +47,81 @@ def row_int(row: dict[str, object] | None, key: str) -> int:
 
 
 def row_str(row: dict[str, object] | None, key: str) -> str:
-    """Extract one string field from a `dict[str, object]` row safely."""
+    """Extract one string field from a `dict[str, object]` row safely.
+
+    Purpose:
+        Same role as `row_int` — keep DB-row reads readable without
+        per-call `cast` noise.
+    Args:
+        row: Database row mapping.
+        key: Field name to extract.
+    Output:
+        String value at `key`.
+    """
 
     assert row is not None, "expected a row, got None"
     return str(cast(str, row[key]))
 
 
-def resume_yaml_fixture_path() -> Path:
-    """Return the absolute path to the populated resume YAML fixture."""
-
-    return Path(__file__).resolve().parent.parent / "fixtures" / "resume_content_populated.yaml"
-
-
-def build_minimal_resume_content() -> ResumeContent:
-    """Build a minimal, schema-valid `ResumeContent` for unit tests.
+def resume_tex_fixture_path() -> Path:
+    """Return the absolute path to the synthetic-minimal `.tex` fixture.
 
     Purpose:
-        Provide a deterministic Pydantic model with one entry in each
-        editable section so the bullet-edit and pipeline branches can
-        be exercised without coupling to a YAML file.
+        Phase-2 tests need a contract-conforming `.tex` source. The
+        synthetic minimal fixture is the smallest such file in the
+        repo.
+    Output:
+        Absolute `Path` to `tests/fixtures/resumes/synthetic_minimal.tex`.
     """
 
-    return ResumeContent(
-        personal=PersonalSection(
-            name="Test Person",
-            phone="555-555-0000",
-            email="test@example.com",
-            links=[ResumeLink(id="linkedin_t", label="li/test", url="https://example.com")],
-        ),
-        education=EducationSection(
-            entries=[
-                EducationEntry(
-                    id="edu_a",
-                    institution="Test U",
-                    date_range="2020-2024",
-                    degree="B.S.",
-                    detail="GPA 4.0",
-                    bullets=[ResumeBullet(id="edu_a_bullet_0", text="Coursework")],
-                )
-            ]
-        ),
-        experience=ExperienceSection(
-            listings=[
-                ExperienceListing(
-                    id="exp_a",
-                    title="Engineer",
-                    date_range="2024-2025",
-                    organization="ACME",
-                    bullets=[
-                        ResumeBullet(id="bullet_a0", text="Built things"),
-                        ResumeBullet(id="bullet_a1", text="Shipped things"),
-                    ],
-                )
-            ]
-        ),
-        projects=ProjectsSection(
-            listings=[
-                ProjectListing(
-                    id="proj_a",
-                    title="Project A",
-                    tech_stack="Python",
-                    date_range="2024",
-                    bullets=[ResumeBullet(id="bullet_p0", text="Made a thing")],
-                )
-            ]
-        ),
-        skills_achievements=SkillsAchievementsSection(
-            listings=[
-                SkillListing(
-                    id="skill_langs",
-                    category="Languages",
-                    text="Python, Rust",
-                )
-            ]
-        ),
+    return (
+        Path(__file__).resolve().parent.parent
+        / "fixtures"
+        / "resumes"
+        / "synthetic_minimal.tex"
     )
+
+
+def build_minimal_bullet_manifest() -> BulletManifest:
+    """Build a deterministic manifest from the synthetic-minimal fixture.
+
+    Purpose:
+        Phase-2 unit tests use this as the canonical "small known
+        manifest" so per-test branches can exercise the patcher and
+        proposal-resolution code without writing fixtures by hand.
+    Output:
+        Manifest with the synthetic-minimal fixture's sections,
+        entries, and bullets.
+    """
+
+    tex_text = resume_tex_fixture_path().read_text(encoding="utf-8")
+    return build_bullet_manifest(tex_text)
 
 
 def make_tailor_result(
     *,
-    edits: list[BulletEdit] | None = None,
-    summary: str = "",
+    bullets: list[BulletPatchProposal] | None = None,
+    skipped_bullets: list[SkippedBulletNote] | None = None,
+    rewrite_plan: str = "Test rewrite plan.",
 ) -> LlmCallResult[TailorOutput]:
     """Build an `LlmCallResult[TailorOutput]` stub for monkeypatching.
 
     Purpose:
-        Keep test assertions focused on pipeline branches; the LLM call
-        result shape stays consistent across every scenario.
+        Keep test assertions focused on pipeline branches; the LLM
+        call result shape stays consistent across every scenario.
+    Args:
+        bullets: Per-bullet proposals the fake tailor emits.
+        skipped_bullets: Optional skipped-bullet notes.
+        rewrite_plan: Rationale-first plan text. Field-1 by schema.
+    Output:
+        Populated `LlmCallResult` carrying a fake `TailorOutput`.
     """
 
-    output = TailorOutput(edits=list(edits or []), summary=summary)
+    output = TailorOutput(
+        rewrite_plan=rewrite_plan,
+        bullets=list(bullets or []),
+        skipped_bullets=list(skipped_bullets or []),
+    )
     return LlmCallResult(
         parsed=output,
         prompt_tokens=10,
@@ -156,15 +135,37 @@ def make_reviewer_result(
     *,
     verdict: ReviewerVerdict,
     feedback_for_retry: str | None = None,
-    rationale: str = "",
+    rationale: str = "Test rationale.",
+    factuality_base: int = 5,
+    factuality_tailored: int = 5,
 ) -> LlmCallResult[ReviewerOutput]:
-    """Build an `LlmCallResult[ReviewerOutput]` stub."""
+    """Build an `LlmCallResult[ReviewerOutput]` stub for monkeypatching.
+
+    Purpose:
+        Cover the factuality-veto branch (set `factuality_tailored=0`
+        with `verdict=BASE_BETTER`) alongside the standard
+        better/worse/no-improvement verdicts.
+    Args:
+        verdict: Reviewer verdict to return.
+        feedback_for_retry: Critique to attach when verdict is
+            `base_better`.
+        rationale: Field-1 rationale text.
+        factuality_base: Factuality score on the base variant (0-5).
+        factuality_tailored: Factuality score on the tailored variant
+            (0-5). Set to 0 to simulate the factuality veto.
+    Output:
+        Populated `LlmCallResult` carrying a fake `ReviewerOutput`.
+    """
 
     output = ReviewerOutput(
-        verdict=verdict,
-        scores_base=ReviewerScores(keywords=3, specificity=3, fit=3),
-        scores_tailored=ReviewerScores(keywords=4, specificity=4, fit=4),
         rationale=rationale,
+        scores_base=ReviewerScores(
+            keyword_fit=3, specificity=3, factuality=factuality_base
+        ),
+        scores_tailored=ReviewerScores(
+            keyword_fit=4, specificity=4, factuality=factuality_tailored
+        ),
+        verdict=verdict,
         feedback_for_retry=feedback_for_retry,
     )
     return LlmCallResult(
@@ -176,17 +177,24 @@ def make_reviewer_result(
     )
 
 
-def single_valid_edit() -> BulletEdit:
-    """Return one edit that targets the populated YAML fixture.
+def single_valid_patch_proposal() -> BulletPatchProposal:
+    """Return one rewrite proposal that targets the synthetic fixture.
 
     Purpose:
-        Match the IDs in `tests/fixtures/resume_content_populated.yaml`
-        so the pipeline counts the edit as applicable.
+        Match an actual bullet ID from `synthetic_minimal.tex` so the
+        pipeline counts the proposal as applicable.
+    Output:
+        Populated `BulletPatchProposal` with `action="rewrite"`.
     """
 
-    return BulletEdit(
-        section="experience",
-        listing_id="exp_software_engineering_intern",
-        bullet_id="software_engineering_intern_bullet_0",
-        new_text="Rewrote the thing.",
+    manifest = build_minimal_bullet_manifest()
+    # Pull the first bullet of the first entry of the first section.
+    first_section = manifest.sections[0]
+    first_entry = first_section.entries[0]
+    first_bullet = first_entry.bullets[0]
+    return BulletPatchProposal(
+        id=first_bullet.id,
+        rationale="Test rationale.",
+        action="rewrite",
+        new_text="Rewrote the first bullet.",
     )
