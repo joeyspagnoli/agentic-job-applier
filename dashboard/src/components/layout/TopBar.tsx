@@ -171,7 +171,7 @@ function ChromeStatusChip(): JSX.Element {
   const [isPopoverOpen, setIsPopoverOpen] = useState<boolean>(false);
   const [didCopy, setDidCopy] = useState<boolean>(false);
 
-  const osHint = useMemo(detectOsHint, []);
+  const osHint = useMemo(() => detectOsHint(), []);
 
   const chromeQuery = useQuery<ChromeStatusDto>({
     queryKey: ["status", "chrome", osHint],

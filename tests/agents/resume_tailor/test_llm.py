@@ -177,23 +177,23 @@ def test_get_tailor_model_name_returns_default_when_env_unset(
     assert result == llm.DEFAULT_TAILOR_MODEL
 
 
-def test_get_tailor_model_name_default_is_pinned_to_gpt_5_mini(
+def test_get_tailor_model_name_default_is_pinned_to_gpt_5_4(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pin the literal default tailor model to `openai/gpt-5-mini`.
+    """Pin the literal default tailor model to `openai/gpt-5.4`.
 
     Purpose:
-        Issue #53 swapped away from a coding-tuned default because that
-        variant emitted empty edits on resume prompts. This test fails
-        loudly if a future bump silently re-introduces a coding-tuned
-        (or any other) default.
+        Commit `9be242d` bumped the tailor default from `gpt-5-mini`
+        to `gpt-5.4` after the tightened prompt landed; this test
+        fails loudly if a future bump silently changes the default
+        (in either direction) without an accompanying review.
     """
 
     monkeypatch.delenv(llm.TAILOR_MODEL_ENV_VAR, raising=False)
 
     result = llm.get_tailor_model_name()
 
-    assert result == "openai/gpt-5-mini"
+    assert result == "openai/gpt-5.4"
 
 
 def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_mini(
