@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import pytest_asyncio
@@ -164,7 +164,7 @@ async def test_job_not_found_records_failure_without_review_row(
         db=db,
         tailor_run_id=int(inserter["id"]),
         job_hash="dead" * 10,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -200,7 +200,7 @@ async def test_invalid_resume_tex_records_runtime_failure(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=bad_tex,
+        base_resume_tex_path=bad_tex,
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -237,7 +237,7 @@ async def test_happy_path_tailored_wins_and_ships(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -250,7 +250,7 @@ async def test_happy_path_tailored_wins_and_ships(
 
     review_rows = await db.get_review_runs_for_tailor_run(tailor_run_id)
     assert len(review_rows) == 1
-    review_payload = json.loads(review_rows[0]["review_report_json"])
+    review_payload = json.loads(cast(str, review_rows[0]["review_report_json"]))
     assert review_payload["had_retry"] is False
     assert review_payload["bullets_applied"] == 1
 
@@ -277,7 +277,7 @@ async def test_zero_proposals_ships_base_with_tailor_bailed_reason(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -290,7 +290,7 @@ async def test_zero_proposals_ships_base_with_tailor_bailed_reason(
 
     review_rows = await db.get_review_runs_for_tailor_run(tailor_run_id)
     assert len(review_rows) == 1
-    review_payload = json.loads(review_rows[0]["review_report_json"])
+    review_payload = json.loads(cast(str, review_rows[0]["review_report_json"]))
     assert review_payload["reason"] == "tailor_bailed"
 
 
@@ -325,7 +325,7 @@ async def test_all_proposals_dropped_for_unknown_ids(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -335,9 +335,12 @@ async def test_all_proposals_dropped_for_unknown_ids(
     assert result.verdict == "NO_IMPROVEMENT"
 
     review_payload = json.loads(
-        (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
-            "review_report_json"
-        ]
+        cast(
+            str,
+            (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
+                "review_report_json"
+            ],
+        )
     )
     assert review_payload["reason"] == "all_edits_dropped"
     assert review_payload["bullets_proposed"] == 1
@@ -400,7 +403,7 @@ async def test_page_overflow_trim_pass_succeeds_and_reviewer_picks_tailored(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -447,7 +450,7 @@ async def test_page_overflow_persists_after_trim_yields_page_fit_failed(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -459,9 +462,12 @@ async def test_page_overflow_persists_after_trim_yields_page_fit_failed(
     assert "/base/" in result.selected_tex_path
 
     review_payload = json.loads(
-        (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
-            "review_report_json"
-        ]
+        cast(
+            str,
+            (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
+                "review_report_json"
+            ],
+        )
     )
     assert review_payload["reason"] == "page_fit_failed"
     assert review_payload["final_page_count"] == 2
@@ -508,7 +514,7 @@ async def test_reviewer_base_better_triggers_retry_and_3way_picks_tailored(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -518,9 +524,12 @@ async def test_reviewer_base_better_triggers_retry_and_3way_picks_tailored(
     assert result.verdict == "TAILORED"
 
     review_payload = json.loads(
-        (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
-            "review_report_json"
-        ]
+        cast(
+            str,
+            (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
+                "review_report_json"
+            ],
+        )
     )
     assert review_payload["had_retry"] is True
 
@@ -573,7 +582,7 @@ async def test_factuality_veto_keeps_base_after_retry(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -582,9 +591,12 @@ async def test_factuality_veto_keeps_base_after_retry(
     assert result.success is True
     assert result.verdict == "BASE"
     review_payload = json.loads(
-        (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
-            "review_report_json"
-        ]
+        cast(
+            str,
+            (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
+                "review_report_json"
+            ],
+        )
     )
     assert review_payload["scores_tailored"]["factuality"] == 0
 
@@ -614,7 +626,7 @@ async def test_reviewer_no_meaningful_improvement_ships_base(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -642,7 +654,7 @@ async def test_base_compile_failure_records_hard_failure(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -674,7 +686,7 @@ async def test_unhandled_exception_in_tailor_records_pipeline_failure(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
@@ -719,16 +731,19 @@ async def test_review_report_carries_skipped_bullets_and_rewrite_plan(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_tex_fixture_path(),
+        base_resume_tex_path=resume_tex_fixture_path(),
         candidate_profile_yaml_path=_candidate_profile_yaml(tmp_path),
         output_dir=tmp_path / "out",
         record_costs=False,
     )
 
     review_payload = json.loads(
-        (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
-            "review_report_json"
-        ]
+        cast(
+            str,
+            (await db.get_review_runs_for_tailor_run(tailor_run_id))[0][
+                "review_report_json"
+            ],
+        )
     )
     assert review_payload["rewrite_plan"] == "Sharpen the leading bullet; skip the trailer."
     assert review_payload["skipped_bullets"] == [

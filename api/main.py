@@ -17,7 +17,6 @@ from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from scripts.migrate_resume_tex_to_yaml import migrate_resume_tex_to_yaml
 from src.utils.paths import resolve_database_path
 
 from api.config import DASHBOARD_ASSETS_DIR
@@ -25,7 +24,6 @@ from api.config import DASHBOARD_INDEX_FILE
 from api.config import SETTINGS_BACKUPS_DIR
 from api.config import SETTINGS_PROFILE_PATH
 from api.config import SETTINGS_RESUME_PATH
-from api.config import SETTINGS_RESUME_TEX_PATH
 from api.config import TAILORED_RESUME_TOKEN_ENV_KEY
 from api.config import TAILORED_RESUME_TOKEN_HEADER
 from api.errors import _error_response
@@ -147,13 +145,11 @@ __all__ = [
     "SETTINGS_BACKUPS_DIR",
     "SETTINGS_PROFILE_PATH",
     "SETTINGS_RESUME_PATH",
-    "SETTINGS_RESUME_TEX_PATH",
     "TAILORED_RESUME_TOKEN_ENV_KEY",
     "TAILORED_RESUME_TOKEN_HEADER",
     "_backup_settings_file",
     "_dispatch_system_lifecycle_action",
     "_source_label",
     "app",
-    "migrate_resume_tex_to_yaml",
     "resolve_database_path",
 ]

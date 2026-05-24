@@ -169,27 +169,29 @@ def test_latex_safe_output_never_contains_bare_tilde_or_caret(
     assert forbidden_character not in sanitized_text
 
 
-def test_base_resume_yaml_bullets_are_idempotent_under_sanitize() -> None:
-    """Every bullet in the real `config/resume_content.yaml` round-trips."""
+def test_dogfood_resume_tex_bullets_are_idempotent_under_sanitize() -> None:
+    """Every bullet body in `config/resume.tex` round-trips through latex_safe.
+
+    Purpose:
+        Phase 3 (#60) migrated the dogfood resume from YAML to `.tex`.
+        The locator now extracts bullet bodies; we still want to assert
+        that running them through the sanitizer is a no-op (the user's
+        own resume should never produce sanitizer drift).
+    """
+
+    from src.agents.resume_tailor.locator import build_bullet_manifest
 
     repo_root = Path(__file__).resolve().parents[3]
-    base_yaml_path = repo_root / "config" / "resume_content.yaml"
-    resume_content = load_resume_yaml(base_yaml_path)
+    resume_tex_path = repo_root / "config" / "resume.tex"
+    tex_text = resume_tex_path.read_text(encoding="utf-8")
+    manifest = build_bullet_manifest(tex_text)
 
     rewritten_bullets: list[tuple[str, str]] = []
-    for experience_listing in resume_content.experience.listings:
-        for bullet in experience_listing.bullets:
-            sanitized_text = latex_safe(bullet.text)
-            if sanitized_text != bullet.text:
-                rewritten_bullets.append((bullet.text, sanitized_text))
-    for project_listing in resume_content.projects.listings:
-        for bullet in project_listing.bullets:
-            sanitized_text = latex_safe(bullet.text)
-            if sanitized_text != bullet.text:
-                rewritten_bullets.append((bullet.text, sanitized_text))
-    for skill_listing in resume_content.skills_achievements.listings:
-        sanitized_text = latex_safe(skill_listing.text)
-        if sanitized_text != skill_listing.text:
-            rewritten_bullets.append((skill_listing.text, sanitized_text))
+    for section in manifest.sections:
+        for entry in section.entries:
+            for bullet in entry.bullets:
+                sanitized_text = latex_safe(bullet.text)
+                if sanitized_text != bullet.text:
+                    rewritten_bullets.append((bullet.text, sanitized_text))
 
     assert rewritten_bullets == []

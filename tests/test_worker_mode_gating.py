@@ -98,7 +98,7 @@ async def test_opt_in_mode_skips_claim_but_runs_stale_sweep(
     processed = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,
@@ -124,7 +124,7 @@ async def test_autonomous_mode_claims_and_invokes_pipeline(
     processed = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,
@@ -150,7 +150,7 @@ async def test_both_mode_also_claims(
     processed = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,
@@ -176,7 +176,7 @@ async def test_mode_flip_observed_on_next_cycle(
     first = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,
@@ -187,7 +187,7 @@ async def test_mode_flip_observed_on_next_cycle(
     second = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,
@@ -220,7 +220,7 @@ async def test_budget_exceeded_blocks_claim_in_autonomous_mode(
     processed = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,
@@ -247,7 +247,7 @@ async def test_unknown_mode_is_treated_as_opt_in(
     processed = await worker_module.tailor_once(
         db=db,
         output_base_dir=tmp_path / "out",
-        resume_yaml_path=tmp_path / "resume.yaml",
+        resume_tex_path=tmp_path / "resume.tex",
         candidate_profile_yaml_path=tmp_path / "profile.yaml",
         max_retries=2,
         lease_seconds=120,

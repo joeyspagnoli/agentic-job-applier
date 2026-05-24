@@ -9,14 +9,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api import main as api_main
-from scripts.migrate_resume_tex_to_yaml import ResumeMigrationError
 from src.database.db_manager import DatabaseManager
 
 
@@ -89,10 +86,7 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DATABASE_PATH", str(database_path))
     monkeypatch.delenv(api_main.TAILORED_RESUME_TOKEN_ENV_KEY, raising=False)
     monkeypatch.setattr(
-        api_main, "SETTINGS_RESUME_PATH", tmp_path / "resume_content.yaml"
-    )
-    monkeypatch.setattr(
-        api_main, "SETTINGS_RESUME_TEX_PATH", tmp_path / "resume_base.tex"
+        api_main, "SETTINGS_RESUME_PATH", tmp_path / "resume.tex"
     )
     monkeypatch.setattr(api_main, "SETTINGS_BACKUPS_DIR", tmp_path / "backups")
 
@@ -216,47 +210,53 @@ def test_download_tailored_resume_returns_not_found_when_no_artifact(
     assert response.status_code == 404
 
 
-def test_upload_resume_tex_skips_backup_rotation_on_failed_migration(
+def test_upload_resume_tex_endpoint_returns_410_gone(
     api_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify TeX migration failure does not trigger settings backup rotation.
+    """The legacy `POST /resume/tex` endpoint is retired (Phase 3).
 
     Purpose:
-        Protect backup retention by ensuring backup snapshots are created only
-        when migration validation succeeds.
-    Args:
-        api_client: Isolated FastAPI test client fixture.
-        monkeypatch: Fixture used to patch migration and backup helpers.
-    Output:
-        Returns `None`; test passes when migration failure skips backup creation.
+        Confirm the structured 410-GONE envelope is emitted so older
+        dashboard builds get a clear "moved" signal rather than a
+        500 / silent fail.
     """
-
-    backup_spy = MagicMock()
-
-    def _raise_migration_error(*_: Any, **__: Any) -> Any:
-        """Raise deterministic migration error for endpoint failure-path testing.
-
-        Purpose:
-            Simulate migration failure without invoking real TeX parsing logic.
-        Args:
-            *_: Ignored positional arguments.
-            **__: Ignored keyword arguments.
-        Output:
-            Raises `ResumeMigrationError`.
-        """
-
-        raise ResumeMigrationError("synthetic conversion failure")
-
-    monkeypatch.setattr(api_main, "_backup_settings_file", backup_spy)
-    monkeypatch.setattr(api_main, "migrate_resume_tex_to_yaml", _raise_migration_error)
 
     response = api_client.post(
         "/api/settings/resume/tex",
         files={
-            "file": ("resume.tex", b"\\section{\\textbf{Experience}}", "text/plain")
+            "file": ("resume.tex", b"\\section{Experience}", "text/plain")
+        },
+    )
+
+    assert response.status_code == 410
+    payload = response.json()
+    assert payload["code"] == "ENDPOINT_REMOVED"
+    assert payload["new_endpoint"] == "POST /api/settings/resume"
+
+
+def test_invalid_resume_tex_upload_returns_422_with_validator_errors(
+    api_client: TestClient,
+) -> None:
+    """Phase 3: `POST /resume` rejects non-conforming `.tex` with 422.
+
+    Purpose:
+        Pin the new error envelope so the frontend's
+        `<ValidatorErrorList>` keeps rendering the right shape.
+    """
+
+    response = api_client.post(
+        "/api/settings/resume",
+        files={
+            "file": (
+                "resume.tex",
+                b"\\documentclass{article}\\begin{document}no sections\\end{document}",
+                "text/plain",
+            )
         },
     )
 
     assert response.status_code == 422
-    backup_spy.assert_not_called()
+    payload = response.json()
+    assert payload["code"] == "INVALID_RESUME_TEX"
+    assert payload["errors"]
+    assert payload["errors"][0]["code"] == "CONTRACT_NO_TAILORABLE_SECTION"

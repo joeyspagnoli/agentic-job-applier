@@ -46,8 +46,10 @@ export function StepResume({
           Resume
         </h2>
         <p className="text-sm mt-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-          Upload your resume as a PDF, YAML, or .tex file. You can refine the structured content
-          later in Settings.
+          Upload a LaTeX <code>.tex</code> resume that follows our contract. We
+          patch bullets in place and recompile — every tailored PDF looks
+          identical to your upload. PDF / DOCX users: see the onboarding
+          migration skill (docs).
         </p>
       </div>
       <div
@@ -70,7 +72,7 @@ export function StepResume({
           Choose File
           <input
             type="file"
-            accept=".yaml,.yml,.tex,.pdf"
+            accept=".tex"
             className="hidden"
             onChange={onFileChange}
           />
@@ -80,12 +82,7 @@ export function StepResume({
             Uploading...
           </p>
         )}
-        {uploaded && file?.type === "application/pdf" && (
-          <p className="text-xs mt-3 font-semibold" style={{ color: COLOR_SUCCESS }}>
-            PDF uploaded — visit Settings → Resume to add your work experience and skills.
-          </p>
-        )}
-        {uploaded && file?.type !== "application/pdf" && (
+        {uploaded && (
           <p className="text-xs mt-3 font-semibold" style={{ color: COLOR_SUCCESS }}>
             Resume uploaded successfully
           </p>

@@ -1,317 +1,222 @@
-"""Resume-related settings router (read/write/upload/PDF/TeX/download)."""
+"""Resume-related settings router — `.tex`-only upload + download (Phase 3).
+
+Phase 3 (#60) replaced the YAML / structured / PDF upload endpoints
+with a single `POST /api/settings/resume` that accepts a `.tex` file
+and validates it against `docs/resume-tex-contract.md`. The old
+endpoints respond 410 GONE with a structured error envelope pointing
+at the new endpoint and the contract doc.
+"""
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 from fastapi import File
 from fastapi import UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
-from src.agents.resume_tailor.schemas import validate_locked_structure
-from src.agents.resume_tailor.yaml_io import save_resume_yaml
-
-from scripts.migrate_resume_tex_to_yaml import ResumeMigrationError
+from src.agents.resume_tailor.validator import validate_resume_tex
 
 from api.errors import _raise_api_error
-from api.schemas.candidate import ResumeStructuredUpdateRequest
-from api.schemas.common import YamlTextUpdateRequest
-from api.services.resume_uploads import build_stub_resume_content
-from api.services.resume_uploads import read_candidate_contact_from_profile_yaml
-from api.services.resume_uploads import read_pdf_pages
-from api.services.tex_migration import _normalize_tex_section_headings
-from api.services.tex_migration import _prepare_resume_tex_for_migration
-from api.services.yaml_files import _parse_yaml_mapping
-from api.services.yaml_files import _read_settings_text
-from api.services.yaml_files import _read_uploaded_text
-from api.services.yaml_files import _resolve_settings_file_metadata
-from api.services.yaml_files import _resume_counts
-from api.services.yaml_files import _validate_resume_document
+from api.services.yaml_files import (
+    _read_settings_text,
+    _read_uploaded_text,
+    _resolve_settings_file_metadata,
+)
 
 router = APIRouter(prefix="/api/settings", tags=["settings-resume"])
 
+# Stable error code emitted when a removed endpoint is hit. The
+# frontend renders the included `new_endpoint` field as a link.
+_ENDPOINT_REMOVED_CODE = "ENDPOINT_REMOVED"
+_INVALID_RESUME_TEX_CODE = "INVALID_RESUME_TEX"
+_NEW_RESUME_ENDPOINT = "POST /api/settings/resume"
+_CONTRACT_DOCS_URL = "/docs/resume-tex-contract.md"
+
+
+def _gone_response(detail: str) -> JSONResponse:
+    """Render the 410 GONE envelope used by every retired endpoint.
+
+    Purpose:
+        Plan §5.1 specifies a uniform error shape so the frontend can
+        rerender retired-endpoint hits as "this moved" notices without
+        per-endpoint branching.
+    Args:
+        detail: Short description of which endpoint was retired.
+    Output:
+        JSONResponse with status 410 and the structured payload.
+    """
+
+    return JSONResponse(
+        status_code=410,
+        content={
+            "ok": False,
+            "code": _ENDPOINT_REMOVED_CODE,
+            "message": (
+                f"This endpoint was retired in the .tex-only upload "
+                f"redesign (#60). Use {_NEW_RESUME_ENDPOINT}. ({detail})"
+            ),
+            "new_endpoint": _NEW_RESUME_ENDPOINT,
+            "docs_url": _CONTRACT_DOCS_URL,
+        },
+    )
+
 
 @router.post("/resume")
-async def upload_resume_file(file: UploadFile = File(...)) -> dict[str, object]:
-    """Replace the canonical base resume YAML from settings upload.
+async def upload_resume_tex(file: UploadFile = File(...)) -> JSONResponse:
+    """Validate + persist a user-supplied `.tex` resume.
 
     Purpose:
-        Persist resume YAML updates from the settings panel.
+        Single entry point for resume uploads in the `.tex`-only world.
+        Runs `validate_resume_tex` before committing the file so
+        non-conforming uploads are rejected with line-numbered errors
+        the frontend can render inline.
     Args:
-        file: Uploaded resume YAML file.
+        file: Multipart `.tex` upload.
     Output:
-        Returns canonical mutation success payload with updated metadata.
+        200 + manifest preview on success; 422 with `ValidatorError`
+        list on contract violations.
     """
 
     from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
 
     resume_path = _main.SETTINGS_RESUME_PATH
-    text = await _read_uploaded_text(file)
-    parsed_payload = _parse_yaml_mapping(yaml_text=text, context="resume")
-    resume_document = _validate_resume_document(parsed_payload)
-    _main._backup_settings_file(resume_path, file_label="Resume")
-    save_resume_yaml(path=resume_path, resume_content=resume_document)
-
-    return {
-        "ok": True,
-        "resume": _resolve_settings_file_metadata(resume_path),
-    }
-
-
-@router.post("/resume/pdf")
-async def upload_resume_pdf(file: UploadFile = File(...)) -> dict[str, object]:
-    """Upload a PDF resume and convert it to a minimal canonical YAML stub.
-
-    Purpose:
-        Allow users to upload a standard PDF resume during onboarding without
-        being blocked by YAML authoring. Extracts text and saves a placeholder
-        resume_content.yaml so onboarding can complete. The user refines the
-        structured content in Settings afterward.
-    Args:
-        file: Uploaded PDF file (binary).
-    Output:
-        Returns canonical mutation success payload with updated metadata and
-        extracted page count.
-    Raises:
-        HTTPException: When the file is not a valid PDF or text extraction fails.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    resume_path = _main.SETTINGS_RESUME_PATH
-    profile_path = _main.SETTINGS_PROFILE_PATH
-    raw_bytes = await file.read()
-    try:
-        reader, extracted_pages = read_pdf_pages(raw_bytes)
-    except Exception as exc:
-        _raise_api_error(
-            status_code=400,
-            code="INVALID_PDF",
-            message=f"Could not read PDF file: {exc}",
-        )
-        raise AssertionError("Unreachable")
-
-    extracted_text = "\n".join(extracted_pages).strip()
-
-    raw_pdf_path = resume_path.parent / "resume_raw.pdf"
-    raw_pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_pdf_path.write_bytes(raw_bytes)
-
-    candidate_name, candidate_phone, candidate_email = (
-        read_candidate_contact_from_profile_yaml(profile_path)
-    )
-    stub_resume = build_stub_resume_content(
-        candidate_name=candidate_name,
-        candidate_phone=candidate_phone,
-        candidate_email=candidate_email,
-    )
-
-    _main._backup_settings_file(resume_path, file_label="Resume")
-    save_resume_yaml(path=resume_path, resume_content=stub_resume)
-
-    return {
-        "ok": True,
-        "resume": _resolve_settings_file_metadata(resume_path),
-        "pdf_pages": len(reader.pages),
-        "extracted_chars": len(extracted_text),
-    }
-
-
-@router.get("/resume")
-async def get_resume_settings() -> dict[str, object]:
-    """Return resume settings with raw YAML text and parsed canonical payload.
-
-    Purpose:
-        Provide one read endpoint for guided resume editing, advanced YAML
-        editing, and post-conversion refresh flows.
-    Args:
-        None.
-    Output:
-        Returns metadata, raw YAML text, and parsed resume payload.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    resume_path = _main.SETTINGS_RESUME_PATH
-    yaml_text = _read_settings_text(resume_path, file_label="Resume")
-    parsed_payload = _parse_yaml_mapping(yaml_text=yaml_text, context="resume")
-    resume_document = _validate_resume_document(parsed_payload)
-
-    return {
-        "ok": True,
-        "metadata": _resolve_settings_file_metadata(resume_path),
-        "yaml_text": yaml_text,
-        "resume": resume_document.model_dump(mode="json"),
-        "counts": _resume_counts(resume_document),
-    }
-
-
-@router.put("/resume")
-async def update_resume_yaml(payload: YamlTextUpdateRequest) -> dict[str, object]:
-    """Persist resume settings from raw YAML text with full schema validation.
-
-    Purpose:
-        Support advanced YAML editing while enforcing canonical resume schema
-        and lock constraints before writing persisted YAML.
-    Args:
-        payload: Raw YAML payload wrapper.
-    Output:
-        Returns metadata, canonical YAML text, and parsed resume payload.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    resume_path = _main.SETTINGS_RESUME_PATH
-    parsed_payload = _parse_yaml_mapping(yaml_text=payload.yaml_text, context="resume")
-    resume_document = _validate_resume_document(parsed_payload)
-    _main._backup_settings_file(resume_path, file_label="Resume")
-    save_resume_yaml(path=resume_path, resume_content=resume_document)
-    persisted_yaml = _read_settings_text(resume_path, file_label="Resume")
-
-    return {
-        "ok": True,
-        "metadata": _resolve_settings_file_metadata(resume_path),
-        "yaml_text": persisted_yaml,
-        "resume": resume_document.model_dump(mode="json"),
-        "counts": _resume_counts(resume_document),
-    }
-
-
-@router.put("/resume/structured")
-async def update_resume_structured(
-    payload: ResumeStructuredUpdateRequest,
-) -> dict[str, object]:
-    """Persist resume settings from guided structured payload.
-
-    Purpose:
-        Support form-first resume editing while preserving strict resume schema
-        and lock validations on every save.
-    Args:
-        payload: Structured resume payload wrapper.
-    Output:
-        Returns metadata, canonical YAML text, and parsed resume payload.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    resume_path = _main.SETTINGS_RESUME_PATH
-    resume_document = _validate_resume_document(payload.resume)
-    _main._backup_settings_file(resume_path, file_label="Resume")
-    save_resume_yaml(path=resume_path, resume_content=resume_document)
-    persisted_yaml = _read_settings_text(resume_path, file_label="Resume")
-
-    return {
-        "ok": True,
-        "metadata": _resolve_settings_file_metadata(resume_path),
-        "yaml_text": persisted_yaml,
-        "resume": resume_document.model_dump(mode="json"),
-        "counts": _resume_counts(resume_document),
-    }
-
-
-@router.post("/resume/tex")
-async def upload_resume_tex(file: UploadFile = File(...)) -> dict[str, object]:
-    """Upload a LaTeX resume source and migrate it into canonical YAML.
-
-    Purpose:
-        Provide a settings-native conversion flow so users can update resume
-        content from `.tex` without manual YAML authoring.
-    Args:
-        file: Uploaded LaTeX `.tex` file.
-    Output:
-        Returns canonical resume payload, metadata, and migration counts.
-    Raises:
-        HTTPException: When conversion fails or produced invalid resume YAML.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    resume_path = _main.SETTINGS_RESUME_PATH
-    resume_tex_path = _main.SETTINGS_RESUME_TEX_PATH
     tex_text = await _read_uploaded_text(file)
-    prepared_tex_text = tex_text
-    if resume_path.exists():
-        fallback_yaml_text = _read_settings_text(resume_path, file_label="Resume")
-        fallback_payload = _parse_yaml_mapping(
-            yaml_text=fallback_yaml_text,
-            context="resume",
-        )
-        fallback_resume = _validate_resume_document(fallback_payload)
-        prepared_tex_text = _prepare_resume_tex_for_migration(
-            uploaded_tex_text=tex_text,
-            fallback_resume=fallback_resume,
-        )
-    else:
-        prepared_tex_text = _normalize_tex_section_headings(tex_text)
-
-    resume_tex_path.parent.mkdir(parents=True, exist_ok=True)
-    resume_tex_path.write_text(prepared_tex_text, encoding="utf-8")
-    migrated_output_path = resume_path.with_name(
-        f"{resume_path.stem}.migrated.tmp{resume_path.suffix}"
-    )
-
-    try:
-        migrated_resume = _main.migrate_resume_tex_to_yaml(
-            resume_tex_path=resume_tex_path,
-            output_yaml_path=migrated_output_path,
-        )
-        validate_locked_structure(migrated_resume)
-    except ResumeMigrationError as exc:
-        migrated_output_path.unlink(missing_ok=True)
-        _raise_api_error(
+    report = validate_resume_tex(tex_text, run_compile_check=False)
+    if not report.ok:
+        return JSONResponse(
             status_code=422,
-            code="RESUME_TEX_MIGRATION_FAILED",
-            message="LaTeX resume conversion failed.",
-            details={"error": str(exc)},
-        )
-    except ValueError as exc:
-        migrated_output_path.unlink(missing_ok=True)
-        _raise_api_error(
-            status_code=422,
-            code="INVALID_RESUME_SHAPE",
-            message="Converted resume YAML did not satisfy lock constraints.",
-            details={"error": str(exc)},
-        )
-    _main._backup_settings_file(resume_path, file_label="Resume")
-    try:
-        migrated_output_path.replace(resume_path)
-    except OSError as exc:
-        _raise_api_error(
-            status_code=500,
-            code="RESUME_REPLACE_FAILED",
-            message="Failed to persist converted resume YAML file.",
-            details={
-                "output_yaml_path": str(resume_path),
-                "temporary_yaml_path": str(migrated_output_path),
-                "error": str(exc),
+            content={
+                "ok": False,
+                "code": _INVALID_RESUME_TEX_CODE,
+                "message": "Resume does not conform to the .tex contract.",
+                "errors": [error.model_dump() for error in report.errors],
+                "docs_url": _CONTRACT_DOCS_URL,
             },
         )
 
-    persisted_yaml = _read_settings_text(resume_path, file_label="Resume")
-    return {
-        "ok": True,
-        "metadata": _resolve_settings_file_metadata(resume_path),
-        "yaml_text": persisted_yaml,
-        "resume": migrated_resume.model_dump(mode="json"),
-        "counts": _resume_counts(migrated_resume),
-        "migration": {
-            "source_tex_path": str(resume_tex_path),
-            "output_yaml_path": str(resume_path),
-            "normalized_input": prepared_tex_text != tex_text,
-            **_resume_counts(migrated_resume),
+    _main._backup_settings_file(resume_path, file_label="Resume")
+    resume_path.parent.mkdir(parents=True, exist_ok=True)
+    resume_path.write_text(tex_text, encoding="utf-8")
+
+    manifest_preview = (
+        report.manifest_preview.model_dump(mode="json")
+        if report.manifest_preview is not None
+        else None
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ok": True,
+            "resume": _resolve_settings_file_metadata(resume_path),
+            "manifest_preview": manifest_preview,
         },
-    }
+    )
+
+
+@router.get("/resume")
+async def get_resume_settings() -> JSONResponse:
+    """Return resume settings — raw `.tex` text + manifest preview.
+
+    Purpose:
+        Power the single resume view on the Settings page now that
+        the guided / YAML / structured tabs are gone (plan §5.2).
+    Output:
+        200 with `tex_text`, `metadata`, and `manifest_preview` when
+        the file exists; 404 when no resume is on disk.
+    """
+
+    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
+
+    resume_path = _main.SETTINGS_RESUME_PATH
+    if not resume_path.exists():
+        _raise_api_error(
+            status_code=404,
+            code="FILE_NOT_FOUND",
+            message="Resume file does not exist.",
+        )
+
+    tex_text = _read_settings_text(resume_path, file_label="Resume")
+    report = validate_resume_tex(tex_text, run_compile_check=False)
+    manifest_preview = (
+        report.manifest_preview.model_dump(mode="json")
+        if report.manifest_preview is not None
+        else None
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ok": True,
+            "metadata": _resolve_settings_file_metadata(resume_path),
+            "tex_text": tex_text,
+            "contract_pass": report.ok,
+            "manifest_preview": manifest_preview,
+        },
+    )
+
+
+@router.put("/resume")
+async def update_resume_yaml() -> JSONResponse:
+    """410 GONE — YAML text update was retired in the .tex redesign.
+
+    Purpose:
+        Surface a structured "endpoint moved" envelope so older
+        dashboard builds don't silently break.
+    """
+
+    return _gone_response("PUT /api/settings/resume (YAML text update) was retired.")
+
+
+@router.put("/resume/structured")
+async def update_resume_structured() -> JSONResponse:
+    """410 GONE — structured-form update was retired in the .tex redesign.
+
+    Purpose:
+        Surface a structured "endpoint moved" envelope so older
+        dashboard builds don't silently break.
+    """
+
+    return _gone_response("PUT /api/settings/resume/structured was retired.")
+
+
+@router.post("/resume/pdf")
+async def upload_resume_pdf() -> JSONResponse:
+    """410 GONE — PDF upload was retired (see onboarding migration skill).
+
+    Purpose:
+        Surface a structured "endpoint moved" envelope and direct
+        PDF users at the (separate-issue) onboarding skill.
+    """
+
+    return _gone_response(
+        "POST /api/settings/resume/pdf was retired. PDF/DOCX users use "
+        "the onboarding migration skill to produce a .tex resume."
+    )
+
+
+@router.post("/resume/tex")
+async def upload_resume_tex_migration_alias() -> JSONResponse:
+    """410 GONE — TeX→YAML migration endpoint collapsed into POST /resume.
+
+    Purpose:
+        The split tex-vs-yaml endpoint is gone; one upload path now.
+    """
+
+    return _gone_response(
+        "POST /api/settings/resume/tex was collapsed into POST /api/settings/resume."
+    )
 
 
 @router.get("/resume/download")
 async def download_resume_file() -> FileResponse:
-    """Download the canonical base resume YAML file.
+    """Download the canonical resume `.tex` file.
 
     Purpose:
-        Provide settings-panel download action for current resume YAML.
-    Args:
-        None.
+        Provide settings-panel download action for the current
+        `.tex` source (Phase 3 — no longer YAML).
     Output:
-        Returns FileResponse for `config/resume_content.yaml`.
+        FileResponse for `config/resume.tex` with `application/x-tex`.
+    Raises:
+        HTTPException: 404 when the resume file does not exist.
     """
 
     from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
@@ -325,6 +230,6 @@ async def download_resume_file() -> FileResponse:
         )
     return FileResponse(
         resume_path,
-        media_type="application/x-yaml",
+        media_type="application/x-tex",
         filename=resume_path.name,
     )

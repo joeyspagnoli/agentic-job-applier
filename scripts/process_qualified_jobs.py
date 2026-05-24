@@ -41,7 +41,7 @@ from src.utils.paths import resolve_database_path, resolve_repo_root
 DEFAULT_TAILOR_POLL_INTERVAL_SECONDS = 30
 DEFAULT_TAILOR_MAX_RETRIES = 2
 DEFAULT_TAILOR_OUTPUT_DIR = "data/tailored_resumes"
-DEFAULT_TAILOR_RESUME_YAML_PATH = "config/resume_content.yaml"
+DEFAULT_TAILOR_RESUME_TEX_PATH = "config/resume.tex"
 DEFAULT_CANDIDATE_PROFILE_YAML_PATH = "config/candidate_profile.yaml"
 
 OPT_IN_MODE = "opt_in"
@@ -193,7 +193,7 @@ async def _tailor_once(
     *,
     db: DatabaseManager,
     output_base_dir: Path,
-    resume_yaml_path: Path,
+    resume_tex_path: Path,
     candidate_profile_yaml_path: Path,
     max_retries: int,
     lease_seconds: int,
@@ -207,7 +207,7 @@ async def _tailor_once(
     Args:
         db: Connected database manager.
         output_base_dir: Per-run artifact root.
-        resume_yaml_path: Path to `config/resume_content.yaml`.
+        resume_tex_path: Path to `config/resume.tex`.
         candidate_profile_yaml_path: Path to `config/candidate_profile.yaml`.
         max_retries: Maximum FAILED runs before a job is excluded by claim.
         lease_seconds: PENDING claim lease length.
@@ -253,7 +253,7 @@ async def _tailor_once(
         db=db,
         tailor_run_id=tailor_run_id,
         job_hash=job_hash,
-        base_resume_yaml_path=resume_yaml_path,
+        base_resume_tex_path=resume_tex_path,
         candidate_profile_yaml_path=candidate_profile_yaml_path,
         output_dir=run_output_dir,
     )
@@ -286,7 +286,7 @@ async def _run_one_cycle(
     *,
     db: DatabaseManager,
     output_base_dir: Path,
-    resume_yaml_path: Path,
+    resume_tex_path: Path,
     candidate_profile_yaml_path: Path,
     max_retries: int,
     lease_seconds: int,
@@ -300,7 +300,7 @@ async def _run_one_cycle(
     Args:
         db: Connected database manager.
         output_base_dir: Per-run artifact root.
-        resume_yaml_path: Path to `config/resume_content.yaml`.
+        resume_tex_path: Path to `config/resume.tex`.
         candidate_profile_yaml_path: Path to `config/candidate_profile.yaml`.
         max_retries: Worker max-retry knob forwarded to claim.
         lease_seconds: Claim lease length (also used as staleness threshold).
@@ -323,7 +323,7 @@ async def _run_one_cycle(
     return await _tailor_once(
         db=db,
         output_base_dir=output_base_dir,
-        resume_yaml_path=resume_yaml_path,
+        resume_tex_path=resume_tex_path,
         candidate_profile_yaml_path=candidate_profile_yaml_path,
         max_retries=max_retries,
         lease_seconds=lease_seconds,
@@ -334,7 +334,7 @@ async def tailor_once(
     *,
     db: DatabaseManager,
     output_base_dir: Path,
-    resume_yaml_path: Path,
+    resume_tex_path: Path,
     candidate_profile_yaml_path: Path,
     max_retries: int = DEFAULT_TAILOR_MAX_RETRIES,
     lease_seconds: int = DEFAULT_TAILOR_CLAIM_LEASE_SECONDS,
@@ -347,7 +347,7 @@ async def tailor_once(
     Args:
         db: Connected database manager.
         output_base_dir: Per-run artifact root.
-        resume_yaml_path: Path to `config/resume_content.yaml`.
+        resume_tex_path: Path to `config/resume.tex`.
         candidate_profile_yaml_path: Path to `config/candidate_profile.yaml`.
         max_retries: Worker max-retry knob forwarded to claim.
         lease_seconds: Claim lease length (also used as staleness threshold).
@@ -358,7 +358,7 @@ async def tailor_once(
     return await _run_one_cycle(
         db=db,
         output_base_dir=output_base_dir,
-        resume_yaml_path=resume_yaml_path,
+        resume_tex_path=resume_tex_path,
         candidate_profile_yaml_path=candidate_profile_yaml_path,
         max_retries=max_retries,
         lease_seconds=lease_seconds,
@@ -405,9 +405,9 @@ async def main() -> None:
         default=os.getenv("TAILOR_OUTPUT_DIR", DEFAULT_TAILOR_OUTPUT_DIR),
     )
     parser.add_argument(
-        "--resume-yaml-path",
+        "--resume-tex-path",
         type=str,
-        default=os.getenv("TAILOR_RESUME_YAML_PATH", DEFAULT_TAILOR_RESUME_YAML_PATH),
+        default=os.getenv("TAILOR_RESUME_TEX_PATH", DEFAULT_TAILOR_RESUME_TEX_PATH),
     )
     parser.add_argument(
         "--candidate-profile-yaml-path",
@@ -447,17 +447,17 @@ async def main() -> None:
     if not output_base_dir.is_absolute():
         output_base_dir = repo_root / output_base_dir
 
-    resume_yaml_path = Path(args.resume_yaml_path)
-    if not resume_yaml_path.is_absolute():
-        resume_yaml_path = repo_root / resume_yaml_path
+    resume_tex_path = Path(args.resume_tex_path)
+    if not resume_tex_path.is_absolute():
+        resume_tex_path = repo_root / resume_tex_path
 
     candidate_profile_yaml_path = Path(args.candidate_profile_yaml_path)
     if not candidate_profile_yaml_path.is_absolute():
         candidate_profile_yaml_path = repo_root / candidate_profile_yaml_path
 
-    if not resume_yaml_path.exists():
-        logger.error("Resume YAML not found: {}", resume_yaml_path)
-        await _notify_preflight_failure(f"Resume YAML not found: {resume_yaml_path}")
+    if not resume_tex_path.exists():
+        logger.error("Resume TeX not found: {}", resume_tex_path)
+        await _notify_preflight_failure(f"Resume TeX not found: {resume_tex_path}")
         return
 
     if args.database_path:
@@ -472,7 +472,7 @@ async def main() -> None:
             await _run_one_cycle(
                 db=db,
                 output_base_dir=output_base_dir,
-                resume_yaml_path=resume_yaml_path,
+                resume_tex_path=resume_tex_path,
                 candidate_profile_yaml_path=candidate_profile_yaml_path,
                 max_retries=max_retries,
                 lease_seconds=lease_seconds,
@@ -492,7 +492,7 @@ async def main() -> None:
                 processed = await _run_one_cycle(
                     db=db,
                     output_base_dir=output_base_dir,
-                    resume_yaml_path=resume_yaml_path,
+                    resume_tex_path=resume_tex_path,
                     candidate_profile_yaml_path=candidate_profile_yaml_path,
                     max_retries=max_retries,
                     lease_seconds=lease_seconds,

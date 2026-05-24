@@ -453,7 +453,7 @@ async def run_tailor_review_pipeline(
     db: DatabaseManager,
     tailor_run_id: int,
     job_hash: str,
-    base_resume_yaml_path: str | Path,
+    base_resume_tex_path: str | Path,
     candidate_profile_yaml_path: str | Path,
     output_dir: str | Path,
     record_costs: bool = True,
@@ -470,7 +470,7 @@ async def run_tailor_review_pipeline(
         db: Connected database manager (already inside a context manager).
         tailor_run_id: Primary key of the PENDING tailor_runs row.
         job_hash: Stable job identifier.
-        base_resume_yaml_path: Path to the user's resume — interpreted
+        base_resume_tex_path: Path to the user's resume — interpreted
             as a `.tex` file in Phase 2+ (the kwarg name keeps the old
             spelling until Phase 3 renames it across callers).
         candidate_profile_yaml_path: Path to
@@ -484,7 +484,7 @@ async def run_tailor_review_pipeline(
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    tex_path = Path(base_resume_yaml_path)
+    tex_path = Path(base_resume_tex_path)
 
     await db.mark_tailor_running(run_id=tailor_run_id)
 

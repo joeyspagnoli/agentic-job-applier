@@ -40,10 +40,10 @@
 ## Resume Tailor Worker (Per-Stage Mode)
 - `scripts/process_qualified_jobs.py`: Polls the database and, on every cycle, sweeps stale tailor runs and reads `automation.tailor_mode` from `system_settings`.
 - When the mode is `autonomous` or `both` the worker claims one QUALIFIED job and runs `src.agents.resume_tailor.run_tailor_review_pipeline`. When the mode is `opt_in` the worker idles — user-triggered runs from the dashboard are the only way to tailor.
-- The pipeline is a single async function (Instructor-backed structured LLM calls) covering tailor → render → reviewer → optional retry → 3-way pick. It writes both `tailor_runs` and the matching `review_runs` row from one process; there is no separate review worker.
-- The pipeline operates only on an in-memory copy of `config/resume_content.yaml`; the on-disk YAML is never mutated by a tailor run.
-- State lives in `tailor_runs` (PENDING → RUNNING → SUCCESS/FAILED, plus a `deleted_at` soft-delete column) and `review_runs` (verdicts: PASS, TAILORED, BASE, FAIL, NO_IMPROVEMENT, PAGE_FIT_FAILED).
-- Preflight only requires `latexmk` and a resolvable database path.
+- The pipeline is a single async function (Instructor-backed structured LLM calls) covering tailor → patch → compile → reviewer → optional retry → 3-way pick. It writes both `tailor_runs` and the matching `review_runs` row from one process; there is no separate review worker.
+- The pipeline reads `config/resume.tex` (re-validated against `docs/resume-tex-contract.md` at runtime), builds a deterministic bullet manifest via `src/agents/resume_tailor/locator.py`, and splices LLM rewrites in via the byte-offset patcher (`src/agents/resume_tailor/patcher.py`). The on-disk `.tex` is never mutated by a tailor run — every patched variant lands in the per-run artifact dir.
+- State lives in `tailor_runs` (PENDING → RUNNING → SUCCESS/FAILED, plus a `deleted_at` soft-delete column) and `review_runs` (verdicts: PASS, TAILORED, BASE, FAIL, NO_IMPROVEMENT, PAGE_FIT_FAILED). The DB still carries the legacy `*_yaml_path` columns; Phase 2+ writes `""` to them (they're semantically dead pending a future cleanup PR).
+- Preflight requires `tectonic` (the default compiler; `RESUME_COMPILER=latexmk` falls back to the legacy path) and a resolvable database path.
 - Generated artifacts land in `<TAILOR_OUTPUT_DIR>/<job_hash>/{base,tailored_v1,tailored_v2}/...` (default `data/tailored_resumes/...`).
 - Systemd unit: `deploy/job-tailor-worker.service`.
 - Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`, `RESUME_TAILOR_MODEL`, `RESUME_REVIEWER_MODEL`, plus `TAILOR_MODE` / `REVIEW_MODE` for first-boot seeding of the per-stage modes.

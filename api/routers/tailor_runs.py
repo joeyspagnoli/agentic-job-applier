@@ -71,7 +71,7 @@ async def _run_pipeline_background(
                 db=db,
                 tailor_run_id=tailor_run_id,
                 job_hash=job_hash,
-                base_resume_yaml_path=SETTINGS_RESUME_PATH,
+                base_resume_tex_path=SETTINGS_RESUME_PATH,
                 candidate_profile_yaml_path=SETTINGS_PROFILE_PATH,
                 output_dir=output_dir,
             )
