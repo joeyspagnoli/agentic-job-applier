@@ -38,6 +38,7 @@ from src.agents.apply_worker.browser import apply_to_job
 from src.agents.apply_worker.browser import check_chrome_reachable
 from src.agents.apply_worker.schemas import ApplyOutcome
 from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
+from src.database._mixins.system_settings import APPLY_MODE_KEY
 from src.database.db_manager import ClaimOwnershipError
 from src.database.db_manager import DEFAULT_APPLY_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
@@ -59,6 +60,12 @@ AUTO_SUBMIT_DISABLED_MESSAGE = (
     "Auto-submit is disabled in this release. "
     "Forms will be filled but not submitted."
 )
+
+# When the autonomous toggle is OFF, the apply row is set to `opt_in` and the
+# loop must skip claiming entirely so a stopped Chrome cannot drive jobs into
+# FAILED rows.
+APPLY_OPT_IN_MODE = "opt_in"
+APPLY_AUTONOMOUS_MODES: frozenset[str] = frozenset({"autonomous", "both"})
 
 _JOB_HASH_RE = re.compile(r"^[a-f0-9]{32,64}$")
 
@@ -673,6 +680,105 @@ async def _apply_once(
         )
 
     return 1
+
+
+async def _is_apply_mode_active(db: DatabaseManager) -> bool:
+    """Return True when the stored apply mode permits claiming this cycle.
+
+    Purpose:
+        Hard-gate the apply loop on per-stage automation mode so a
+        non-autonomous user never has the apply worker claim a job from
+        underneath them.
+    Args:
+        db: Connected database manager.
+    Output:
+        Returns `True` for `autonomous` and `both`; `False` otherwise.
+    """
+
+    mode = await db.get_automation_mode(APPLY_MODE_KEY)
+    if mode in APPLY_AUTONOMOUS_MODES:
+        return True
+    if mode == APPLY_OPT_IN_MODE:
+        logger.debug("Apply mode is opt_in; skipping claim this cycle")
+        return False
+    logger.warning("Unknown apply mode {!r}; treating as opt_in", mode)
+    return False
+
+
+async def run_apply_loop(
+    *,
+    db: DatabaseManager,
+    output_base_dir: Path,
+    cdp_url: str,
+    max_retries: int = DEFAULT_APPLY_MAX_RETRIES,
+    lease_seconds: int = DEFAULT_APPLY_CLAIM_LEASE_SECONDS,
+    backoff_seconds: int = DEFAULT_APPLY_RETRY_BACKOFF_SECONDS,
+    backoff_multiplier: int = DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER,
+    poll_interval_seconds: int = DEFAULT_APPLY_POLL_INTERVAL_SECONDS,
+    dry_run: bool = True,
+) -> None:
+    """Run the apply worker poll loop using a shared database manager.
+
+    Purpose:
+        Provide an importable entry point so the API supervisor can run
+        the apply loop as an in-process asyncio task. The loop reads the
+        per-stage automation mode every cycle and additionally sleeps
+        without claiming whenever host Chrome is not reachable over CDP,
+        so a closed browser never produces FAILED rows.
+    Args:
+        db: Connected database manager shared with other in-process loops.
+        output_base_dir: Per-run artifact root.
+        cdp_url: Chrome CDP endpoint URL.
+        max_retries: Maximum FAILED attempts per review run.
+        lease_seconds: Claim lease length.
+        backoff_seconds: Base retry backoff delay.
+        backoff_multiplier: Exponential backoff factor per retry.
+        poll_interval_seconds: Sleep duration between cycles.
+        dry_run: Whether to skip the submit step (always True today).
+    Output:
+        Returns `None` only on `asyncio.CancelledError` (re-raised).
+    """
+
+    logger.info(
+        "Apply loop entering poll: poll={}s lease={}s max_retries={} "
+        "dry_run={} cdp_url={}",
+        poll_interval_seconds,
+        lease_seconds,
+        max_retries,
+        dry_run,
+        cdp_url,
+    )
+
+    while True:
+        try:
+            if not await _is_apply_mode_active(db):
+                await asyncio.sleep(poll_interval_seconds)
+                continue
+            chrome_reachable = await check_chrome_reachable(cdp_url)
+            if not chrome_reachable:
+                logger.debug(
+                    "Apply loop: Chrome unreachable at {}; sleeping without claim",
+                    cdp_url,
+                )
+                await asyncio.sleep(poll_interval_seconds)
+                continue
+            processed = await _apply_once(
+                db=db,
+                output_base_dir=output_base_dir,
+                cdp_url=cdp_url,
+                max_retries=max_retries,
+                lease_seconds=lease_seconds,
+                backoff_seconds=backoff_seconds,
+                backoff_multiplier=backoff_multiplier,
+                dry_run=dry_run,
+            )
+            if processed == 0:
+                await asyncio.sleep(poll_interval_seconds)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Apply polling cycle failed: {}", exc)
+            await asyncio.sleep(poll_interval_seconds)
 
 
 async def main() -> None:

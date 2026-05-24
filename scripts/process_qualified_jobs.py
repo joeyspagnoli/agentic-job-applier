@@ -21,7 +21,6 @@ import argparse
 import asyncio
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
 
@@ -112,26 +111,21 @@ def _load_int_env(name: str, default_value: int) -> int:
 
 
 def _check_preflight() -> None:
-    """Validate that required external tools are available.
+    """Validate that the database parent directory is writable.
 
     Purpose:
-        Fail fast on missing dependencies before the worker tries its
-        first claim. The resume-tailor pipeline only needs `latexmk` locally; the
-        pi binary is no longer required.
+        Fail fast on a missing database directory before the worker tries
+        its first claim. The LaTeX engine (tectonic) is bundled into the
+        runtime container and verified once on app startup, so a
+        per-worker check is no longer needed.
     Args:
         None.
     Output:
         Returns `None` when checks pass.
     Raises:
-        TailorPreflightError: When `latexmk` is missing or the database
-            parent directory cannot be resolved.
+        TailorPreflightError: When the database parent directory cannot
+            be resolved.
     """
-
-    if shutil.which("latexmk") is None:
-        raise TailorPreflightError(
-            "latexmk not found in PATH. Install TeX Live: "
-            "sudo apt-get install texlive-full latexmk"
-        )
 
     try:
         db_path = resolve_database_path()
@@ -363,6 +357,62 @@ async def tailor_once(
         max_retries=max_retries,
         lease_seconds=lease_seconds,
     )
+
+
+async def run_tailor_loop(
+    *,
+    db: DatabaseManager,
+    output_base_dir: Path,
+    resume_tex_path: Path,
+    candidate_profile_yaml_path: Path,
+    max_retries: int = DEFAULT_TAILOR_MAX_RETRIES,
+    lease_seconds: int = DEFAULT_TAILOR_CLAIM_LEASE_SECONDS,
+    poll_interval_seconds: int = DEFAULT_TAILOR_POLL_INTERVAL_SECONDS,
+) -> None:
+    """Run the tailor worker poll loop using a shared database manager.
+
+    Purpose:
+        Provide an importable entry point so the API supervisor can run
+        the tailor loop as an in-process asyncio task without spawning a
+        new container or process. Loops forever until cancelled; the
+        cancellation propagates out and the supervisor handles cleanup.
+    Args:
+        db: Connected database manager shared with other in-process loops.
+        output_base_dir: Per-run artifact root.
+        resume_tex_path: Path to `config/resume.tex`.
+        candidate_profile_yaml_path: Path to `config/candidate_profile.yaml`.
+        max_retries: Maximum FAILED runs before a job is excluded by claim.
+        lease_seconds: PENDING claim lease length.
+        poll_interval_seconds: Sleep duration when no job was claimed.
+    Output:
+        Returns `None` only on `asyncio.CancelledError` (re-raised).
+    """
+
+    logger.info(
+        "Tailor loop entering poll: poll={}s lease={}s max_retries={}",
+        poll_interval_seconds,
+        lease_seconds,
+        max_retries,
+    )
+
+    while True:
+        processed = 0
+        try:
+            processed = await _run_one_cycle(
+                db=db,
+                output_base_dir=output_base_dir,
+                resume_tex_path=resume_tex_path,
+                candidate_profile_yaml_path=candidate_profile_yaml_path,
+                max_retries=max_retries,
+                lease_seconds=lease_seconds,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Tailor polling cycle failed: {}", exc)
+
+        if processed == 0:
+            await asyncio.sleep(poll_interval_seconds)
 
 
 async def main() -> None:

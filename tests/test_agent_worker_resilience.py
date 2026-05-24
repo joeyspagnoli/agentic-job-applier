@@ -273,6 +273,10 @@ async def test_main_loop_continues_after_process_cycle_exception(
         )
         monkeypatch.setenv("AGENT_POLL_INTERVAL_SECONDS", "1")
         monkeypatch.setattr(process_new_jobs, "resolve_database_path", lambda: db_path)
+        async def _always_active(_db: object) -> bool:
+            return True
+
+        monkeypatch.setattr(process_new_jobs, "_is_gate_mode_active", _always_active)
         monkeypatch.setattr(process_new_jobs, "_process_once", fake_process_once)
         monkeypatch.setattr(process_new_jobs.asyncio, "sleep", fake_sleep)
 

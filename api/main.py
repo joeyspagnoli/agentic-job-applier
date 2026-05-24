@@ -24,8 +24,6 @@ from api.config import DASHBOARD_INDEX_FILE
 from api.config import SETTINGS_BACKUPS_DIR
 from api.config import SETTINGS_PROFILE_PATH
 from api.config import SETTINGS_RESUME_PATH
-from api.config import TAILORED_RESUME_TOKEN_ENV_KEY
-from api.config import TAILORED_RESUME_TOKEN_HEADER
 from api.errors import _error_response
 from api.errors import _raise_api_error
 from api.services.migrations import _lifespan
@@ -47,6 +45,7 @@ from api.routers import settings_filters as settings_filters_router
 from api.routers import settings_profile as settings_profile_router
 from api.routers import settings_provider as settings_provider_router
 from api.routers import settings_resume as settings_resume_router
+from api.routers import status as status_router
 from api.routers import system as system_router
 from api.routers import system_settings as system_settings_router
 from api.routers import tailor_runs as tailor_runs_router
@@ -74,6 +73,7 @@ app.include_router(settings_filters_router.router)
 app.include_router(settings_profile_router.router)
 app.include_router(settings_provider_router.router)
 app.include_router(settings_resume_router.router)
+app.include_router(status_router.router)
 app.include_router(system_settings_router.router)
 app.include_router(tailor_runs_router.router)
 
@@ -145,8 +145,6 @@ __all__ = [
     "SETTINGS_BACKUPS_DIR",
     "SETTINGS_PROFILE_PATH",
     "SETTINGS_RESUME_PATH",
-    "TAILORED_RESUME_TOKEN_ENV_KEY",
-    "TAILORED_RESUME_TOKEN_HEADER",
     "_backup_settings_file",
     "_dispatch_system_lifecycle_action",
     "_source_label",

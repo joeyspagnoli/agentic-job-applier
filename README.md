@@ -37,16 +37,21 @@ This project is **alpha software**. The discovery, gate, tailor, review, and das
 ### Recommended human-in-the-loop flow
 
 1. Set `OPENAI_API_KEY` in `.env`.
-2. `docker compose --profile full up -d`.
-3. Open the dashboard, complete onboarding.
-4. Wait for jobs to flow through to **PENDING_REVIEW** (Human Review queue).
-5. For each pending review: open the job in your browser (the apply worker has already filled the form via Simplify autofill in your local Chrome profile), verify the application looks right, click Submit yourself, then click "Mark Complete" in the dashboard.
+2. Start host Chrome with the debug port (see [Host Chrome setup](#host-chrome-setup)).
+3. `docker compose up -d`.
+4. Open the dashboard, complete onboarding, then flip the **AUTONOMOUS** toggle in the top bar to ON.
+5. Wait for jobs to flow through to **PENDING_REVIEW** (Human Review queue).
+6. For each pending review: open the job in your browser (the apply worker has already filled the form via Simplify autofill in your host Chrome), verify the application looks right, click Submit yourself, then click "Mark Complete" in the dashboard.
 
 Treat the AI's output as a draft. Read the tailored resume before letting it represent you. **Do not write a wrapper that auto-submits forms.** If you do, you own the consequences. The disclosure process for security-relevant changes is in [`SECURITY.md`](SECURITY.md).
 
 ## Quickstart (Docker)
 
-Docker is the recommended way to run the project. The image is split into three build targets so you only install what you need.
+Docker is the recommended way to run the project. One image, one
+service, one command — `docker compose up -d` brings the entire app
+online. The image bundles the FastAPI API, the React dashboard, and
+the tectonic LaTeX engine; the discovery / gate / tailor / apply
+loops run as asyncio tasks inside the API process.
 
 ```bash
 git clone https://github.com/joeyspagnoli/agentic-job-applier.git
@@ -56,9 +61,12 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open `http://localhost:8000` once the `api` container is healthy. The first visit redirects to the in-app onboarding wizard described below.
+Open `http://localhost:8000` once the `app` container is healthy.
+The first visit redirects to the in-app onboarding wizard described below.
 
-The default `docker compose up` starts the **base** profile (api, discovery, gate). Tailoring (which also runs the reviewer in-process) and browser-driven apply are opt-in profiles documented under [Profiles and opt-in tiers](#profiles-and-opt-in-tiers).
+By default the gate, tailor, and apply loops idle so a brand-new
+user does not burn LLM dollars. Flip the **AUTONOMOUS** toggle in
+the top bar to ON to enable them. Discovery always runs.
 
 To stop the stack while preserving data:
 
@@ -71,6 +79,29 @@ To stop and discard all SQLite state and logs:
 ```bash
 docker compose down -v
 ```
+
+### Host Chrome setup
+
+The apply loop drives your **host Chrome** over the Chrome DevTools
+Protocol — there is no Chromium bundled inside the container any
+more. Start Chrome with the debug port before enabling autonomous
+mode (or before clicking the Apply button on a job):
+
+```bash
+# macOS
+open -a "Google Chrome" --args --remote-debugging-port=9222
+
+# Linux
+google-chrome --remote-debugging-port=9222 &
+
+# Windows
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+```
+
+The top-bar **Chrome ready / offline** chip mirrors reachability and
+shows the right command for your OS. The apply loop sleeps without
+claiming whenever Chrome is unreachable, so closing Chrome never
+produces FAILED rows.
 
 ## Onboarding
 
@@ -99,48 +130,16 @@ Adzuna is a free, API-backed job aggregator covering 12+ countries. It's used he
 
 Enter them in Step 5 of the onboarding wizard (or under **Settings → API Keys**). The wizard validates the credentials against the live API before saving, so typos are caught immediately. Once saved, `adzuna.enabled` in `config/companies.yaml` is flipped on automatically and the fetcher runs on every discovery cycle.
 
-## Profiles and opt-in tiers
-
-The Compose file ships three docker compose profiles. Each one inherits the layers of the previous tier, so opting up later only builds the delta.
-
-| Profile  | Build target | Services started                            | Adds to image                                       | Approx. extra build time |
-| -------- | ------------ | ------------------------------------------- | --------------------------------------------------- | ------------------------ |
-| _(none)_ | `base`       | `api`, `discovery`, `gate`                  | Python deps, FastAPI, prebuilt React dashboard      | ~3-5 min                 |
-| `tailor` | `latex`      | base + `tailor` (runs review in-process)    | TeX Live, `latexmk`, poppler-utils                  | +8-12 min                |
-| `full`   | `full`       | base + tailor + `apply`                     | Chromium (via Playwright) and Xvfb virtual display  | +3-5 min                 |
-
-Bring up a higher tier with:
+## Operational commands
 
 ```bash
-docker compose --profile tailor up -d
-docker compose --profile full up -d
-```
-
-Adding a profile to a running stack is safe. Existing containers stay up and the new services share the same `app-data` and `app-logs` volumes.
-
-Useful operational commands:
-
-```bash
-docker compose ps                      # status of all services
-docker compose logs -f gate            # tail one service
-docker compose restart tailor          # restart one service
-docker compose exec api bash           # shell into a running container
+docker compose ps                      # service status
+docker compose logs -f app             # tail the single app container
+docker compose restart app             # restart the app
+docker compose exec app bash           # shell into the running container
 ./scripts/docker/start_stack.sh        # host-level start
 ./scripts/docker/stop_stack.sh         # host-level stop
 ./scripts/docker/restart_stack.sh      # host-level restart
-```
-
-The dashboard's TopBar power menu can also dispatch Stop/Restart while the stack is up. When everything is already down, use the host-level scripts.
-
-### Chrome profile (apply service only)
-
-The apply worker runs without a Chrome profile, but the Simplify autofill extension only loads if you import yours. From a workstation already signed in:
-
-```bash
-bash scripts/docker/profile_export.sh        # produces chrome-profile.tar.gz
-# Copy the tarball to the server, then on the server:
-bash scripts/docker/profile_import.sh chrome-profile.tar.gz
-docker compose --profile full up -d
 ```
 
 ## Configuration
@@ -153,8 +152,7 @@ docker compose --profile full up -d
 | `NTFY_TOPIC`                     | Push alerts on terminal failures            | Blank disables alerts.                                    |
 | `RUN_INTERVAL_MINUTES`           | Discovery cadence                           | Defaults to 30.                                           |
 | `API_PORT`                       | Host port for the dashboard                 | Defaults to 8000.                                         |
-| `CDP_PORT`                       | Chrome remote-debug port                    | Apply service only. Defaults to 9222.                     |
-| `TAILORED_RESUME_DOWNLOAD_TOKEN` | Remote download of tailored PDFs            | Leave blank to keep the endpoint local-only.              |
+| `CHROME_CDP_URL`                 | Apply loop → host Chrome CDP endpoint       | Defaults to `http://host.docker.internal:9222`.            |
 
 User-facing YAML files live under `config/` and are persisted via the Docker `./config:/app/config` bind mount:
 
@@ -171,7 +169,7 @@ Cost telemetry rates (`COST_RATE_GATE_USD`, `COST_RATE_TAILOR_USD`, `COST_RATE_R
 
 Use this path if you are contributing or running individual workers without Docker.
 
-Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js 20+. The tailor worker also requires `latexmk` (TeX Live); the apply worker additionally needs Chrome and Playwright.
+Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js 20+. The tailor worker requires `tectonic` (`brew install tectonic` on macOS); the apply worker needs a host Chrome running with `--remote-debugging-port=9222`. Playwright drives that host Chrome over CDP — no in-image browser is installed.
 
 ```bash
 git clone https://github.com/joeyspagnoli/agentic-job-applier.git

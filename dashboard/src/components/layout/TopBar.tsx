@@ -4,33 +4,38 @@
  * Canonical top navigation bar for the AutoApply dashboard.
  *
  * @remarks
- * Rendered above every page. Shows the current page title, auto-sync status,
- * manual sync action, notification bell, and power actions.
+ * Rendered above every page. Shows three chips: the auto-sync status,
+ * the global autonomous toggle, and the host Chrome reachability chip.
+ * Replaces the older bell + manual sync + power-menu layout that was
+ * incompatible with the single-container Docker shape (issue #61).
  */
 
 import type { JSX } from "react";
-import { useEffect, useRef, useState } from "react";
-import { useIsFetching } from "@tanstack/react-query";
-import { useIsMutating } from "@tanstack/react-query";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useIsFetching,
+  useIsMutating,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+
 import {
   COLOR_ERROR,
   COLOR_ON_SURFACE,
   COLOR_ON_SURFACE_VARIANT,
-  COLOR_PRIMARY_FIXED,
-  COLOR_PRIMARY,
   COLOR_OUTLINE_VARIANT,
+  COLOR_PRIMARY,
+  COLOR_PRIMARY_FIXED,
   COLOR_SURFACE,
   Z_TOPBAR,
 } from "@/lib/design-tokens";
-import { shouldInvalidateOnSync } from "@/components/layout/topbar-sync";
-import { restartSystemStack, stopSystemStack } from "@/lib/api/client";
+import { fetchChromeStatus } from "@/lib/api/client";
+import type { ChromeStatusDto, ChromeStatusOsHint } from "@/lib/api/types";
 
 const AUTO_SYNC_SECONDS = 30;
-const POWER_ACTION_STOP = "stop";
-const POWER_ACTION_RESTART = "restart";
+const CHROME_POLL_MS = 30_000;
 
-type PowerAction = typeof POWER_ACTION_STOP | typeof POWER_ACTION_RESTART;
+const COLOR_SUCCESS_DOT = "#3DD68C";
 
 /** Props accepted by the {@link TopBar} component. */
 interface TopBarProps {
@@ -58,24 +63,26 @@ function formatSyncTimestamp(updatedAt: number | null): string {
 }
 
 /**
- * Convert one thrown mutation error into a user-facing message.
+ * Detect the current host platform for the Chrome launch command hint.
  *
- * @param error - Unknown thrown value from lifecycle action requests.
- * @returns Human-readable fallback-safe message.
+ * @returns One of `"mac" | "linux" | "windows"`, with mac as the default.
  */
-function formatPowerActionError(error: unknown): string {
-  if (error instanceof Error && error.message.trim() !== "") {
-    return error.message;
+function detectOsHint(): ChromeStatusOsHint {
+  if (typeof window === "undefined") {
+    return "mac";
   }
-  return "Action failed. Please try again.";
+  const platform = window.navigator.platform.toLowerCase();
+  if (platform.includes("win")) {
+    return "windows";
+  }
+  if (platform.includes("linux")) {
+    return "linux";
+  }
+  return "mac";
 }
 
 /**
  * Sticky top navigation bar for the AutoApply dashboard.
- *
- * @remarks
- * Displays the page title, explicit auto-sync status, manual sync trigger,
- * notification bell, and lifecycle power actions.
  *
  * @param props - {@link TopBarProps}
  * @returns The sticky `<header>` element.
@@ -84,24 +91,20 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
   const queryClient = useQueryClient();
   const activeQueryCount = useIsFetching();
   const activeMutationCount = useIsMutating();
-  const powerMenuContainerRef = useRef<HTMLDivElement | null>(null);
-  const [isPowerModalOpen, setIsPowerModalOpen] = useState<boolean>(false);
-  const [activePowerAction, setActivePowerAction] = useState<PowerAction | null>(null);
-  const [powerActionError, setPowerActionError] = useState<string | null>(null);
 
   const allQueries = queryClient.getQueryCache().findAll();
   const hasSyncError = allQueries.some((query) => query.state.status === "error");
   const lastSuccessfulSyncAt = allQueries
     .filter((query) => query.state.status === "success")
-    .reduce<number | null>((latestTimestamp, query) => {
-      const candidateTimestamp = query.state.dataUpdatedAt;
-      if (candidateTimestamp <= 0) {
-        return latestTimestamp;
+    .reduce<number | null>((latest, query) => {
+      const candidate = query.state.dataUpdatedAt;
+      if (candidate <= 0) {
+        return latest;
       }
-      if (latestTimestamp === null || candidateTimestamp > latestTimestamp) {
-        return candidateTimestamp;
+      if (latest === null || candidate > latest) {
+        return candidate;
       }
-      return latestTimestamp;
+      return latest;
     }, null);
 
   const isSyncing = activeQueryCount > 0 || activeMutationCount > 0;
@@ -113,64 +116,7 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
   const syncSubLabel = hasSyncError
     ? "One or more requests failed"
     : formatSyncTimestamp(lastSuccessfulSyncAt);
-  const syncDotColor = hasSyncError ? "bg-error" : isSyncing ? "bg-success" : "bg-outline";
-  const isPowerActionPending = activePowerAction !== null;
-
-  useEffect(() => {
-    if (!isPowerModalOpen) {
-      return;
-    }
-
-    /**
-     * Close power menu when click happens outside the power action container.
-     *
-     * @param event - Global pointer event fired from the document.
-     * @returns Nothing.
-     */
-    function handleDocumentPointerDown(event: PointerEvent): void {
-      if (
-        powerMenuContainerRef.current === null ||
-        !(event.target instanceof Node) ||
-        powerMenuContainerRef.current.contains(event.target)
-      ) {
-        return;
-      }
-
-      setPowerActionError(null);
-      setIsPowerModalOpen(false);
-    }
-
-    document.addEventListener("pointerdown", handleDocumentPointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handleDocumentPointerDown);
-    };
-  }, [isPowerModalOpen]);
-
-  function handleSyncNow(): void {
-    void queryClient.invalidateQueries({
-      predicate: (query) => {
-        return shouldInvalidateOnSync(query.queryKey[0]);
-      },
-    });
-  }
-
-  async function handlePowerActionSelection(action: PowerAction): Promise<void> {
-    setPowerActionError(null);
-    setActivePowerAction(action);
-
-    try {
-      if (action === POWER_ACTION_STOP) {
-        await stopSystemStack();
-      } else {
-        await restartSystemStack();
-      }
-      setIsPowerModalOpen(false);
-    } catch (error: unknown) {
-      setPowerActionError(formatPowerActionError(error));
-    } finally {
-      setActivePowerAction(null);
-    }
-  }
+  const syncDotClass = hasSyncError ? "bg-error" : isSyncing ? "bg-success" : "bg-outline";
 
   return (
     <header
@@ -185,13 +131,13 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
         {title}
       </h1>
 
-      <div className="flex items-center gap-5">
+      <div className="flex items-center gap-3">
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-xl"
           style={{ backgroundColor: COLOR_PRIMARY_FIXED }}
         >
           <span
-            className={`w-2 h-2 rounded-full ${syncDotColor} ${isSyncing ? "animate-pulse" : ""}`}
+            className={`w-2 h-2 rounded-full ${syncDotClass} ${isSyncing ? "animate-pulse" : ""}`}
           />
           <div className="flex flex-col leading-tight">
             <span className="text-[10px] font-bold tracking-wider" style={{ color: COLOR_PRIMARY }}>
@@ -203,123 +149,136 @@ export function TopBar({ title }: TopBarProps): JSX.Element {
           </div>
         </div>
 
-        <div className="flex items-center gap-3" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-          <button
-            className="p-1.5 rounded-lg hover:bg-accent transition-colors"
-            style={{ color: COLOR_ON_SURFACE_VARIANT }}
-            onClick={handleSyncNow}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.color = COLOR_PRIMARY;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.color = COLOR_ON_SURFACE_VARIANT;
-            }}
-            aria-label="Sync now"
-          >
-            <span className="material-symbols-outlined text-[20px]">sync</span>
-          </button>
-
-          <button
-            className="relative p-1.5 rounded-lg hover:bg-accent transition-colors"
-            style={{ color: COLOR_ON_SURFACE_VARIANT }}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.color = COLOR_PRIMARY;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.color = COLOR_ON_SURFACE_VARIANT;
-            }}
-            aria-label="Notifications"
-          >
-            <span className="material-symbols-outlined text-[20px]">notifications</span>
-            <span
-              className="absolute top-1 right-1 w-2 h-2 rounded-full"
-              style={{ backgroundColor: COLOR_PRIMARY }}
-            />
-          </button>
-
-          <div className="relative" ref={powerMenuContainerRef}>
-            <button
-              className="p-1.5 rounded-lg hover:bg-accent transition-colors"
-              style={{ color: COLOR_ON_SURFACE_VARIANT }}
-              onClick={() => {
-                setPowerActionError(null);
-                setIsPowerModalOpen((previousValue) => !previousValue);
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.color = COLOR_PRIMARY;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = COLOR_ON_SURFACE_VARIANT;
-              }}
-              aria-label="Power actions"
-              aria-haspopup="menu"
-              aria-expanded={isPowerModalOpen}
-            >
-              <span className="material-symbols-outlined text-[20px]">power_settings_new</span>
-            </button>
-
-            {isPowerModalOpen ? (
-              <div
-                className="absolute right-0 top-full mt-2 min-w-[220px] overflow-hidden rounded-xl border ambient-shadow"
-                style={{
-                  borderColor: `${COLOR_OUTLINE_VARIANT}40`,
-                  backgroundColor: COLOR_SURFACE,
-                  zIndex: Z_TOPBAR + 1,
-                }}
-                role="menu"
-                aria-label="System power actions"
-              >
-                <button
-                  className="w-full px-4 py-2.5 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
-                  style={{
-                    color: COLOR_ERROR,
-                    backgroundColor:
-                      activePowerAction === POWER_ACTION_STOP ? `${COLOR_ERROR}14` : "transparent",
-                  }}
-                  disabled={isPowerActionPending}
-                  onClick={() => {
-                    void handlePowerActionSelection(POWER_ACTION_STOP);
-                  }}
-                  role="menuitem"
-                >
-                  {activePowerAction === POWER_ACTION_STOP ? "Shutting down..." : "Shut Down"}
-                </button>
-
-                <button
-                  className="w-full border-t px-4 py-2.5 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
-                  style={{
-                    borderColor: `${COLOR_OUTLINE_VARIANT}40`,
-                    color: COLOR_ON_SURFACE,
-                    backgroundColor:
-                      activePowerAction === POWER_ACTION_RESTART
-                        ? `${COLOR_PRIMARY_FIXED}88`
-                        : "transparent",
-                  }}
-                  disabled={isPowerActionPending}
-                  onClick={() => {
-                    void handlePowerActionSelection(POWER_ACTION_RESTART);
-                  }}
-                  role="menuitem"
-                >
-                  {activePowerAction === POWER_ACTION_RESTART ? "Restarting..." : "Restart"}
-                </button>
-
-                {powerActionError ? (
-                  <p
-                    className="border-t px-4 py-2 text-xs"
-                    style={{
-                      borderColor: `${COLOR_OUTLINE_VARIANT}40`,
-                      color: COLOR_ERROR,
-                    }}
-                  >
-                    {powerActionError}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <ChromeStatusChip />
       </div>
     </header>
+  );
+}
+
+/**
+ * Chrome reachability chip rendered in the top bar.
+ *
+ * @remarks
+ * Polls `/api/status/chrome` every {@link CHROME_POLL_MS} milliseconds and
+ * shows green when reachable, red when not. Clicking opens a popover with
+ * the OS-appropriate copy-paste command for starting host Chrome with the
+ * `--remote-debugging-port=9222` flag.
+ *
+ * @returns The Chrome status chip element.
+ */
+function ChromeStatusChip(): JSX.Element {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isPopoverOpen, setIsPopoverOpen] = useState<boolean>(false);
+  const [didCopy, setDidCopy] = useState<boolean>(false);
+
+  const osHint = useMemo(detectOsHint, []);
+
+  const chromeQuery = useQuery<ChromeStatusDto>({
+    queryKey: ["status", "chrome", osHint],
+    queryFn: () => fetchChromeStatus(osHint),
+    refetchInterval: CHROME_POLL_MS,
+  });
+
+  const reachable = chromeQuery.data?.reachable === true;
+  const commandHint = chromeQuery.data?.command_hint ?? "";
+
+  useEffect(() => {
+    if (!isPopoverOpen) {
+      return;
+    }
+    function handlePointerDown(event: PointerEvent): void {
+      if (
+        containerRef.current === null ||
+        !(event.target instanceof Node) ||
+        containerRef.current.contains(event.target)
+      ) {
+        return;
+      }
+      setIsPopoverOpen(false);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isPopoverOpen]);
+
+  function handleCopy(): void {
+    if (commandHint === "") {
+      return;
+    }
+    void navigator.clipboard.writeText(commandHint).then(() => {
+      setDidCopy(true);
+      window.setTimeout(() => {
+        setDidCopy(false);
+      }, 1500);
+    });
+  }
+
+  const dotColor = reachable ? COLOR_SUCCESS_DOT : COLOR_ERROR;
+  const labelText = reachable ? "Chrome ready" : "Chrome offline";
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        className="flex items-center gap-2 px-3 py-2 rounded-xl border"
+        style={{
+          borderColor: `${COLOR_OUTLINE_VARIANT}50`,
+          backgroundColor: COLOR_SURFACE,
+        }}
+        onClick={() => {
+          setIsPopoverOpen((previousValue) => !previousValue);
+        }}
+        aria-label="Show Chrome launch command"
+        aria-expanded={isPopoverOpen}
+      >
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
+        <span className="text-[10px] font-bold tracking-wider" style={{ color: COLOR_ON_SURFACE }}>
+          {labelText}
+        </span>
+      </button>
+
+      {isPopoverOpen ? (
+        <div
+          className="absolute right-0 top-full mt-2 min-w-[320px] overflow-hidden rounded-xl border ambient-shadow p-3"
+          style={{
+            borderColor: `${COLOR_OUTLINE_VARIANT}40`,
+            backgroundColor: COLOR_SURFACE,
+            zIndex: Z_TOPBAR + 1,
+          }}
+          role="dialog"
+          aria-label="Host Chrome launch instructions"
+        >
+          <p className="text-xs mb-2" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+            {reachable
+              ? "Host Chrome is reachable. Apply loop will use it for the next claim."
+              : "Apply loop is paused until host Chrome is reachable. Run this on your host:"}
+          </p>
+          <pre
+            className="text-[11px] p-2 rounded-md overflow-x-auto"
+            style={{
+              backgroundColor: COLOR_PRIMARY_FIXED,
+              color: COLOR_ON_SURFACE,
+            }}
+          >
+            {commandHint || "Loading…"}
+          </pre>
+          <div className="flex justify-end mt-2">
+            <button
+              type="button"
+              className="text-xs px-2 py-1 rounded-md font-semibold"
+              style={{
+                color: COLOR_PRIMARY,
+                backgroundColor: `${COLOR_PRIMARY_FIXED}cc`,
+              }}
+              onClick={handleCopy}
+              disabled={commandHint === ""}
+            >
+              {didCopy ? "Copied!" : "Copy command"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

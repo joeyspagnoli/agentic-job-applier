@@ -84,7 +84,6 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     database_path = tmp_path / "jobs.db"
     monkeypatch.setenv("DATABASE_PATH", str(database_path))
-    monkeypatch.delenv(api_main.TAILORED_RESUME_TOKEN_ENV_KEY, raising=False)
     monkeypatch.setattr(
         api_main, "SETTINGS_RESUME_PATH", tmp_path / "resume.tex"
     )
@@ -131,28 +130,27 @@ def test_download_tailored_resume_uses_persisted_artifact_path(
     assert response.headers["content-type"].startswith("application/pdf")
 
 
-def test_download_tailored_resume_requires_token_when_configured(
+def test_download_tailored_resume_succeeds_for_any_client(
     api_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Verify token auth is enforced when remote-download token is configured.
+    """Verify the download endpoint serves resumes without an access gate.
 
     Purpose:
-        Ensure explicit token configuration protects resume downloads even for
-        local requests.
+        Lock in the post-#61 contract that the endpoint accepts any
+        client because the operator already chose port exposure in
+        docker-compose. Replaces the prior token/localhost-only test.
     Args:
         api_client: Isolated FastAPI test client fixture.
-        monkeypatch: Fixture used to set token environment variable.
         tmp_path: Temporary directory fixture.
     Output:
-        Returns `None`; test passes when no-token is rejected and valid token succeeds.
+        Returns `None`; test passes when the endpoint returns 200.
     """
 
     job_hash = "b" * 32
-    artifact_path = tmp_path / "remote-output" / job_hash / "resume_tailored.pdf"
+    artifact_path = tmp_path / "any-client" / job_hash / "resume_tailored.pdf"
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    artifact_path.write_bytes(b"%PDF-1.4\n%token-protected\n")
+    artifact_path.write_bytes(b"%PDF-1.4\n%any-client\n")
 
     database_path = Path(api_main.resolve_database_path())
     asyncio.run(
@@ -163,17 +161,8 @@ def test_download_tailored_resume_requires_token_when_configured(
         )
     )
 
-    token_value = "download-secret-token"
-    monkeypatch.setenv(api_main.TAILORED_RESUME_TOKEN_ENV_KEY, token_value)
-
-    unauthorized = api_client.get(f"/api/jobs/{job_hash}/resume")
-    assert unauthorized.status_code == 401
-
-    authorized = api_client.get(
-        f"/api/jobs/{job_hash}/resume",
-        headers={api_main.TAILORED_RESUME_TOKEN_HEADER: token_value},
-    )
-    assert authorized.status_code == 200
+    response = api_client.get(f"/api/jobs/{job_hash}/resume")
+    assert response.status_code == 200
 
 
 def test_download_tailored_resume_rejects_invalid_hash(api_client: TestClient) -> None:

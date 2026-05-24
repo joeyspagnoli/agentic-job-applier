@@ -10,11 +10,9 @@ import type {
   ApiKeyNameDto,
   CandidateEducationEntryDto,
   ResumeContentDto,
-  ServiceTierDto,
   SettingsProfileDto,
   SettingsResumeDto,
 } from "@/lib/api/types";
-import { SERVICE_TIER_REQUIREMENTS } from "./constants";
 import type { FiltersGuidedDraft } from "./types";
 
 /** Mutable working copy of a settings profile DTO. */
@@ -239,8 +237,6 @@ export function buildConfiguredKeyMap(
 ): Record<ApiKeyNameDto, boolean> {
   const configuredMap: Record<ApiKeyNameDto, boolean> = {
     OPENAI_API_KEY: false,
-    GOOGLE_API_KEY: false,
-    ANTHROPIC_API_KEY: false,
     ADZUNA_APP_ID: false,
     ADZUNA_APP_KEY: false,
   };
@@ -248,21 +244,6 @@ export function buildConfiguredKeyMap(
     configuredMap[key.name] = key.configured;
   });
   return configuredMap;
-}
-
-/**
- * Resolve missing API-key prerequisites for one service tier.
- *
- * @param tier - Candidate service tier.
- * @param configuredKeyMap - Current configured statuses by key name.
- * @returns Required keys that are still missing.
- */
-export function getMissingKeysForTier(
-  tier: ServiceTierDto,
-  configuredKeyMap: Readonly<Record<ApiKeyNameDto, boolean>>,
-): ApiKeyNameDto[] {
-  const requiredKeys = SERVICE_TIER_REQUIREMENTS[tier];
-  return requiredKeys.filter((keyName) => !configuredKeyMap[keyName]);
 }
 
 /**

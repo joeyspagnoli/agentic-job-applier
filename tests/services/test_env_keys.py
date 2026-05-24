@@ -102,9 +102,7 @@ def test_read_env_key_statuses_treats_placeholders_as_unset(
 ) -> None:
     # Arrange.
     env_path.write_text(
-        "OPENAI_API_KEY=your_openai_api_key_here\n"
-        "ANTHROPIC_API_KEY=your_anthropic_key_here\n"
-        "GOOGLE_API_KEY=your_google_api_key_here\n",
+        "OPENAI_API_KEY=your_openai_api_key_here\n",
         encoding="utf-8",
     )
 
@@ -113,8 +111,6 @@ def test_read_env_key_statuses_treats_placeholders_as_unset(
 
     # Assert.
     assert statuses["OPENAI_API_KEY"] is False
-    assert statuses["ANTHROPIC_API_KEY"] is False
-    assert statuses["GOOGLE_API_KEY"] is False
 
 
 def test_read_env_key_statuses_marks_real_values_configured(
@@ -128,9 +124,8 @@ def test_read_env_key_statuses_marks_real_values_configured(
 
     # Assert.
     assert statuses["OPENAI_API_KEY"] is True
-    assert statuses["ANTHROPIC_API_KEY"] is False
-    assert statuses["GOOGLE_API_KEY"] is False
-    assert statuses["OPENROUTER_BASE_URL"] is False
+    assert statuses["ADZUNA_APP_ID"] is False
+    assert statuses["ADZUNA_APP_KEY"] is False
 
 
 def test_read_env_key_statuses_returns_all_allowed_when_file_missing(
@@ -164,20 +159,19 @@ def test_build_api_keys_response_has_stable_shape(env_path: Path) -> None:
     assert openai_entry["configured"] is True
 
 
-def test_allowed_api_key_names_includes_future_byok_targets() -> None:
+def test_allowed_api_key_names_lists_openai_and_adzuna_only() -> None:
     # Arrange.
     expected = {
         "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "GOOGLE_API_KEY",
-        "OPENROUTER_BASE_URL",
+        "ADZUNA_APP_ID",
+        "ADZUNA_APP_KEY",
     }
 
     # Act.
     actual = set(api_config.ALLOWED_API_KEY_NAMES)
 
     # Assert.
-    assert expected <= actual
+    assert actual == expected
 
 
 def test_no_codex_specific_helpers_remain() -> None:

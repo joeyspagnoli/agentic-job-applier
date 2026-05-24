@@ -52,6 +52,40 @@ from src.utils.logger import log_crawl_summary, setup_logger
 from src.utils.paths import resolve_database_path
 
 
+DEFAULT_DISCOVERY_INTERVAL_MINUTES = 30
+
+
+async def run_discovery_loop(
+    *,
+    interval_minutes: int = DEFAULT_DISCOVERY_INTERVAL_MINUTES,
+) -> None:
+    """Run the discovery cycle on a repeating interval.
+
+    Purpose:
+        Provide an importable entry point so the API supervisor can run
+        discovery as an in-process asyncio task instead of relying on a
+        separate container with a shell-script sleep loop.
+        Discovery is always active — it is not gated on the autonomous
+        toggle — because it makes no LLM calls and produces no spend.
+    Args:
+        interval_minutes: Minutes to sleep between successful runs.
+            Defaults to ``RUN_INTERVAL_MINUTES`` env var when set on the
+            caller, else 30.
+    Output:
+        Returns `None` only on `asyncio.CancelledError` (re-raised).
+    """
+
+    interval_seconds = max(interval_minutes, 1) * 60
+    while True:
+        try:
+            await run_job_discovery()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Discovery cycle failed: {}", exc)
+        await asyncio.sleep(interval_seconds)
+
+
 def main() -> None:
     """Load runtime configuration and execute the discovery cycle.
 
@@ -122,5 +156,6 @@ __all__ = [
     "main",
     "resolve_database_path",
     "resolve_job_board_default_search_terms",
+    "run_discovery_loop",
     "run_job_discovery",
 ]

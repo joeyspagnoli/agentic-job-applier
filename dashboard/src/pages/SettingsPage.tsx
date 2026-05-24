@@ -22,7 +22,6 @@ import {
 import { CONFIRM_SWITCH_MESSAGE, TOP_LEVEL_TABS } from "@/lib/settings/constants";
 import type { TopLevelTab } from "@/lib/settings/types";
 import { TabButton } from "@/components/settings/TabButton";
-import { AIProviderSettings } from "@/pages/settings/AIProviderSettings";
 import { CandidateSettings } from "@/pages/settings/CandidateSettings";
 import { FiltersAndSourcesSettings } from "@/pages/settings/FiltersAndSourcesSettings";
 import { GeneralSettings } from "@/pages/settings/GeneralSettings";
@@ -31,9 +30,7 @@ import { GeneralSettings } from "@/pages/settings/GeneralSettings";
 type SectionKey =
   | "budget"
   | "apiKeys"
-  | "tier"
   | "profile"
-  | "resume"
   | "filtersAndSources";
 
 /**
@@ -46,17 +43,13 @@ export function SettingsPage(): JSX.Element {
   const [dirtyMap, setDirtyMap] = useState<Record<SectionKey, boolean>>({
     budget: false,
     apiKeys: false,
-    tier: false,
     profile: false,
-    resume: false,
     filtersAndSources: false,
   });
   const [errorMap, setErrorMap] = useState<Record<SectionKey, boolean>>({
     budget: false,
     apiKeys: false,
-    tier: false,
     profile: false,
-    resume: false,
     filtersAndSources: false,
   });
 
@@ -90,24 +83,12 @@ export function SettingsPage(): JSX.Element {
     (isDirty: boolean) => setDirty("apiKeys", isDirty),
     [setDirty],
   );
-  const handleTierDirtyChange = useCallback(
-    (isDirty: boolean) => setDirty("tier", isDirty),
-    [setDirty],
-  );
   const handleProfileDirtyChange = useCallback(
     (isDirty: boolean) => setDirty("profile", isDirty),
     [setDirty],
   );
   const handleProfileErrorChange = useCallback(
     (hasError: boolean) => setError("profile", hasError),
-    [setError],
-  );
-  const handleResumeDirtyChange = useCallback(
-    (isDirty: boolean) => setDirty("resume", isDirty),
-    [setDirty],
-  );
-  const handleResumeErrorChange = useCallback(
-    (hasError: boolean) => setError("resume", hasError),
     [setError],
   );
   const handleFiltersAndSourcesDirtyChange = useCallback(
@@ -183,22 +164,13 @@ export function SettingsPage(): JSX.Element {
           onBudgetDirtyChange={handleBudgetDirtyChange}
           onBudgetErrorChange={handleBudgetErrorChange}
           onApiKeysDirtyChange={handleApiKeysDirtyChange}
-          onTierDirtyChange={handleTierDirtyChange}
         />
-      )}
-
-      {activeTopLevelTab === "ai-provider" && (
-        <section className="rounded-2xl border border-outline-variant/30 bg-white p-6">
-          <AIProviderSettings />
-        </section>
       )}
 
       {activeTopLevelTab === "candidate" && (
         <CandidateSettings
           onProfileDirtyChange={handleProfileDirtyChange}
           onProfileErrorChange={handleProfileErrorChange}
-          onResumeDirtyChange={handleResumeDirtyChange}
-          onResumeErrorChange={handleResumeErrorChange}
         />
       )}
 

@@ -1,8 +1,9 @@
-"""Core types and protocol for the unified AI provider abstraction.
+"""Core types and protocol for the AI provider abstraction.
 
-This module defines the contract that all provider implementations
-(Codex, OpenAI, Anthropic, Gemini) must satisfy, plus the shared
-data models for requests, responses, and configuration.
+The unified abstraction kept its name even after Codex / Anthropic /
+Gemini providers were removed in the post-issue-61 cleanup, so the gate
+/ tailor / review stages can continue depending on the `AIProvider`
+protocol rather than importing the OpenAI SDK directly.
 """
 
 from __future__ import annotations
@@ -16,11 +17,9 @@ from pydantic import BaseModel, Field
 class ProviderMode(str, Enum):
     """How the user authenticates with the AI backend.
 
-    CODEX: User logs in via Codex OAuth device auth flow.
-    BYOK: User supplies their own API key for a chosen provider.
+    BYOK: User supplies their own API key for the configured provider.
     """
 
-    CODEX = "codex"
     BYOK = "byok"
 
 
@@ -30,10 +29,7 @@ class ProviderType(str, Enum):
     Each value maps to a concrete AIProvider implementation.
     """
 
-    CODEX = "codex"
     OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    GEMINI = "gemini"
     OPENROUTER = "openrouter"
 
 

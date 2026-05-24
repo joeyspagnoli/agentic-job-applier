@@ -1,62 +1,41 @@
-"""Provider factory that builds the correct AIProvider from config.
+"""Provider factory for the OpenAI BYOK pipeline.
 
-Reads provider settings from the database or environment and returns
-a configured provider instance. The factory is the single entry point
-that pipeline stages use to get their AI provider.
+Anthropic, Gemini, and Codex device-auth providers were removed in the
+post-issue-61 cleanup. The pipeline now resolves to a single OpenAI
+provider built from `OPENAI_API_KEY`, keeping a thin abstraction so the
+gate / tailor / review stages can still depend on the `AIProvider`
+protocol without re-importing the OpenAI SDK directly.
 """
 
 from __future__ import annotations
 
 import os
 
-from loguru import logger
-
-from src.providers.anthropic_provider import AnthropicProvider
-from src.providers.codex_provider import CodexProvider
 from src.providers.errors import ProviderAuthError, ProviderError
-from src.providers.gemini_provider import GeminiProvider
 from src.providers.openai_provider import OpenAIProvider
 from src.providers.types import (
     AIProvider,
     ProviderConfig,
-    ProviderMode,
     ProviderType,
 )
-
-# Singleton Codex provider so device auth state persists across requests.
-_codex_provider_instance: CodexProvider | None = None
-
-
-def get_codex_provider() -> CodexProvider:
-    """Return the singleton Codex provider instance.
-
-    Creates the instance on first call with CODEX_HOME from env.
-
-    Returns:
-        The shared CodexProvider instance.
-    """
-    global _codex_provider_instance  # noqa: PLW0603
-    if _codex_provider_instance is None:
-        codex_home = os.environ.get("CODEX_HOME", "")
-        _codex_provider_instance = CodexProvider(codex_home=codex_home)
-    return _codex_provider_instance
 
 
 def build_provider(config: ProviderConfig) -> AIProvider:
     """Build an AI provider from a configuration object.
 
+    Purpose:
+        Centralize provider construction so the pipeline never imports the
+        OpenAI SDK directly. Only the OpenAI BYOK provider type is supported
+        in this release.
     Args:
-        config: Provider configuration with mode, type, and credentials.
-
-    Returns:
-        A configured AIProvider implementation.
-
+        config: Provider configuration with type and credentials.
+    Output:
+        Returns a configured `OpenAIProvider` (or `OpenAIProvider` aimed at
+        OpenRouter when `config.provider_type == OPENROUTER`).
     Raises:
-        ProviderAuthError: If required credentials are missing.
-        ProviderError: If the provider type is not supported.
+        ProviderAuthError: When `api_key` is missing.
+        ProviderError: When `provider_type` is not OpenAI or OpenRouter.
     """
-    if config.mode == ProviderMode.CODEX:
-        return get_codex_provider()
 
     if not config.api_key:
         raise ProviderAuthError(
@@ -80,60 +59,33 @@ def build_provider(config: ProviderConfig) -> AIProvider:
             provider_type=ProviderType.OPENROUTER,
         )
 
-    if config.provider_type == ProviderType.ANTHROPIC:
-        return AnthropicProvider(
-            api_key=config.api_key,
-            default_model=config.default_model,
-        )
-
-    if config.provider_type == ProviderType.GEMINI:
-        return GeminiProvider(
-            api_key=config.api_key,
-            default_model=config.default_model,
-        )
-
     raise ProviderError(
-        f"Unsupported provider type: {config.provider_type.value}",
+        (
+            f"Unsupported provider type: {config.provider_type.value}. "
+            "Anthropic, Gemini, and Codex providers were removed."
+        ),
         provider=config.provider_type.value,
     )
 
 
 def build_provider_from_env() -> AIProvider:
-    """Build a provider from environment variables as fallback.
+    """Build an OpenAI provider from `OPENAI_API_KEY` in the environment.
 
-    Checks env vars in priority order: CODEX_HOME (if codex CLI present),
-    OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY.
-
-    Returns:
-        The first provider with valid credentials.
-
+    Purpose:
+        Provide a single env-driven entry point for any caller that wants
+        the project's "default" provider without threading config objects.
+    Args:
+        None.
+    Output:
+        Returns an `OpenAIProvider` initialized from `OPENAI_API_KEY`.
     Raises:
-        ProviderAuthError: If no provider credentials are found.
+        ProviderAuthError: When `OPENAI_API_KEY` is not set.
     """
-    # Check Codex first — it doesn't need an API key.
-    codex_provider = get_codex_provider()
-    if codex_provider.is_authenticated:
-        logger.info("Using Codex provider (authenticated session found)")
-        return codex_provider
 
-    # Check BYOK keys in priority order.
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
-        logger.info("Using OpenAI provider from OPENAI_API_KEY env var")
-        return OpenAIProvider(api_key=openai_key)
-
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if anthropic_key:
-        logger.info("Using Anthropic provider from ANTHROPIC_API_KEY env var")
-        return AnthropicProvider(api_key=anthropic_key)
-
-    google_key = os.environ.get("GOOGLE_API_KEY", "")
-    if google_key:
-        logger.info("Using Gemini provider from GOOGLE_API_KEY env var")
-        return GeminiProvider(api_key=google_key)
-
-    raise ProviderAuthError(
-        "No AI provider credentials found. Configure Codex login or set "
-        "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.",
-        provider="none",
-    )
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not openai_key:
+        raise ProviderAuthError(
+            "OPENAI_API_KEY is not set; cannot build an AI provider.",
+            provider=ProviderType.OPENAI.value,
+        )
+    return OpenAIProvider(api_key=openai_key)

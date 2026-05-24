@@ -185,13 +185,13 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Return a `TestClient` wired to an isolated SQLite database.
 
     Purpose:
-        Redirect `resolve_database_path` to a per-test path and clear the
-        download token so the endpoint exercises the local-only path.
+        Redirect `resolve_database_path` to a per-test path so the
+        endpoint reads from a clean database; the download endpoint
+        itself no longer enforces a localhost-only gate.
     """
 
     database_path = tmp_path / "jobs.db"
     monkeypatch.setenv("DATABASE_PATH", str(database_path))
-    monkeypatch.delenv(api_main.TAILORED_RESUME_TOKEN_ENV_KEY, raising=False)
     return TestClient(api_main.app)
 
 

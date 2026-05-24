@@ -1,48 +1,48 @@
 # ============================================================
-# Compose profiles control which pipeline stages are active:
+# Single-service compose file (issue #61).
 #
-#   docker compose up -d                   # core only (fetch + gate)
-#   docker compose --profile tailor up -d  # + tailoring (review runs in-process)
-#   docker compose --profile full up -d    # + tailoring + apply
+#   docker compose up -d
 #
-# Each profile builds only the image layers it needs.
-# Layers from earlier stages are reused from cache.
+# Starts one `app` container that hosts the FastAPI API, the React
+# dashboard, the tectonic LaTeX engine, and the asyncio supervisor
+# that owns discovery / gate / tailor / apply loops. Mode lives in
+# the dashboard top-bar autonomous toggle — there are no profile
+# flags and no separate worker containers.
+#
+# The apply loop talks to the user's host Chrome over CDP at
+# `host.docker.internal:9222`. Start Chrome on the host before
+# enabling autonomous mode:
+#
+#   macOS:   open -a "Google Chrome" --args --remote-debugging-port=9222
+#   Linux:   google-chrome --remote-debugging-port=9222 &
+#   Windows: chrome.exe --remote-debugging-port=9222
 # ============================================================
 
-x-base-volumes: &base-volumes
-  volumes:
-    - ./config:/app/config
-    - app-data:/app/data
-    - app-logs:/app/logs
-    - tectonic-cache:/tectonic-cache
-
-x-base-service: &base-service
-  build:
-    context: .
-    target: base
-  env_file: .env
-  <<: *base-volumes
-  depends_on:
-    api:
-      condition: service_healthy
-  restart: unless-stopped
-
 services:
-  # ----------------------------------------------------------
-  # CORE — always running
-  # ----------------------------------------------------------
-
-  api:
+  app:
     build:
       context: .
-      # latex stage: opt-in tailor runs execute as FastAPI BackgroundTasks
-      # in this container, so it needs the tectonic LaTeX engine.
-      target: latex
+      target: app
     command: uv run --no-dev uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "${API_PORT:-8000}:8000"
-    <<: *base-volumes
     env_file: .env
+    environment:
+      # Default the CDP URL to the host gateway so the apply loop can
+      # reach Chrome running on the user's machine. Operators on Linux
+      # who already export CHROME_CDP_URL via `.env` win.
+      CHROME_CDP_URL: ${CHROME_CDP_URL:-http://host.docker.internal:9222}
+    extra_hosts:
+      # Linux Docker does not resolve `host.docker.internal` natively;
+      # this maps it to the host gateway so the apply loop reaches host
+      # Chrome from inside the container. Mac/Windows resolve it
+      # automatically but the explicit mapping is a no-op for them.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config:/app/config
+      - app-data:/app/data
+      - app-logs:/app/logs
+      - tectonic-cache:/tectonic-cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -51,74 +51,7 @@ services:
       retries: 6
       start_period: 60s
 
-  discovery:
-    <<: *base-service
-    command: bash scripts/docker/run_discovery.sh
-
-  gate:
-    <<: *base-service
-    command: uv run --no-dev python -m scripts.process_new_jobs --loop
-
-  # ----------------------------------------------------------
-  # TAILOR profile — resume tailoring (review runs in the same
-  # process — there is no separate review service).
-  # Requires: docker compose --profile tailor up
-  # ----------------------------------------------------------
-
-  tailor:
-    build:
-      context: .
-      target: latex
-    profiles: [tailor, full]
-    command: uv run --no-dev python -m scripts.process_qualified_jobs --loop
-    env_file: .env
-    <<: *base-volumes
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # ----------------------------------------------------------
-  # FULL profile — automated browser apply
-  # Requires: docker compose --profile full up
-  # Note: tailor is also included via profiles: [tailor, full]
-  # ----------------------------------------------------------
-
-  apply:
-    build:
-      context: .
-      target: full
-    profiles: [full]
-    # Start Chrome + Xvfb, wait for CDP to be ready, then start worker
-    command: >
-      bash -c "
-        deploy/start-chrome-cdp.sh &
-        until curl -sf http://localhost:${CDP_PORT:-9222}/json/version >/dev/null 2>&1; do
-          sleep 1;
-        done &&
-        echo 'Chrome CDP ready' &&
-        uv run --no-dev python -m scripts.process_apply_jobs --loop
-      "
-    env_file: .env
-    volumes:
-      - ./config:/app/config
-      - app-data:/app/data
-      - app-logs:/app/logs
-      - chrome-profile:/app/data/chrome-profile
-    environment:
-      - DISPLAY=:99
-      - CDP_PORT=${CDP_PORT:-9222}
-      - CHROME_CDP_URL=http://localhost:${CDP_PORT:-9222}
-      - CHROME_USER_DATA_DIR=/app/data/chrome-profile
-    shm_size: 1gb
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   app-data:
   app-logs:
-  chrome-profile:
-  codex-auth:
   tectonic-cache:

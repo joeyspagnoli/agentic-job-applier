@@ -12,6 +12,8 @@ import type {
   AutomationSettingsDto,
   BudgetDto,
   CostByStageDto,
+  ChromeStatusDto,
+  ChromeStatusOsHint,
   CostDailyTrendDto,
   CostStatsDto,
   DashboardStatsDto,
@@ -24,8 +26,6 @@ import type {
   JobsResponseDto,
   RetryFailureDto,
   ResumeContentDto,
-  ServiceTierDto,
-  ServiceTierResponseDto,
   SettingsFilesDto,
   SettingsProfileDto,
   SettingsProfileUploadDto,
@@ -424,28 +424,6 @@ export async function fetchSystemHealth(): Promise<SystemHealthDto> {
 }
 
 /**
- * Dispatch a non-destructive stack stop action.
- *
- * @returns Accepted lifecycle action payload.
- */
-export async function stopSystemStack(): Promise<SystemLifecycleActionDto> {
-  return getJson<SystemLifecycleActionDto>("/api/system/stop", {
-    method: "POST",
-  });
-}
-
-/**
- * Dispatch a full stack restart action.
- *
- * @returns Accepted lifecycle action payload.
- */
-export async function restartSystemStack(): Promise<SystemLifecycleActionDto> {
-  return getJson<SystemLifecycleActionDto>("/api/system/restart", {
-    method: "POST",
-  });
-}
-
-/**
  * Trigger an immediate job discovery run by restarting the discovery container.
  *
  * @returns Accepted lifecycle action payload.
@@ -454,6 +432,23 @@ export async function fetchJobsNow(): Promise<SystemLifecycleActionDto> {
   return getJson<SystemLifecycleActionDto>("/api/system/fetch-jobs", {
     method: "POST",
   });
+}
+
+/**
+ * Fetch the host Chrome reachability snapshot for the top-bar chip.
+ *
+ * @param osHint - Caller's OS, used to pick the correct launch command.
+ * @returns Chrome status payload including reachability and command hint.
+ */
+export async function fetchChromeStatus(
+  osHint?: ChromeStatusOsHint,
+): Promise<ChromeStatusDto> {
+  const params = new URLSearchParams();
+  if (osHint !== undefined) {
+    params.set("os", osHint);
+  }
+  const querySuffix = params.toString() === "" ? "" : `?${params.toString()}`;
+  return getJson<ChromeStatusDto>(`/api/status/chrome${querySuffix}`);
 }
 
 /**
@@ -567,31 +562,6 @@ export async function validateAdzunaKeys(
 export async function deleteApiKeySetting(keyName: ApiKeyNameDto): Promise<ApiKeysResponseDto> {
   return getJson<ApiKeysResponseDto>(`/api/settings/api-keys/${encodeURIComponent(keyName)}`, {
     method: "DELETE",
-  });
-}
-
-/**
- * Request currently selected service tier.
- *
- * @returns Active service tier payload.
- */
-export async function fetchServiceTierSetting(): Promise<ServiceTierResponseDto> {
-  return getJson<ServiceTierResponseDto>("/api/settings/service-tier");
-}
-
-/**
- * Persist selected service tier for pipeline-stage activation.
- *
- * @param tier - Requested service tier identifier.
- * @returns Updated service tier payload.
- */
-export async function updateServiceTierSetting(
-  tier: ServiceTierDto,
-): Promise<ServiceTierResponseDto> {
-  return getJson<ServiceTierResponseDto>("/api/settings/service-tier", {
-    method: "PUT",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ tier }),
   });
 }
 
@@ -902,89 +872,6 @@ export interface OnboardingStatusDto {
  */
 export async function fetchOnboardingStatus(): Promise<OnboardingStatusDto> {
   return getJson<OnboardingStatusDto>("/api/settings/onboarding-status");
-}
-
-// ── AI Provider Settings ───────────────────────────────────────────
-
-/** AI provider mode — Codex subscription or bring-your-own-key. */
-export type AiProviderMode = "codex" | "byok";
-
-/** Supported BYOK provider types. */
-export type AiProviderType = "openai" | "anthropic" | "gemini" | "openrouter";
-
-/** Response shape for AI provider configuration endpoint. */
-export interface AiProviderSettingsDto {
-  readonly ok: true;
-  readonly mode: AiProviderMode;
-  readonly provider_type: AiProviderType | null;
-  readonly is_configured: boolean;
-  readonly keys_configured: readonly string[];
-}
-
-/**
- * Fetch the current AI provider configuration.
- *
- * @returns AI provider settings state.
- */
-export async function fetchAiProviderSettings(): Promise<AiProviderSettingsDto> {
-  return getJson<AiProviderSettingsDto>("/api/settings/ai-provider");
-}
-
-/**
- * Update AI provider configuration.
- *
- * @param payload - Provider mode and optional key/type.
- * @returns Updated AI provider settings.
- */
-export async function updateAiProviderSettings(payload: {
-  readonly mode: AiProviderMode;
-  readonly provider_type?: AiProviderType;
-  readonly api_key?: string;
-}): Promise<AiProviderSettingsDto> {
-  return getJson<AiProviderSettingsDto>("/api/settings/ai-provider", {
-    method: "PUT",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-}
-
-/** Codex device auth session snapshot. */
-export interface CodexAuthSnapshotDto {
-  readonly status: "idle" | "starting" | "running" | "completed" | "failed";
-  readonly verification_url: string | null;
-  readonly device_code: string | null;
-  readonly error_message: string | null;
-}
-
-/**
- * Start Codex device auth flow.
- *
- * @returns Auth session snapshot with verification URL and device code.
- */
-export async function startCodexAuth(): Promise<CodexAuthSnapshotDto> {
-  return getJson<CodexAuthSnapshotDto>("/api/settings/codex-auth/start", {
-    method: "POST",
-  });
-}
-
-/**
- * Poll Codex device auth status.
- *
- * @returns Current auth session snapshot.
- */
-export async function fetchCodexAuthStatus(): Promise<CodexAuthSnapshotDto> {
-  return getJson<CodexAuthSnapshotDto>("/api/settings/codex-auth/status");
-}
-
-/**
- * Disconnect from Codex (logout).
- *
- * @returns Confirmation payload.
- */
-export async function disconnectCodexAuth(): Promise<{ ok: true }> {
-  return getJson<{ ok: true }>("/api/settings/codex-auth/disconnect", {
-    method: "POST",
-  });
 }
 
 // ── Job Import ─────────────────────────────────────────────────────

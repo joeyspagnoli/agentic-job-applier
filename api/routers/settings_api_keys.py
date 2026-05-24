@@ -1,18 +1,14 @@
-"""Settings router for API keys and service tier configuration."""
+"""Settings router for API keys configuration."""
 
 from __future__ import annotations
 
 import httpx
 from fastapi import APIRouter
 
-from src.database.db_manager import DatabaseManager
-
 from api.config import ALLOWED_API_KEY_NAMES
-from api.config import ALLOWED_SERVICE_TIERS
 from api.errors import _raise_api_error
 from api.schemas.common import AdzunaValidateRequest
 from api.schemas.common import ApiKeyUpsertRequest
-from api.schemas.common import ServiceTierUpdateRequest
 from api.services.env_keys import _build_api_keys_response
 from api.services.env_keys import _delete_env_key
 from api.services.env_keys import _write_env_key
@@ -137,54 +133,3 @@ async def validate_adzuna_keys(
     return {"ok": True}
 
 
-@router.get("/service-tier")
-async def get_service_tier() -> dict[str, object]:
-    """Return the currently active service tier.
-
-    Purpose:
-        Let the settings UI pre-select the correct tier card on load.
-    Args:
-        None.
-    Output:
-        Returns ok + tier string.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    db_path = str(_main.resolve_database_path())
-    async with DatabaseManager(db_path) as db:
-        await db.create_tables()
-        await db.migrate_cost_schema()
-        tier = await db.get_service_tier()
-    return {"ok": True, "tier": tier}
-
-
-@router.put("/service-tier")
-async def update_service_tier(payload: ServiceTierUpdateRequest) -> dict[str, object]:
-    """Persist the selected service tier.
-
-    Purpose:
-        Keep the active pipeline tier durable so worker scripts respect the
-        user's chosen automation level on their next run.
-    Args:
-        payload: Parsed request body with the new tier identifier.
-    Output:
-        Returns ok + updated tier string.
-    Raises:
-        HTTPException 400: When the requested tier is not a valid identifier.
-    """
-
-    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
-
-    if payload.tier not in ALLOWED_SERVICE_TIERS:
-        _raise_api_error(
-            status_code=400,
-            code="UNKNOWN_SERVICE_TIER",
-            message=f"'{payload.tier}' is not a valid service tier.",
-        )
-    db_path = str(_main.resolve_database_path())
-    async with DatabaseManager(db_path) as db:
-        await db.create_tables()
-        await db.migrate_cost_schema()
-        tier = await db.set_service_tier(payload.tier)
-    return {"ok": True, "tier": tier}

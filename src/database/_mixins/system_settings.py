@@ -20,9 +20,20 @@ from src.database._mixins.base import _BaseMixin
 
 AUTOMATION_MODES: tuple[str, ...] = ("autonomous", "opt_in", "both")
 
+GATE_MODE_KEY = "automation.gate_mode"
 TAILOR_MODE_KEY = "automation.tailor_mode"
+APPLY_MODE_KEY = "automation.apply_mode"
 
+GATE_MODE_ENV_VAR = "GATE_MODE"
 TAILOR_MODE_ENV_VAR = "TAILOR_MODE"
+APPLY_MODE_ENV_VAR = "APPLY_MODE"
+
+# Per-stage settings keys exposed for the supervisor and API to enumerate.
+AUTOMATION_STAGE_KEYS: tuple[str, ...] = (
+    GATE_MODE_KEY,
+    TAILOR_MODE_KEY,
+    APPLY_MODE_KEY,
+)
 
 DEFAULT_AUTOMATION_MODE = "opt_in"
 
@@ -230,7 +241,9 @@ class SystemSettingsMixin(_BaseMixin):
 
         await self._ensure_system_settings_schema_ready()
         env_seeds: tuple[tuple[str, str], ...] = (
+            (GATE_MODE_KEY, GATE_MODE_ENV_VAR),
             (TAILOR_MODE_KEY, TAILOR_MODE_ENV_VAR),
+            (APPLY_MODE_KEY, APPLY_MODE_ENV_VAR),
         )
 
         for setting_key, env_var in env_seeds:

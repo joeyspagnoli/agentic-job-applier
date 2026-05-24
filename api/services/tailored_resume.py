@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import secrets
 from pathlib import Path
-
-from fastapi import Request
 
 from src.agents.resume_tailor.pipeline import BASE_VARIANT_NAME
 from src.agents.resume_tailor.pipeline import TAILORED_V1_VARIANT_NAME
@@ -16,10 +12,7 @@ from src.utils.paths import resolve_database_path
 from src.utils.paths import resolve_repo_root
 
 from api.config import JOB_HASH_PATTERN
-from api.config import LOCAL_TAILORED_RESUME_CLIENT_HOSTS
 from api.config import TAILORED_RESUME_FILENAME
-from api.config import TAILORED_RESUME_TOKEN_ENV_KEY
-from api.config import TAILORED_RESUME_TOKEN_HEADER
 from api.errors import _raise_api_error
 
 # Closed whitelist of per-variant subdirectory names the tailor pipeline emits.
@@ -58,57 +51,6 @@ def _validate_job_hash(job_hash: str) -> str:
             details={"job_hash": job_hash},
         )
     return normalized_hash
-
-
-def _require_tailored_resume_access(request: Request) -> None:
-    """Require local-only access or token-authenticated access to resume PDFs.
-
-    Purpose:
-        Reduce accidental resume exposure by limiting default access to local
-        clients, while supporting explicit remote access via a shared secret.
-        Set `TAILORED_RESUME_ALLOW_REMOTE=true` to skip the localhost check
-        entirely — useful when the API is reached through Docker's port
-        forward (Docker Desktop on macOS rewrites the source IP to its
-        internal vpnkit proxy address, so it never looks like 127.0.0.1).
-    Args:
-        request: Incoming request used to inspect client host and auth header.
-    Output:
-        Returns `None` when request is authorized.
-    Raises:
-        HTTPException: When request does not satisfy access requirements.
-    """
-
-    configured_token = os.getenv(TAILORED_RESUME_TOKEN_ENV_KEY, "").strip()
-    if configured_token:
-        provided_token = request.headers.get(TAILORED_RESUME_TOKEN_HEADER, "").strip()
-        if not secrets.compare_digest(provided_token, configured_token):
-            _raise_api_error(
-                status_code=401,
-                code="UNAUTHORIZED",
-                message="Tailored resume download token is missing or invalid.",
-                details={"header": TAILORED_RESUME_TOKEN_HEADER},
-            )
-        return
-
-    # Escape hatch for Docker port-forwarded deployments: when set to true the
-    # localhost-only check is skipped, on the assumption that the operator has
-    # already chosen the network exposure by mapping the port in docker-compose.
-    if os.getenv("TAILORED_RESUME_ALLOW_REMOTE", "").strip().lower() in {"1", "true", "yes"}:
-        return
-
-    client_host = (request.client.host if request.client is not None else "").lower()
-    if client_host not in LOCAL_TAILORED_RESUME_CLIENT_HOSTS:
-        _raise_api_error(
-            status_code=403,
-            code="FORBIDDEN",
-            message=(
-                "Tailored resume downloads are restricted to local clients unless "
-                f"{TAILORED_RESUME_TOKEN_ENV_KEY} is configured. "
-                "If you reach the API through Docker port forwarding, set "
-                "TAILORED_RESUME_ALLOW_REMOTE=true to disable this check."
-            ),
-            details={"client_host": client_host or "unknown"},
-        )
 
 
 def _is_safe_tailored_resume_path(*, job_hash: str, candidate_path: Path) -> bool:

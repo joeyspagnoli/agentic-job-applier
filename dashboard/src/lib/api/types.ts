@@ -176,6 +176,22 @@ export interface TailorRunDetailDto {
 /** Allowed automation modes for the tailor stage. */
 export type AutomationMode = "autonomous" | "opt_in" | "both";
 
+/** Response payload for `GET /api/status/chrome`. */
+export interface ChromeStatusDto {
+  readonly ok: true;
+  /** True when host Chrome responded to the CDP probe. */
+  readonly reachable: boolean;
+  /** ISO-8601 UTC timestamp captured immediately after the probe. */
+  readonly checked_at: string;
+  /** CDP endpoint URL the backend probed. */
+  readonly cdp_url: string;
+  /** OS-appropriate launch command shown in the chip popover. */
+  readonly command_hint: string;
+}
+
+/** OS hint forwarded to the Chrome status endpoint. */
+export type ChromeStatusOsHint = "mac" | "linux" | "windows";
+
 /** Response payload for `GET /api/system-settings/automation`. */
 export interface AutomationSettingsDto {
   readonly ok: true;
@@ -308,8 +324,6 @@ export interface BudgetDto {
 /** Supported environment-backed API key names shown in settings UI. */
 export type ApiKeyNameDto =
   | "OPENAI_API_KEY"
-  | "GOOGLE_API_KEY"
-  | "ANTHROPIC_API_KEY"
   | "ADZUNA_APP_ID"
   | "ADZUNA_APP_KEY";
 
@@ -323,15 +337,6 @@ export interface ApiKeyStatusDto {
 export interface ApiKeysResponseDto {
   readonly ok: true;
   readonly keys: readonly ApiKeyStatusDto[];
-}
-
-/** Supported service tier identifiers for pipeline depth controls. */
-export type ServiceTierDto = "base" | "latex" | "full";
-
-/** Response payload for service tier read/write endpoints. */
-export interface ServiceTierResponseDto {
-  readonly ok: true;
-  readonly tier: ServiceTierDto;
 }
 
 /** File metadata for settings-managed YAML files. */

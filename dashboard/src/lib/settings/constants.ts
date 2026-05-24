@@ -4,8 +4,7 @@
  * Constant tables and static option lists shared across settings tabs.
  */
 
-import type { ApiKeyNameDto, ServiceTierDto } from "@/lib/api/types";
-import type { ApiKeyConfig, SelectOption, ServiceTierCard, TopLevelTab } from "./types";
+import type { ApiKeyConfig, SelectOption, TopLevelTab } from "./types";
 
 /** All job type values recognized by the filters hard-filter. */
 export const JOB_TYPES: readonly string[] = ["Full-time", "Part-time", "Contract", "Internship"];
@@ -16,8 +15,7 @@ export const EDITOR_HEIGHT_PX = 420;
 /** Top-level navigation tabs for the settings page. */
 export const TOP_LEVEL_TABS: readonly { id: TopLevelTab; label: string }[] = [
   { id: "general", label: "General" },
-  { id: "ai-provider", label: "AI Provider" },
-  { id: "candidate", label: "Profile & Resume" },
+  { id: "candidate", label: "Profile" },
   { id: "filters", label: "Filters & Sources" },
 ];
 
@@ -29,16 +27,6 @@ export const API_KEYS: readonly ApiKeyConfig[] = [
     description: "Required for gate review, resume tailoring, and full automation.",
   },
   {
-    name: "GOOGLE_API_KEY",
-    icon: "auto_awesome",
-    description: "Optional provider key for alternative model routing.",
-  },
-  {
-    name: "ANTHROPIC_API_KEY",
-    icon: "auto_awesome",
-    description: "Optional provider key for alternative model routing.",
-  },
-  {
     name: "ADZUNA_APP_ID",
     icon: "travel_explore",
     description: "Optional. Adzuna application ID — paired with the app key to enable Adzuna job discovery.",
@@ -47,50 +35,6 @@ export const API_KEYS: readonly ApiKeyConfig[] = [
     name: "ADZUNA_APP_KEY",
     icon: "travel_explore",
     description: "Optional. Adzuna application key — see developer.adzuna.com.",
-  },
-];
-
-/** Required API keys per service tier. */
-export const SERVICE_TIER_REQUIREMENTS: Readonly<
-  Record<ServiceTierDto, readonly ApiKeyNameDto[]>
-> = {
-  base: [],
-  latex: ["OPENAI_API_KEY"],
-  full: ["OPENAI_API_KEY"],
-};
-
-/** Service tier card definitions for the General → Service Tier section. */
-export const SERVICE_TIER_CARDS: readonly ServiceTierCard[] = [
-  {
-    tier: "base",
-    icon: "search",
-    title: "Base",
-    description:
-      "Find and filter jobs from configured sources. Gate review is attempted when a provider key exists.",
-    features: [
-      "Job discovery (Greenhouse, JobSpy, Workday)",
-      "Gate filtering (apply/skip decisions)",
-      "Works as pure job aggregator without AI keys",
-    ],
-  },
-  {
-    tier: "latex",
-    icon: "description",
-    title: "LaTeX",
-    badge: "Recommended",
-    description: "Find jobs + tailor resume + human review queue.",
-    features: ["Everything in Base", "Resume tailoring (LaTeX/PDF)", "Human review queue"],
-  },
-  {
-    tier: "full",
-    icon: "rocket_launch",
-    title: "Full",
-    description: "Full automation including browser-based application workflows.",
-    features: [
-      "Everything in LaTeX",
-      "Automated browser apply (Playwright + Chromium)",
-      "End-to-end autonomous pipeline",
-    ],
   },
 ];
 

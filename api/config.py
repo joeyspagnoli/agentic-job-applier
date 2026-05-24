@@ -43,16 +43,6 @@ SYSTEM_FETCH_JOBS_SCRIPT_PATH = (
 
 TAILORED_RESUME_DIR = resolve_repo_root() / "data" / "tailored_resumes"
 TAILORED_RESUME_FILENAME = "resume_tailored.pdf"
-TAILORED_RESUME_TOKEN_ENV_KEY = "TAILORED_RESUME_DOWNLOAD_TOKEN"
-TAILORED_RESUME_TOKEN_HEADER = "x-tailored-resume-token"
-LOCAL_TAILORED_RESUME_CLIENT_HOSTS = frozenset(
-    {
-        "127.0.0.1",
-        "::1",
-        "localhost",
-        "testclient",
-    }
-)
 
 JOB_HASH_PATTERN = re.compile(r"^[a-f0-9]{32,64}$")
 SETTINGS_BACKUP_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
@@ -90,19 +80,13 @@ PERSONAL_CONTACT_PATTERN = re.compile(
     flags=re.DOTALL,
 )
 
-# Valid API key names that the settings UI may read/write. The current API
-# only writes OPENAI_API_KEY (see issue #35), but the wider set is kept here
-# so future BYOK work can reuse the same .env helper without churn.
+# Valid API key names that the settings UI may read/write. Anthropic / Google /
+# OpenRouter were dropped in the post-#61 cleanup; the only AI provider is
+# OpenAI BYOK, and Adzuna is the sole optional job-board credential pair.
 ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
     {
         "OPENAI_API_KEY",
-        "GOOGLE_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "OPENROUTER_BASE_URL",
         "ADZUNA_APP_ID",
         "ADZUNA_APP_KEY",
     }
 )
-
-# Valid service tier identifiers.
-ALLOWED_SERVICE_TIERS: frozenset[str] = frozenset({"base", "latex", "full"})

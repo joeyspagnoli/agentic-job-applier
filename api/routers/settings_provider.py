@@ -66,30 +66,6 @@ class ProviderWriteRequest(BaseModel):
     )
 
 
-@router.get("/ai-provider")
-async def get_ai_provider() -> dict[str, object]:
-    """Return the current AI provider configuration.
-
-    Purpose:
-        Drive the settings UI's provider status row so the user can see whether
-        an OpenAI BYOK key is currently configured.
-    Args:
-        None.
-    Returns:
-        JSON describing the active provider and whether an OpenAI key is set.
-    """
-
-    has_openai = bool(os.environ.get(OPENAI_ENV_KEY_NAME))
-    return {
-        "ok": True,
-        "config": {
-            "mode": "byok",
-            "providerType": PROVIDER_OPENAI if has_openai else "none",
-            "hasOpenaiKey": has_openai,
-        },
-    }
-
-
 @router.post("/provider")
 async def post_provider(payload: ProviderWriteRequest) -> dict[str, object]:
     """Persist a BYOK API key for the requested provider type.

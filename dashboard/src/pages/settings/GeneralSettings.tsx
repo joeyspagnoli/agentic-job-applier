@@ -9,7 +9,6 @@ import type { JSX } from "react";
 import { ApiKeysSettings } from "./ApiKeysSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { BudgetSettings } from "./BudgetSettings";
-import { ServiceTierSettings } from "./ServiceTierSettings";
 
 /** Props for the general settings tab. */
 export interface GeneralSettingsProps {
@@ -19,21 +18,18 @@ export interface GeneralSettingsProps {
   readonly onBudgetErrorChange: (hasError: boolean) => void;
   /** Callback for API keys section dirty changes. */
   readonly onApiKeysDirtyChange: (isDirty: boolean) => void;
-  /** Callback for service tier section dirty changes. */
-  readonly onTierDirtyChange: (isDirty: boolean) => void;
 }
 
 /**
  * Render the General settings tab.
  *
  * @param props - Composer props.
- * @returns Stacked Budget + API Keys + Service Tier sections.
+ * @returns Stacked Budget + API Keys + Automation sections.
  */
 export function GeneralSettings({
   onBudgetDirtyChange,
   onBudgetErrorChange,
   onApiKeysDirtyChange,
-  onTierDirtyChange,
 }: GeneralSettingsProps): JSX.Element {
   return (
     <>
@@ -42,7 +38,6 @@ export function GeneralSettings({
         onErrorChange={onBudgetErrorChange}
       />
       <ApiKeysSettings onDirtyChange={onApiKeysDirtyChange} />
-      <ServiceTierSettings onDirtyChange={onTierDirtyChange} />
       <AutomationSettings />
     </>
   );

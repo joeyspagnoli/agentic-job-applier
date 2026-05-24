@@ -31,9 +31,7 @@ from src.agents.root_apply_decider import (
     map_decision_to_status,
     run_decider_for_job,
 )
-from src.agents.root_apply_decider.unified_runtime import (
-    run_gate_with_provider as _run_gate_unified,
-)
+from src.database._mixins.system_settings import GATE_MODE_KEY
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_GATE
 from src.utils.cost_tracking import check_budget_before_claim
@@ -46,6 +44,12 @@ DEFAULT_AGENT_POLL_INTERVAL_SECONDS = 60
 DEFAULT_AGENT_MAX_RETRIES = 3
 DEFAULT_AGENT_RETRY_BACKOFF_SECONDS = 300
 DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER = 3
+
+# When the autonomous toggle is OFF, the gate row is set to `opt_in` and the
+# loop must skip all LLM-calling work — the gate has no user-trigger entry
+# point today, so opt_in effectively means "do nothing this cycle".
+GATE_OPT_IN_MODE = "opt_in"
+GATE_AUTONOMOUS_MODES: frozenset[str] = frozenset({"autonomous", "both"})
 
 
 class ModelConfigurationError(RuntimeError):
@@ -381,143 +385,36 @@ async def _process_once(
     return processed
 
 
-async def _process_once_unified(
-    *,
-    db: DatabaseManager,
-    limit: int,
-    max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
-    backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
-    backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
-) -> int:
-    """Process one batch using the unified AI provider abstraction.
-
-    Uses whichever provider the user configured (Codex, OpenAI, Anthropic,
-    Gemini) instead of the hardcoded ADK + LiteLLM path.
-
-    Args:
-        db: Connected database manager for queue reads and updates.
-        limit: Maximum number of pending jobs to process.
-        max_retries: Maximum attempts before terminal failure.
-        backoff_seconds: Base backoff delay for retry scheduling.
-        backoff_multiplier: Multiplicative backoff factor per retry.
-
-    Returns:
-        The number of jobs successfully processed.
-    """
-    from src.providers.factory import build_provider_from_env
-
-    provider = build_provider_from_env()
-
-    if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_GATE):
-        return 0
-
-    jobs = await db.get_jobs_pending_agent_processing(limit=limit)
-    if not jobs:
-        logger.info("No NEW jobs pending agent processing")
-        return 0
-
-    processed = 0
-    for job in jobs:
-        job_hash_raw = job.get("job_hash")
-        if not job_hash_raw or not isinstance(job_hash_raw, str):
-            logger.warning("Skipping job without job_hash")
-            continue
-        job_hash: str = job_hash_raw
-
-        try:
-            result = await _run_gate_unified(provider=provider, job=job)
-        except Exception as exc:
-            error_text = str(exc)
-            retry_count_raw = job.get("agent_retry_count")
-            retry_count = int(retry_count_raw) + 1 if isinstance(retry_count_raw, int) else 1
-            await record_stage_cost_event(
-                db=db,
-                stage=PIPELINE_STAGE_GATE,
-                job_hash=job_hash,
-                run_id=f"gate-{job_hash}-{retry_count}",
-                metadata={
-                    "status": "FAILED",
-                    "provider": provider.provider_type.value,
-                    "retry_count": retry_count,
-                },
-            )
-
-            if retry_count < max_retries:
-                next_retry_at = _calculate_next_retry_at(
-                    retry_count=retry_count,
-                    backoff_seconds=backoff_seconds,
-                    backoff_multiplier=backoff_multiplier,
-                )
-                logger.warning(
-                    "Unified gate failed for {} (attempt {}/{}). Retry at {}. Error: {}",
-                    job_hash, retry_count, max_retries, next_retry_at, error_text,
-                )
-                await db.record_agent_retry(
-                    job_hash=job_hash,
-                    error=error_text,
-                    retry_count=retry_count,
-                    next_retry_at=next_retry_at,
-                )
-                continue
-
-            logger.error(
-                "Unified gate terminal failure for {} after {} attempts: {}",
-                job_hash, retry_count, error_text,
-            )
-            await db.mark_job_agent_terminal_failed(
-                job_hash, error_text, retry_count=retry_count,
-            )
-            await _notify_terminal_failure(
-                job_hash=job_hash, error=error_text, retry_count=retry_count,
-            )
-            continue
-
-        await db.record_agent_decision(
-            job_hash=job_hash,
-            agent_result=result.model_dump_json(),
-            status=_map_status(result.decision),
-        )
-        await record_stage_cost_event(
-            db=db,
-            stage=PIPELINE_STAGE_GATE,
-            job_hash=job_hash,
-            run_id=f"gate-{job_hash}",
-            metadata={
-                "status": "SUCCESS",
-                "model": result.model,
-                "provider": result.provider,
-                "decision": result.decision.value,
-            },
-        )
-        processed += 1
-
-        confidence = result.debug.confidence
-        confidence_text = f"{confidence:.2f}" if confidence is not None else "n/a"
-        logger.info(
-            "Processed {}: decision={} confidence={} model={} provider={}",
-            job_hash, result.decision.value, confidence_text,
-            result.model, result.provider,
-        )
-
-    return processed
-
-
-def _should_use_unified_provider() -> bool:
-    """Check if the unified provider path should be used.
-
-    Returns True when USE_UNIFIED_PROVIDER env var is set to a truthy value,
-    or when no ADK-specific keys (OPENAI_API_KEY used with ADK) are present
-    but a Codex session or alternative provider key exists.
-    """
-    explicit = os.getenv("USE_UNIFIED_PROVIDER", "").strip().lower()
-    if explicit in ("1", "true", "yes"):
-        return True
     # If Codex home has auth, prefer unified path.
     codex_home = os.getenv("CODEX_HOME", "")
     if codex_home:
         auth_path = os.path.join(codex_home, "auth.json")
         if os.path.isfile(auth_path):
             return True
+    return False
+
+
+async def _is_gate_mode_active(db: DatabaseManager) -> bool:
+    """Return True when the stored gate mode permits LLM calls this cycle.
+
+    Purpose:
+        Hard-gate every poll cycle on the per-stage automation mode so
+        the gate worker emits zero LLM calls (and therefore zero spend)
+        when the user has the autonomous toggle off.
+    Args:
+        db: Connected database manager.
+    Output:
+        Returns `True` for `autonomous` and `both`; `False` for `opt_in`
+        and any unknown value.
+    """
+
+    mode = await db.get_automation_mode(GATE_MODE_KEY)
+    if mode in GATE_AUTONOMOUS_MODES:
+        return True
+    if mode == GATE_OPT_IN_MODE:
+        logger.debug("Gate mode is opt_in; skipping batch this cycle")
+        return False
+    logger.warning("Unknown gate mode {!r}; treating as opt_in", mode)
     return False
 
 
@@ -545,16 +442,6 @@ async def process_once(
     Output:
         Returns the number of jobs successfully processed in the batch.
     """
-    if _should_use_unified_provider():
-        logger.info("Using unified AI provider for gate processing")
-        return await _process_once_unified(
-            db=db,
-            limit=limit,
-            max_retries=max_retries,
-            backoff_seconds=backoff_seconds,
-            backoff_multiplier=backoff_multiplier,
-        )
-
     return await _process_once(
         db=db,
         limit=limit,
@@ -562,6 +449,61 @@ async def process_once(
         backoff_seconds=backoff_seconds,
         backoff_multiplier=backoff_multiplier,
     )
+
+
+async def run_gate_loop(
+    *,
+    db: DatabaseManager,
+    limit: int = DEFAULT_AGENT_BATCH_LIMIT,
+    max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
+    backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
+    backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
+    poll_interval_seconds: int = DEFAULT_AGENT_POLL_INTERVAL_SECONDS,
+) -> None:
+    """Run the gate worker poll loop using a shared database manager.
+
+    Purpose:
+        Provide an importable entry point so the API supervisor can run
+        the gate loop as an in-process asyncio task. The loop reads the
+        per-stage automation mode every cycle and emits zero LLM calls
+        when the mode is `opt_in`.
+    Args:
+        db: Connected database manager shared with other in-process loops.
+        limit: Maximum jobs claimed per batch.
+        max_retries: Maximum agent retries before terminal failure.
+        backoff_seconds: Base retry backoff delay.
+        backoff_multiplier: Exponential backoff factor per retry.
+        poll_interval_seconds: Sleep duration between cycles.
+    Output:
+        Returns `None` only on `asyncio.CancelledError` (re-raised).
+    """
+
+    logger.info(
+        "Gate loop entering poll: poll={}s limit={} max_retries={}",
+        poll_interval_seconds,
+        limit,
+        max_retries,
+    )
+
+    while True:
+        try:
+            if await _is_gate_mode_active(db):
+                processed = await process_once(
+                    db=db,
+                    limit=limit,
+                    max_retries=max_retries,
+                    backoff_seconds=backoff_seconds,
+                    backoff_multiplier=backoff_multiplier,
+                )
+                logger.info("Gate batch complete: processed={}", processed)
+        except asyncio.CancelledError:
+            raise
+        except ModelConfigurationError as exc:
+            logger.error("Decider model not configured; will retry: {}", exc)
+        except Exception as exc:
+            logger.exception("Gate polling cycle failed: {}", exc)
+
+        await asyncio.sleep(poll_interval_seconds)
 
 
 async def main() -> None:
@@ -650,6 +592,9 @@ async def main() -> None:
 
         while True:
             try:
+                if not await _is_gate_mode_active(db):
+                    await asyncio.sleep(poll_interval_seconds)
+                    continue
                 processed = await _process_once(
                     db=db,
                     limit=args.limit,

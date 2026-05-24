@@ -84,17 +84,6 @@ class AdzunaValidateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ServiceTierUpdateRequest(BaseModel):
-    """Request payload for updating the active service tier.
-
-    Attributes:
-        tier: One of 'base', 'latex', or 'full'.
-    """
-
-    tier: str = Field(description="Active service tier identifier.")
-    model_config = ConfigDict(extra="forbid")
-
-
 class JobImportRequest(BaseModel):
     """Request body for manual job import."""
 

@@ -142,9 +142,11 @@ def test_post_provider_omitted_api_key_is_rejected(isolated_env: Path) -> None:
     assert response.json()["code"] == "MISSING_API_KEY"
 
 
-def test_get_ai_provider_reports_no_key_when_unset(
+def test_get_ai_provider_endpoint_is_removed(
     isolated_env: Path,  # noqa: ARG001 — fixture clears OPENAI_API_KEY
 ) -> None:
+    """The GET /api/settings/ai-provider endpoint was removed with the UI."""
+
     # Arrange.
     client = _client()
 
@@ -152,31 +154,7 @@ def test_get_ai_provider_reports_no_key_when_unset(
     response = client.get("/api/settings/ai-provider")
 
     # Assert.
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    assert body["config"] == {
-        "mode": "byok",
-        "providerType": "none",
-        "hasOpenaiKey": False,
-    }
-
-
-def test_get_ai_provider_reports_key_when_set(
-    isolated_env: Path,  # noqa: ARG001 — fixture clears OPENAI_API_KEY initially
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Arrange.
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-live-1")
-    client = _client()
-
-    # Act.
-    response = client.get("/api/settings/ai-provider")
-
-    # Assert.
-    body = response.json()
-    assert body["config"]["providerType"] == "openai"
-    assert body["config"]["hasOpenaiKey"] is True
+    assert response.status_code in (404, 405)
 
 
 @pytest.mark.parametrize(

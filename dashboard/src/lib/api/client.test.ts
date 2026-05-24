@@ -3,9 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchApiKeysSettings,
   fetchBudget,
-  restartSystemStack,
-  stopSystemStack,
-  updateServiceTierSetting,
+  fetchChromeStatus,
   uploadProfile,
   uploadResume,
 } from "@/lib/api/client";
@@ -114,7 +112,7 @@ describe("api client success parsing", () => {
         ok: true,
         keys: [
           { name: "OPENAI_API_KEY", configured: true },
-          { name: "ANTHROPIC_API_KEY", configured: false },
+          { name: "ADZUNA_APP_ID", configured: false },
         ],
       }),
     );
@@ -124,64 +122,28 @@ describe("api client success parsing", () => {
     expect(payload.ok).toBe(true);
     expect(payload.keys).toEqual([
       { name: "OPENAI_API_KEY", configured: true },
-      { name: "ANTHROPIC_API_KEY", configured: false },
+      { name: "ADZUNA_APP_ID", configured: false },
     ]);
   });
 
-  it("persists selected service tier with a typed payload", async () => {
+  it("fetches Chrome status with an OS hint", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       jsonResponse({
         ok: true,
-        tier: "latex",
+        reachable: true,
+        checked_at: "2026-05-23T22:00:00+00:00",
+        cdp_url: "http://host.docker.internal:9222",
+        command_hint: "open -a Google Chrome ...",
       }),
     );
 
-    const payload = await updateServiceTierSetting("latex");
+    const payload = await fetchChromeStatus("mac");
 
-    expect(payload.ok).toBe(true);
-    expect(payload.tier).toBe("latex");
-    expect(fetchSpy).toHaveBeenCalledWith("/api/settings/service-tier", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ tier: "latex" }),
-    });
-  });
-
-  it("dispatches stack stop lifecycle action", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      jsonResponse({
-        ok: true,
-        action: "stop",
-        status: "accepted",
-        request_id: "request-stop",
-      }),
+    expect(payload.reachable).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/status/chrome?os=mac",
+      undefined,
     );
-
-    const payload = await stopSystemStack();
-
-    expect(payload.ok).toBe(true);
-    expect(payload.action).toBe("stop");
-    expect(payload.status).toBe("accepted");
-    expect(fetchSpy).toHaveBeenCalledWith("/api/system/stop", { method: "POST" });
   });
 
-  it("dispatches stack restart lifecycle action", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      jsonResponse({
-        ok: true,
-        action: "restart",
-        status: "accepted",
-        request_id: "request-restart",
-      }),
-    );
-
-    const payload = await restartSystemStack();
-
-    expect(payload.ok).toBe(true);
-    expect(payload.action).toBe("restart");
-    expect(payload.status).toBe("accepted");
-    expect(fetchSpy).toHaveBeenCalledWith("/api/system/restart", { method: "POST" });
-  });
 });

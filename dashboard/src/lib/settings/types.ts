@@ -4,16 +4,13 @@
  * Shared type definitions for the settings page and its tab components.
  */
 
-import type { ApiKeyNameDto, ServiceTierDto } from "@/lib/api/types";
+import type { ApiKeyNameDto } from "@/lib/api/types";
 
 /** Top-level settings tab identifiers. */
-export type TopLevelTab = "general" | "ai-provider" | "candidate" | "filters";
+export type TopLevelTab = "general" | "candidate" | "filters";
 
 /** Candidate-profile sub-tab identifiers. */
 export type CandidateTab = "guided" | "yaml" | "files";
-
-/** Resume editor sub-tab identifiers. */
-export type ResumeTab = "guided" | "yaml" | "tex" | "files";
 
 /** Filters-and-sources sub-tab identifiers. */
 export type FiltersTab = "guided" | "filters" | "sources";
@@ -56,23 +53,7 @@ export interface ApiKeyConfig {
   readonly description: string;
 }
 
-/** UI configuration for a service tier card. */
-export interface ServiceTierCard {
-  /** Backend identifier for the tier. */
-  readonly tier: ServiceTierDto;
-  /** Material symbol icon name. */
-  readonly icon: string;
-  /** Card heading. */
-  readonly title: string;
-  /** Card body description. */
-  readonly description: string;
-  /** Bullet point feature list. */
-  readonly features: readonly string[];
-  /** Optional badge label (e.g. "Recommended"). */
-  readonly badge?: string;
-}
-
-/** Inline feedback message used by API-key and service-tier sections. */
+/** Inline feedback message used by API-key sections. */
 export interface FeedbackMessage {
   /** Visual variant for color treatment. */
   readonly type: "success" | "error";
