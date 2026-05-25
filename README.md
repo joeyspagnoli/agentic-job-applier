@@ -152,7 +152,7 @@ docker compose exec app bash           # shell into the running container
 | `NTFY_TOPIC`                     | Push alerts on terminal failures            | Blank disables alerts.                                    |
 | `RUN_INTERVAL_MINUTES`           | Discovery cadence                           | Defaults to 30.                                           |
 | `API_PORT`                       | Host port for the dashboard                 | Defaults to 8000.                                         |
-| `CHROME_CDP_URL`                 | Apply loop → host Chrome CDP endpoint       | Defaults to `http://host.docker.internal:9222`.            |
+| `CHROME_CDP_URL`                 | Apply loop → host Chrome CDP endpoint       | Defaults to `http://host.docker.internal:9222`. The probe + Playwright handshake force `Host: localhost:<port>` so Chrome 148+'s host-check accepts the request regardless of the hostname in the URL. |
 | `SAFE_MODE`                      | Apply finisher kill switch                  | Set `true` to disable auto-submit globally; forms still fill, outcome lands `NEEDS_REVIEW`. Defaults to `false`. |
 | `LITELLM_LOCAL_MODEL_COST_MAP`   | Cost tracking                               | Use litellm's bundled pricing table; avoids outbound calls for price data. Defaults to `true`. |
 

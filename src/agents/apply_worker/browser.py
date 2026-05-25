@@ -153,6 +153,35 @@ def _normalize_apply_url(source_url: str) -> str:
     return source_url
 
 
+def _cdp_localhost_host_header(cdp_url: str) -> dict[str, str]:
+    """Force a ``localhost`` Host header for the CDP HTTP/WS handshake.
+
+    Chrome 148+ rejects ``GET /json/version`` and the WebSocket upgrade
+    when the inbound Host header is not ``localhost`` or an IP. That
+    breaks the default ``host.docker.internal:9222`` URL the container
+    uses, plus any human-friendly LAN hostname. We override the Host
+    explicitly so the URL stays portable across hosts and Docker
+    flavors (Desktop vpnkit gateway, Linux bridge, etc.).
+
+    Args:
+        cdp_url: The full CDP endpoint URL (e.g.
+            ``http://host.docker.internal:9222``).
+    Returns:
+        A dict suitable for ``httpx.AsyncClient.get(headers=...)`` /
+        ``BrowserType.connect_over_cdp(headers=...)``. Empty dict
+        means we couldn't parse a port and the caller should send no
+        header override (Chrome's port-less form is non-standard).
+    """
+
+    from urllib.parse import urlparse  # noqa: PLC0415 — local-scope import keeps the module init small
+
+    parsed = urlparse(cdp_url)
+    port = parsed.port
+    if port is None:
+        return {}
+    return {"Host": f"localhost:{port}"}
+
+
 async def check_chrome_reachable(cdp_url: str = DEFAULT_CDP_URL) -> bool:
     """Verify that Chrome is running and reachable over CDP.
 
@@ -168,6 +197,7 @@ async def check_chrome_reachable(cdp_url: str = DEFAULT_CDP_URL) -> bool:
             response = await client.get(
                 f"{cdp_url}/json/version",
                 timeout=5.0,
+                headers=_cdp_localhost_host_header(cdp_url),
             )
             return response.status_code == 200
     except (httpx.HTTPError, OSError):
@@ -220,7 +250,10 @@ async def apply_to_job(
 
     async with async_playwright() as pw:
         try:
-            browser = await pw.chromium.connect_over_cdp(cdp_url)
+            browser = await pw.chromium.connect_over_cdp(
+                cdp_url,
+                headers=_cdp_localhost_host_header(cdp_url),
+            )
         except Exception as exc:
             logger.error("Failed to connect to Chrome at {}: {}", cdp_url, exc)
             return ApplyRunResult(
