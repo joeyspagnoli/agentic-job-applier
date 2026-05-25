@@ -37,6 +37,7 @@ function makeTailorRun(overrides: Partial<TailorRunSummaryModel> = {}): TailorRu
     error: null,
     pdfUrl: null,
     reviewReason: null,
+    planUrl: null,
     ...overrides,
   };
 }
@@ -193,6 +194,57 @@ describe("ApplyButton", () => {
       expect(badge).toBeInTheDocument();
       expect(badge).toHaveClass("bg-amber-100");
       expect(badge).toHaveClass("text-amber-800");
+    });
+
+    it("renders a Relaunch apply button when onRelaunch is provided", async () => {
+      const onRelaunch = vi.fn();
+      renderButton({
+        applyRun: makeApplyRun({ status: "SUCCESS", outcome: "NEEDS_REVIEW" }),
+        onRelaunch,
+      });
+
+      const relaunchButton = screen.getByRole("button", {
+        name: /Relaunch apply/i,
+      });
+      expect(relaunchButton).toBeEnabled();
+
+      await userEvent.click(relaunchButton);
+      expect(onRelaunch).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides the Relaunch button when onRelaunch is undefined", () => {
+      renderButton({
+        applyRun: makeApplyRun({ status: "SUCCESS", outcome: "NEEDS_REVIEW" }),
+      });
+
+      expect(
+        screen.queryByRole("button", { name: /Relaunch apply/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does NOT render the Relaunch button for PENDING / RUNNING / SUBMITTED states", () => {
+      const onRelaunch = vi.fn();
+
+      renderButton({
+        applyRun: makeApplyRun({ status: "PENDING", outcome: null }),
+        onRelaunch,
+      });
+      expect(
+        screen.queryByRole("button", { name: /Relaunch apply/i }),
+      ).not.toBeInTheDocument();
+
+      cleanup();
+
+      renderButton({
+        applyRun: makeApplyRun({
+          status: "SUCCESS",
+          outcome: "SUBMITTED",
+        }),
+        onRelaunch,
+      });
+      expect(
+        screen.queryByRole("button", { name: /Relaunch apply/i }),
+      ).not.toBeInTheDocument();
     });
   });
 

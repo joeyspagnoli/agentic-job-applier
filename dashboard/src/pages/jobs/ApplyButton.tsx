@@ -44,6 +44,18 @@ export interface ApplyButtonProps {
   /** Current apply run for this job, or null if none has been created. */
   readonly applyRun: ApplyRunDto | null;
   /**
+   * Whether a relaunch-apply mutation is currently in-flight for this
+   * row. Bug G (2026-05-25) — drives the disabled state on the
+   * "Relaunch apply" affordance shown next to the NEEDS_REVIEW badge.
+   */
+  readonly pendingRelaunch?: boolean;
+  /**
+   * Callback fired when the user clicks the NEEDS_REVIEW relaunch
+   * affordance. Optional so existing call sites that don't surface a
+   * relaunch path keep type-checking.
+   */
+  readonly onRelaunch?: () => void;
+  /**
    * Callback fired when the user is ready to enqueue the apply.
    *
    * @remarks
@@ -124,6 +136,8 @@ function isApplyInProgress(applyRun: ApplyRunDto | null): boolean {
 export function ApplyButton({
   tailorRun,
   applyRun,
+  pendingRelaunch = false,
+  onRelaunch,
   onApply,
   onRequestTailorChoice,
 }: ApplyButtonProps): JSX.Element {
@@ -159,7 +173,33 @@ export function ApplyButton({
   if (applyRun !== null) {
     if (applyRun.status === "SUCCESS") {
       if (applyRun.outcome === "NEEDS_REVIEW") {
-        return <span className={CLASS_AMBER_BADGE}>Applied — needs review</span>;
+        // Bug G (2026-05-25): pair the amber badge with a "Relaunch
+        // apply" affordance so the user can re-run the apply after
+        // fixing the gaps in Human Review without leaving the Jobs
+        // page. The relaunch path is only wired up when the parent
+        // passes ``onRelaunch``; otherwise we keep the legacy
+        // read-only badge.
+        if (onRelaunch === undefined) {
+          return <span className={CLASS_AMBER_BADGE}>Applied — needs review</span>;
+        }
+        return (
+          <div className="flex items-center gap-2">
+            <span className={CLASS_AMBER_BADGE}>Applied — needs review</span>
+            <button
+              type="button"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors disabled:opacity-50"
+              style={{
+                borderColor: COLOR_PRIMARY,
+                color: COLOR_PRIMARY,
+              }}
+              onClick={onRelaunch}
+              disabled={pendingRelaunch}
+              title="Re-enqueue the apply with the saved answers feeding the finisher's cache."
+            >
+              {pendingRelaunch ? "Relaunching..." : "Relaunch apply"}
+            </button>
+          </div>
+        );
       }
       if (applyRun.outcome === "SUBMITTED") {
         return <span className={CLASS_GREEN_BADGE}>Auto-applied</span>;

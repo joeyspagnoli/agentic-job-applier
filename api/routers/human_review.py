@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -10,6 +11,10 @@ from fastapi import Body
 from fastapi import Query
 from pydantic import BaseModel, Field
 
+from src.database._mixins.apply import (
+    ApplyRunInFlightError,
+    NoReviewRunError,
+)
 from src.database.db_manager import DatabaseManager
 from src.utils.paths import resolve_repo_root
 
@@ -426,4 +431,228 @@ async def save_human_review_answers(
         "ok": True,
         "user_answers": answers_payload,
         "cache_seeded": seed_summary,
+    }
+
+
+async def _relaunch_apply_for_handoff_id(
+    *, db: DatabaseManager, handoff_id: int
+) -> dict[str, object]:
+    """Resolve, transition, and re-enqueue the apply for one handoff.
+
+    Purpose:
+        Shared body for both the handoff-keyed Human Review endpoint and
+        the job-hash-keyed JobsPage variant. Inserts a fresh PENDING
+        ``apply_runs`` row, flips the old handoff to APPROVED with a
+        "Relaunched via Human Review" note, and returns the merged row
+        that ``_spawn_user_apply_task`` consumes.
+    Args:
+        db: Open database manager.
+        handoff_id: Primary key of the target handoff.
+    Returns:
+        The merged row from ``enqueue_apply_run_for_job`` so the caller
+        can spawn the background task with it.
+    Raises:
+        HTTPException: 404/409/422 mirroring the public endpoint
+            contract.
+    """
+
+    assert db.conn is not None
+    cursor = await db.conn.execute(
+        """
+        SELECT id, apply_run_id, job_hash, handoff_status
+        FROM apply_handoffs
+        WHERE id = ?
+        """,
+        (handoff_id,),
+    )
+    handoff_row = await cursor.fetchone()
+    if handoff_row is None:
+        _raise_api_error(
+            status_code=404,
+            code="HANDOFF_NOT_FOUND",
+            message=f"Handoff {handoff_id} does not exist.",
+        )
+
+    if str(handoff_row["handoff_status"]) != "PENDING_REVIEW":
+        _raise_api_error(
+            status_code=409,
+            code="HANDOFF_ALREADY_RESOLVED",
+            message="This handoff has already been resolved.",
+        )
+
+    prior_apply_run = await db.get_apply_run(int(handoff_row["apply_run_id"]))
+    if prior_apply_run is None:
+        _raise_api_error(
+            status_code=404,
+            code="APPLY_RUN_DELETED",
+            message=(
+                "The apply run linked to this handoff was deleted; "
+                "cannot relaunch."
+            ),
+            details={"handoff_id": handoff_id},
+        )
+
+    job_hash = str(handoff_row["job_hash"])
+
+    try:
+        merged_row = await db.enqueue_apply_run_for_job(job_hash=job_hash)
+    except ApplyRunInFlightError as exc:
+        _raise_api_error(
+            status_code=409,
+            code="APPLY_RUN_IN_FLIGHT",
+            message="An apply run is already in flight for this job.",
+            details={"run_id": exc.run_id, "status": exc.status},
+        )
+    except NoReviewRunError:
+        _raise_api_error(
+            status_code=422,
+            code="NO_REVIEW_RUN",
+            message="Job has no completed review yet.",
+            details={"job_hash": job_hash},
+        )
+
+    await db.transition_handoff_status(
+        handoff_id=handoff_id,
+        target_status="APPROVED",
+        reviewer_notes="Relaunched via Human Review",
+    )
+
+    return merged_row
+
+
+async def _find_pending_handoff_id_for_job(
+    *, db: DatabaseManager, job_hash: str
+) -> int | None:
+    """Look up the most-recent PENDING_REVIEW handoff for ``job_hash``.
+
+    Args:
+        db: Open database manager.
+        job_hash: Stable job identifier from the JobsPage row.
+    Returns:
+        Handoff primary key when one exists, ``None`` otherwise.
+    """
+
+    assert db.conn is not None
+    cursor = await db.conn.execute(
+        """
+        SELECT id FROM apply_handoffs
+        WHERE job_hash = ? AND handoff_status = 'PENDING_REVIEW'
+        ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (job_hash,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return int(row["id"])
+
+
+@router.post("/{handoff_id}/relaunch-apply", status_code=200)
+async def relaunch_apply_from_handoff(handoff_id: int) -> dict[str, object]:
+    """Re-enqueue the apply for a PENDING_REVIEW handoff and resolve the old row.
+
+    Purpose:
+        After saving answers in Human Review the reviewer needs an
+        affordance to actually re-run the apply with those answers
+        feeding the finisher's cache (which Bug F already populates).
+        Mirrors the tailor-side "Delete & retry" pattern: inserts a new
+        PENDING apply_runs row, flips the existing handoff to APPROVED
+        with a "Relaunched" reviewer note so it disappears from the
+        queue, and kicks off ``_spawn_user_apply_task`` so the browser
+        flow starts immediately instead of waiting for the autonomous
+        poll loop.
+    Args:
+        handoff_id: Primary key of the target ``apply_handoffs`` row.
+    Returns:
+        ``{"ok": True, "apply_run_id", "status", "job_hash"}`` so the
+        dashboard can show "Apply queued (run #N)".
+    Raises:
+        HTTPException: 404 when the handoff is missing or its linked
+            apply_run was soft-deleted; 409 when the handoff is already
+            resolved or another apply is in flight; 422 when no review
+            run exists for the job (should never happen for a handoff,
+            but the underlying ``enqueue_apply_run_for_job`` raises it).
+    """
+
+    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
+    from api.routers.apply_runs import _spawn_user_apply_task  # noqa: PLC0415
+
+    db_path = str(_main.resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        await db.migrate_apply_schema()
+        merged_row = await _relaunch_apply_for_handoff_id(
+            db=db, handoff_id=handoff_id
+        )
+
+    asyncio.create_task(
+        _spawn_user_apply_task(db_path=db_path, merged_row=merged_row),
+    )
+
+    return {
+        "ok": True,
+        "apply_run_id": int(merged_row["_apply_run_id"]),
+        "status": str(merged_row["status"]),
+        "job_hash": str(merged_row["job_hash"]),
+    }
+
+
+@router.post("/by-job/{job_hash}/relaunch-apply", status_code=200)
+async def relaunch_apply_for_job(job_hash: str) -> dict[str, object]:
+    """JobsPage-friendly wrapper that resolves the handoff by job hash.
+
+    Purpose:
+        The Jobs page shows the same "Relaunch apply" affordance next
+        to the NEEDS_REVIEW badge but does not carry the handoff id in
+        local state. This endpoint looks up the most-recent
+        PENDING_REVIEW handoff for ``job_hash`` and delegates to the
+        same internal logic the handoff-keyed endpoint runs.
+    Args:
+        job_hash: Stable job identifier from the JobsPage row.
+    Returns:
+        Same payload shape as the handoff-keyed endpoint.
+    Raises:
+        HTTPException: 404 when no PENDING_REVIEW handoff exists for
+            this job. Other 4xx codes match the handoff-keyed endpoint.
+    """
+
+    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
+    from api.routers.apply_runs import _spawn_user_apply_task  # noqa: PLC0415
+    from api.services.tailored_resume import _validate_job_hash  # noqa: PLC0415
+
+    validated_hash = _validate_job_hash(job_hash)
+    db_path = str(_main.resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        await db.migrate_apply_schema()
+
+        handoff_id = await _find_pending_handoff_id_for_job(
+            db=db, job_hash=validated_hash
+        )
+        if handoff_id is None:
+            _raise_api_error(
+                status_code=404,
+                code="NO_PENDING_HANDOFF",
+                message=(
+                    "No PENDING_REVIEW handoff exists for this job. The "
+                    "apply run may already be resolved."
+                ),
+                details={"job_hash": validated_hash},
+            )
+
+        merged_row = await _relaunch_apply_for_handoff_id(
+            db=db, handoff_id=handoff_id
+        )
+
+    asyncio.create_task(
+        _spawn_user_apply_task(db_path=db_path, merged_row=merged_row),
+    )
+
+    return {
+        "ok": True,
+        "apply_run_id": int(merged_row["_apply_run_id"]),
+        "status": str(merged_row["status"]),
+        "job_hash": str(merged_row["job_hash"]),
+        "handoff_id": handoff_id,
     }

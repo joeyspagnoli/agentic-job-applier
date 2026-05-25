@@ -18,6 +18,7 @@ import {
   fetchJobsNow,
   getTailoredResumeUrl,
   postApplyRun,
+  relaunchApplyByJobHash,
   retryTailorRun,
 } from "@/lib/api/client";
 import type { ApplyRunDto } from "@/lib/api/types";
@@ -613,6 +614,38 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     },
   });
 
+  const relaunchMutation = useMutation({
+    mutationFn: () => relaunchApplyByJobHash(row.jobHash),
+    onSuccess: (data) => {
+      // Drop the local apply run snapshot back to PENDING so the
+      // ApplyButton transitions away from the "needs review" badge
+      // and the polling loop catches the rest of the lifecycle.
+      setApplyRun({
+        id: data.apply_run_id,
+        job_hash: data.job_hash,
+        status: data.status,
+        outcome: null,
+        ats_platform: null,
+        completed_at: null,
+        screenshot_path: null,
+        error: null,
+      });
+      setApplyErrorMessage(null);
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["human-review"] });
+    },
+    onError: (error: unknown) => {
+      setApplyErrorMessage(
+        error instanceof Error ? error.message : "Relaunch failed.",
+      );
+    },
+  });
+
+  const handleRelaunch = useCallback(() => {
+    setApplyErrorMessage(null);
+    relaunchMutation.mutate();
+  }, [relaunchMutation]);
+
   const handleApply = useCallback(() => {
     setIsNotTailoredModalOpen(false);
     setApplyErrorMessage(null);
@@ -684,6 +717,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             applyRun={applyRun}
             onApply={handleApply}
             onRequestTailorChoice={handleRequestTailorChoice}
+            onRelaunch={handleRelaunch}
+            pendingRelaunch={relaunchMutation.isPending}
           />
           {applyErrorMessage !== null ? (
             <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
@@ -712,6 +747,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             applyRun={applyRun}
             onApply={handleApply}
             onRequestTailorChoice={handleRequestTailorChoice}
+            onRelaunch={handleRelaunch}
+            pendingRelaunch={relaunchMutation.isPending}
           />
         </div>
         <NotTailoredModal
@@ -761,6 +798,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             applyRun={applyRun}
             onApply={handleApply}
             onRequestTailorChoice={handleRequestTailorChoice}
+            onRelaunch={handleRelaunch}
+            pendingRelaunch={relaunchMutation.isPending}
           />
           {applyErrorMessage !== null ? (
             <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
@@ -816,6 +855,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             applyRun={applyRun}
             onApply={handleApply}
             onRequestTailorChoice={handleRequestTailorChoice}
+            onRelaunch={handleRelaunch}
+            pendingRelaunch={relaunchMutation.isPending}
           />
           {applyErrorMessage !== null ? (
             <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
@@ -869,6 +910,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
           applyRun={applyRun}
           onApply={handleApply}
           onRequestTailorChoice={handleRequestTailorChoice}
+            onRelaunch={handleRelaunch}
+            pendingRelaunch={relaunchMutation.isPending}
         />
         {applyErrorMessage !== null ? (
           <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>

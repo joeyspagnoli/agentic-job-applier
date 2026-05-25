@@ -12,6 +12,7 @@ import {
   completeHumanReview,
   dismissHumanReview,
   fetchHumanReviewQueue,
+  relaunchHumanReviewApply,
   saveHumanReviewAnswers,
 } from "@/lib/api/client";
 import {
@@ -127,6 +128,20 @@ export function HumanReviewPage(): JSX.Element {
   const completeMutation = useMutation({
     mutationFn: (handoffId: number) => completeHumanReview(handoffId),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["human-review"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard", "stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      await queryClient.invalidateQueries({ queryKey: ["costs"] });
+      setExpandedRowId(null);
+    },
+  });
+
+  const relaunchMutation = useMutation({
+    mutationFn: (handoffId: number) => relaunchHumanReviewApply(handoffId),
+    onSuccess: async () => {
+      // Re-enqueue flips the handoff to APPROVED, which makes it
+      // disappear from the PENDING queue. Invalidate the same query
+      // surfaces a complete/dismiss action does so the row vanishes.
       await queryClient.invalidateQueries({ queryKey: ["human-review"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard", "stats"] });
       await queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -274,6 +289,16 @@ export function HumanReviewPage(): JSX.Element {
                   completeMutation.isPending && completeMutation.variables === row.id
                 }
                 pendingDismiss={dismissMutation.isPending && dismissMutation.variables === row.id}
+                pendingRelaunch={
+                  relaunchMutation.isPending && relaunchMutation.variables === row.id
+                }
+                relaunchErrorMessage={
+                  relaunchMutation.isError && relaunchMutation.variables === row.id
+                    ? relaunchMutation.error instanceof Error
+                      ? relaunchMutation.error.message
+                      : "Relaunch failed."
+                    : null
+                }
                 onToggle={() => {
                   setExpandedRowId((previous) => (previous === row.id ? null : row.id));
                 }}
@@ -282,6 +307,9 @@ export function HumanReviewPage(): JSX.Element {
                 }}
                 onDismiss={() => {
                   dismissMutation.mutate(row.id);
+                }}
+                onRelaunch={() => {
+                  relaunchMutation.mutate(row.id);
                 }}
                 onAnswersSaved={async () => {
                   await queryClient.invalidateQueries({ queryKey: ["human-review"] });
@@ -378,12 +406,21 @@ interface ReviewRowProps {
   readonly pendingComplete: boolean;
   /** Whether dismiss mutation is in-flight for this row. */
   readonly pendingDismiss: boolean;
+  /** Whether relaunch-apply mutation is in-flight for this row. */
+  readonly pendingRelaunch: boolean;
+  /**
+   * Inline error message to render under the relaunch button. ``null``
+   * when no relaunch attempt has failed for this row.
+   */
+  readonly relaunchErrorMessage: string | null;
   /** Toggle expanded panel callback. */
   readonly onToggle: () => void;
   /** Mark-complete callback. */
   readonly onComplete: () => void;
   /** Dismiss callback. */
   readonly onDismiss: () => void;
+  /** Relaunch-apply callback that re-enqueues the apply for this handoff. */
+  readonly onRelaunch: () => void;
   /** Invoked after answers are successfully persisted (e.g. invalidate queries). */
   readonly onAnswersSaved: () => Promise<void> | void;
 }
@@ -399,9 +436,12 @@ function ReviewRow({
   expanded,
   pendingComplete,
   pendingDismiss,
+  pendingRelaunch,
+  relaunchErrorMessage,
   onToggle,
   onComplete,
   onDismiss,
+  onRelaunch,
   onAnswersSaved,
 }: ReviewRowProps): JSX.Element {
   const unresolvedCount = row.unresolved_fields.length;
@@ -601,7 +641,8 @@ function ReviewRow({
                   unresolvedCount === 0 ||
                   saveAnswersMutation.isPending ||
                   pendingComplete ||
-                  pendingDismiss
+                  pendingDismiss ||
+                  pendingRelaunch
                 }
               >
                 {saveAnswersMutation.isPending ? "Saving..." : "Save answers"}
@@ -611,20 +652,50 @@ function ReviewRow({
                 className="rounded-full border border-outline-variant px-5 py-2 text-sm font-semibold text-on-surface-variant disabled:opacity-50"
                 style={{ borderColor: `${COLOR_OUTLINE_VARIANT}99` }}
                 onClick={onDismiss}
-                disabled={!isPending || pendingDismiss || pendingComplete}
+                disabled={
+                  !isPending ||
+                  pendingDismiss ||
+                  pendingComplete ||
+                  pendingRelaunch
+                }
               >
                 {pendingDismiss ? "Dismissing..." : "Dismiss"}
+              </button>
+              <button
+                type="button"
+                className="rounded-full border border-primary px-5 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ borderColor: COLOR_PRIMARY, color: COLOR_PRIMARY }}
+                onClick={onRelaunch}
+                disabled={
+                  !isPending ||
+                  pendingRelaunch ||
+                  pendingComplete ||
+                  pendingDismiss
+                }
+                title="Re-enqueue the apply with the saved answers feeding the finisher's cache."
+              >
+                {pendingRelaunch ? "Relaunching..." : "Relaunch apply"}
               </button>
               <button
                 type="button"
                 className="rounded-full px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: COLOR_PRIMARY }}
                 onClick={onComplete}
-                disabled={!isPending || pendingComplete || pendingDismiss}
+                disabled={
+                  !isPending ||
+                  pendingComplete ||
+                  pendingDismiss ||
+                  pendingRelaunch
+                }
               >
                 {pendingComplete ? "Completing..." : "Mark Complete"}
               </button>
             </div>
+            {relaunchErrorMessage !== null && (
+              <p className="mt-2 text-xs text-rose-700 text-right">
+                {relaunchErrorMessage}
+              </p>
+            )}
           </td>
         </tr>
       )}

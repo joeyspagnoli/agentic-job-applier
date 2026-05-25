@@ -384,6 +384,55 @@ export async function dismissHumanReview(
  *   replaces any previously-stored answers wholesale.
  * @returns Mutation response payload containing the persisted answers.
  */
+/**
+ * Re-enqueue an apply for a PENDING_REVIEW handoff (Bug G, 2026-05-25).
+ *
+ * @param handoffId - Primary key of the ``apply_handoffs`` row to
+ *   relaunch from. The backend inserts a fresh PENDING apply_runs row,
+ *   flips the old handoff to APPROVED with a "Relaunched" reviewer note,
+ *   and immediately spawns the user-triggered apply task.
+ * @returns ``{ok, apply_run_id, status, job_hash}`` so the dashboard
+ *   can show "Apply queued (run #N)".
+ */
+export async function relaunchHumanReviewApply(
+  handoffId: number,
+): Promise<{
+  readonly ok: true;
+  readonly apply_run_id: number;
+  readonly status: string;
+  readonly job_hash: string;
+}> {
+  return getJson(`/api/human-review/${handoffId}/relaunch-apply`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+}
+
+/**
+ * JobsPage-side relaunch wrapper keyed by job hash (Bug G, 2026-05-25).
+ *
+ * @param jobHash - Stable job identifier from the JobsPage row. The
+ *   backend resolves the most-recent PENDING_REVIEW handoff for this
+ *   job and delegates to the same internal logic
+ *   ``relaunchHumanReviewApply`` triggers.
+ * @returns Same shape as the handoff-keyed variant, plus the resolved
+ *   ``handoff_id`` for diagnostics.
+ */
+export async function relaunchApplyByJobHash(
+  jobHash: string,
+): Promise<{
+  readonly ok: true;
+  readonly apply_run_id: number;
+  readonly status: string;
+  readonly job_hash: string;
+  readonly handoff_id: number;
+}> {
+  return getJson(`/api/human-review/by-job/${jobHash}/relaunch-apply`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+}
+
 export async function saveHumanReviewAnswers(
   handoffId: number,
   answers: readonly { readonly field_id: string; readonly answer: string }[],

@@ -26,12 +26,14 @@ vi.mock("@/lib/api/client", () => ({
   completeHumanReview: vi.fn(),
   dismissHumanReview: vi.fn(),
   saveHumanReviewAnswers: vi.fn(),
+  relaunchHumanReviewApply: vi.fn(),
 }));
 
 import {
   completeHumanReview,
   dismissHumanReview,
   fetchHumanReviewQueue,
+  relaunchHumanReviewApply,
   saveHumanReviewAnswers,
 } from "@/lib/api/client";
 import { HumanReviewPage } from "@/pages/HumanReviewPage";
@@ -109,6 +111,12 @@ beforeEach(() => {
     user_answers: [],
     cache_seeded: [],
   });
+  vi.mocked(relaunchHumanReviewApply).mockResolvedValue({
+    ok: true,
+    apply_run_id: 99,
+    status: "PENDING",
+    job_hash: "abc123",
+  });
 });
 
 afterEach(() => {
@@ -176,5 +184,24 @@ describe("HumanReviewPage textarea + save flow", () => {
 
     const genderTextarea = await screen.findByLabelText("Answer for Gender");
     expect(genderTextarea).toHaveValue("Prefer not to say");
+  });
+
+  it("renders a Relaunch apply button that POSTs to the relaunch endpoint", async () => {
+    renderPage();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Review/i }),
+    );
+
+    const relaunchButton = await screen.findByRole("button", {
+      name: /Relaunch apply/i,
+    });
+    expect(relaunchButton).toBeEnabled();
+
+    await userEvent.click(relaunchButton);
+
+    await waitFor(() => {
+      expect(relaunchHumanReviewApply).toHaveBeenCalledWith(13);
+    });
   });
 });
