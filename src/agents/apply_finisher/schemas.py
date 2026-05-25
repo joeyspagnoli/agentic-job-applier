@@ -15,8 +15,6 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:  # pragma: no cover - import only for typing
-    from playwright.async_api import Page
-
     from src.agents.apply_finisher.answer_cache import AnswerCache
     from src.agents.apply_finisher.defer_rules import DeferRules
 
@@ -113,10 +111,12 @@ class FinisherResult(BaseModel):
 class FinisherDeps:
     """Runtime dependencies passed to every tool call via ``RunContext.deps``.
 
+    The browser surface is the agent-browser CLI running in the
+    persistent CDP session the worker bootstrapped before invoking the
+    finisher — process-global state, not held on this struct.
+
     Attributes:
-        page: Playwright async ``Page`` already attached to the open
-            application URL (no navigation happens inside the tools).
-        ats: ATS dialect; used for prompt fragments and form-root scoping.
+        ats: ATS dialect; used for the system-prompt fragment.
         target_company: Company name extracted from the job posting;
             used by the answer cache for ``$COMPANY`` substitution.
         defer_rules: Compiled defer-rule classifier.
@@ -130,18 +130,13 @@ class FinisherDeps:
             agent to gauge progress; surfaced in ``FinisherResult``).
         profile_yaml: Pre-serialized YAML of the candidate profile
             so prompt assembly stays a single read.
-        form_root_selector: CSS selector scoping the AX-tree snapshot
-            (``#application_form`` for Greenhouse, ``form`` for Ashby,
-            resolved at construction time).
     """
 
-    page: "Page"
     ats: SupportedAts
     target_company: str
     defer_rules: "DeferRules"
     cache: "AnswerCache"
     profile_yaml: str
-    form_root_selector: str
     recorded_deferrals: list[DeferredQuestion] = field(default_factory=list)
     drafted_fields: list[DraftedField] = field(default_factory=list)
     fields_filled_count: int = 0

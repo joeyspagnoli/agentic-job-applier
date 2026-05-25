@@ -19,6 +19,7 @@ from loguru import logger
 from playwright.async_api import Page
 from playwright.async_api import async_playwright
 
+from src.agents.apply_finisher.browser_cli import invoke_agent_browser_cli
 from src.agents.apply_finisher.runner import run_finisher
 from src.agents.apply_finisher.schemas import FinisherResult
 from src.agents.apply_worker._verify_after_fill import verify_after_fill
@@ -197,6 +198,39 @@ def _cdp_localhost_host_header(cdp_url: str) -> dict[str, str]:
     return {"Host": f"localhost:{port}"}
 
 
+async def _ensure_agent_browser_session(cdp_url: str) -> tuple[bool, str]:
+    """Bootstrap the agent-browser CDP session before the finisher runs.
+
+    Purpose:
+        The finisher's only browser surface is the ``agent-browser``
+        CLI, which talks to a persistent daemon-owned CDP session.
+        Calling ``agent-browser connect <CDP_URL>`` once attaches the
+        daemon to the same host Chrome Playwright is using; subsequent
+        agent tool calls reuse that session without further setup. We
+        run this from the worker (not the finisher) so a deploy with a
+        missing binary or unreachable Chrome surfaces as an early
+        worker-side diagnostic, not a wasted agent request budget.
+    Args:
+        cdp_url: Same CDP endpoint Playwright connects to (defaults
+            to ``http://localhost:9222`` in the standalone path,
+            ``http://host.docker.internal:9222`` from the container).
+    Returns:
+        ``(ok, message)`` — ``ok=True`` when the daemon attached;
+        ``message`` carries the failure summary when ``ok`` is False
+        so the caller can log / surface it without re-running the CLI.
+    """
+
+    result = await invoke_agent_browser_cli(["connect", cdp_url])
+    if result["ok"]:
+        return True, ""
+    summary = (
+        result.get("error")
+        or result.get("stderr")
+        or f"exit_code={result.get('exit_code')}"
+    )
+    return False, f"agent-browser connect failed: {summary}"
+
+
 async def check_chrome_reachable(cdp_url: str = DEFAULT_CDP_URL) -> bool:
     """Verify that Chrome is running and reachable over CDP.
 
@@ -306,6 +340,7 @@ async def apply_to_job(
                 dry_run=dry_run,
                 finisher_context=finisher_context,
                 apply_run_id=apply_run_id,
+                cdp_url=cdp_url,
             )
             return result
 
@@ -349,6 +384,7 @@ async def _run_application_flow(
     dry_run: bool,
     finisher_context: FinisherContext | None,
     apply_run_id: int | None = None,
+    cdp_url: str = DEFAULT_CDP_URL,
 ) -> ApplyRunResult:
     """Execute the sequential application flow steps.
 
@@ -367,6 +403,9 @@ async def _run_application_flow(
             finisher and keeps the legacy NEEDS_REVIEW path.
         apply_run_id: ``apply_runs.id`` for this run, forwarded to the
             finisher for cost-event attribution.
+        cdp_url: Same CDP endpoint Playwright connected to; forwarded
+            to the agent-browser ``connect`` bootstrap before the
+            finisher runs.
 
     Returns:
         An ApplyRunResult with full diagnostics.
@@ -554,9 +593,23 @@ async def _run_application_flow(
     finisher_dialect = supported_finisher_ats(ats_platform)
     if finisher_context is not None and finisher_dialect is not None:
         try:
+            # Bootstrap the agent-browser CDP session ONCE before the
+            # finisher runs. Subsequent agent_browser tool calls reuse
+            # this session — the daemon owns the lifetime.
+            session_ok, session_msg = await _ensure_agent_browser_session(
+                cdp_url,
+            )
+            if not session_ok:
+                logger.error(
+                    "agent-browser session bootstrap failed for "
+                    "job_hash={}: {}; finisher will return RUNTIME_ERROR",
+                    job_hash,
+                    session_msg,
+                )
+
             deps = load_finisher_dependencies(finisher_context)
             finisher_result = await run_finisher(
-                page=playwright_page,
+                apply_url=playwright_page.url,
                 ats=finisher_dialect,
                 target_company=finisher_context.target_company,
                 target_role=finisher_context.target_role,

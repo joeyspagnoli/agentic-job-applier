@@ -3,7 +3,10 @@
 ``run_finisher`` is the single entry point the apply worker calls
 once Simplify autofill has settled. It owns:
 
-- Building ``FinisherDeps`` (page, profile YAML, defer rules, cache).
+- Building ``FinisherDeps`` (profile YAML, defer rules, cache).
+- Pre-flighting the agent-browser CDP session so a broken deploy
+  fails fast with ``RUNTIME_ERROR`` instead of burning the request
+  budget on no-op tool calls.
 - Driving the Pydantic AI agent loop with ``UsageLimits``.
 - Accumulating per-turn USD cost from ``RunUsage`` deltas using
   ``litellm.cost_per_token`` (same pricing path the provider uses).
@@ -12,14 +15,13 @@ once Simplify autofill has settled. It owns:
   payload to persist into ``finisher_diagnostics_json``.
 
 The runner does NOT click submit, does NOT navigate, and does NOT
-mutate the candidate profile or answer cache. Those are worker
-responsibilities (the worker may call ``cache.append_entry`` after
-the human approves a Tier-2 draft).
+mutate the candidate profile or answer cache. The browser is driven
+by the agent-browser CLI in a session the worker connected before
+calling this entry point.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
@@ -31,6 +33,7 @@ FinisherOutcome = Literal[
 ]
 
 from src.agents.apply_finisher.agent import FINISHER_MODEL_NAME, build_finisher_agent
+from src.agents.apply_finisher.browser_cli import invoke_agent_browser_cli
 from src.agents.apply_finisher.schemas import (
     FinisherDeps,
     FinisherResult,
@@ -39,8 +42,6 @@ from src.agents.apply_finisher.schemas import (
 from src.providers.types import CompletionResponse, CostBreakdown, TokenUsage
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
-    from playwright.async_api import Page
-
     from src.agents.apply_finisher.answer_cache import AnswerCache
     from src.agents.apply_finisher.defer_rules import DeferRules
 
@@ -57,16 +58,9 @@ _TOOL_CALL_LIMIT: int = 100
 # tighten or relax via a future env knob if needed.
 _SOFT_COST_CAP_USD: float = 0.20
 
-# Form-root selectors per ATS. Greenhouse renders the application
-# under ``#application-form`` on job-boards.greenhouse.io (the current
-# React UI). The legacy ``boards.greenhouse.io`` used ``#application_form``
-# (underscore) — both are accepted via a comma-joined selector so the
-# finisher works against either host without an ATS sub-dispatch.
-# Ashby renders one form on the page.
-_FORM_ROOT_BY_ATS: Mapping[SupportedAts, str] = {
-    "greenhouse": "#application-form, #application_form",
-    "ashby": "form",
-}
+# Pre-flight timeout for ``agent-browser get url``. The call hits the
+# already-connected daemon over a local socket; 5s is generous.
+_PREFLIGHT_TIMEOUT_SECONDS: float = 5.0
 
 
 def _build_initial_prompt(
@@ -326,9 +320,38 @@ def _materialize_result(
     )
 
 
+async def _preflight_agent_browser_session() -> tuple[bool, str]:
+    """Verify the agent-browser CDP session is live before the loop starts.
+
+    Purpose:
+        Catch the "binary missing" / "no session" / "Chrome died"
+        cases up front so the agent doesn't burn its request budget
+        on tool calls that will all fail. The worker calls
+        ``agent-browser connect <CDP_URL>`` before invoking
+        ``run_finisher``; this check confirms that worked.
+    Returns:
+        ``(ok, message)`` — ``ok=True`` when the daemon responded with
+        a URL; ``message`` carries the failure summary when ``ok`` is
+        False so the runner can stamp it into ``RUNTIME_ERROR``.
+    """
+
+    result = await invoke_agent_browser_cli(
+        ["get", "url"],
+        timeout_seconds=_PREFLIGHT_TIMEOUT_SECONDS,
+    )
+    if result["ok"]:
+        return True, ""
+    summary = (
+        result.get("error")
+        or result.get("stderr")
+        or f"exit_code={result.get('exit_code')}"
+    )
+    return False, f"agent-browser pre-flight failed: {summary}"
+
+
 async def run_finisher(
     *,
-    page: "Page",
+    apply_url: str,
     ats: SupportedAts,
     target_company: str,
     target_role: str,
@@ -343,9 +366,14 @@ async def run_finisher(
     Purpose:
         Single function the apply worker awaits after Simplify
         autofill settles. Owns the agent loop, cost accumulation,
-        usage-limit handling, and final result synthesis.
+        usage-limit handling, and final result synthesis. Pre-flights
+        the agent-browser CDP session so deploy / connect failures
+        return ``RUNTIME_ERROR`` immediately instead of consuming the
+        request budget.
     Args:
-        page: Playwright async ``Page`` attached to the open form.
+        apply_url: URL the worker already navigated to. Logged for
+            diagnostics; not used to navigate (the worker owns
+            navigation).
         ats: ``"greenhouse"`` or ``"ashby"``.
         target_company: Company name (used for ``$COMPANY`` substitution).
         target_role: Role title displayed in the kickoff prompt.
@@ -364,14 +392,27 @@ async def run_finisher(
     """
 
     deps = FinisherDeps(
-        page=page,
         ats=ats,
         target_company=target_company,
         defer_rules=defer_rules,
         cache=cache,
         profile_yaml=profile_yaml,
-        form_root_selector=_FORM_ROOT_BY_ATS[ats],
     )
+
+    preflight_ok, preflight_msg = await _preflight_agent_browser_session()
+    if not preflight_ok:
+        logger.error(
+            "Finisher aborting before agent loop for apply_url={}: {}",
+            apply_url,
+            preflight_msg,
+        )
+        return _materialize_result(
+            base=None,
+            deps=deps,
+            turns_used=0,
+            cost_usd=0.0,
+            fallback_outcome="RUNTIME_ERROR",
+        )
 
     agent = build_finisher_agent(ats)
     user_prompt = _build_initial_prompt(
