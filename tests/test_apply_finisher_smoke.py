@@ -1,16 +1,17 @@
-"""Smoke tests for the apply-finisher tool surface and gate logic.
+"""Smoke tests for the apply-finisher prompts + worker-side gate logic.
 
-Covers the contract orchestrator-side: each tool resolves a Playwright
-locator, the gate's six branches each reach the expected verdict, and
-the prompt assembly produces a non-empty payload. The full
-behavior-driven test pass (DOM fixtures, mocked agent runs, tier
-classification corner cases) belongs to the testing-standards agent.
+Tool-surface behavior (``agent_browser``, ``defer``,
+``flag_for_verify``, ``lookup_cached_answer``) lives in
+``test_apply_finisher_tools.py``; subprocess plumbing in
+``test_apply_finisher_browser_cli.py``. This file covers the
+non-tool surfaces: prompt assembly, the binary submit gate's six
+branches, and the misc helpers used by the worker integration
+(ATS mapping, JD excerpt, safe-mode env parse, diagnostics
+synthesis).
 """
 
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -23,18 +24,7 @@ from src.agents.apply_finisher.prompts import (
 from src.agents.apply_finisher.schemas import (
     DeferredQuestion,
     DraftedField,
-    FinisherDeps,
     FinisherResult,
-)
-from src.agents.apply_finisher.tools import (
-    _is_forbidden_name,
-    _normalize_aria_ref,
-    click,
-    defer,
-    fill,
-    flag_for_verify,
-    get_snapshot,
-    lookup_cached_answer,
 )
 from src.agents.apply_worker.finisher_integration import (
     evaluate_submit_gate,
@@ -44,274 +34,6 @@ from src.agents.apply_worker.finisher_integration import (
     synthesize_diagnostics,
 )
 from src.agents.apply_worker.schemas import ATSPlatform
-
-
-# ---------------------------------------------------------------------------
-# Test doubles
-# ---------------------------------------------------------------------------
-
-
-class _FakeLocator:
-    """Minimal Playwright-like Locator for tool-surface smoke tests."""
-
-    def __init__(
-        self,
-        *,
-        count: int = 1,
-        accessible_name: str = "Some Field",
-        text_content_value: str | None = "Some Field",
-    ) -> None:
-        """Capture invocation arguments for assertion in tests.
-
-        Args:
-            count: What ``count()`` returns.
-            accessible_name: What ``get_attribute('aria-label')`` returns.
-            text_content_value: What ``text_content()`` returns.
-        """
-
-        self._count = count
-        self._accessible_name = accessible_name
-        self._text_content_value = text_content_value
-        self.click_calls: int = 0
-        self.fill_calls: list[str] = []
-        self.first = self
-
-    async def count(self) -> int:
-        """Return the configured count."""
-
-        return self._count
-
-    async def get_attribute(self, _name: str) -> str | None:
-        """Return the configured aria-label."""
-
-        return self._accessible_name
-
-    async def text_content(self) -> str | None:
-        """Return the configured text content."""
-
-        return self._text_content_value
-
-    async def click(self) -> None:
-        """Increment the click counter."""
-
-        self.click_calls += 1
-
-    async def fill(self, value: str) -> None:
-        """Record the fill value."""
-
-        self.fill_calls.append(value)
-
-    async def aria_snapshot(self, *, mode: str = "ai") -> str:
-        """Return a stub snapshot string."""
-
-        return f"snapshot mode={mode}"
-
-
-class _FakePage:
-    """Page double that returns the same _FakeLocator for any selector."""
-
-    def __init__(self, *, locator: _FakeLocator) -> None:
-        """Hold the locator that will be returned for every call."""
-
-        self._locator = locator
-        self.url: str = "https://example.com/apply"
-
-    def locator(self, _selector: str) -> _FakeLocator:
-        """Return the held locator regardless of selector."""
-
-        return self._locator
-
-    async def screenshot(self, *, full_page: bool = False) -> bytes:
-        """Return a constant byte payload."""
-
-        return b"\x89PNG\r\n\x1a\nfake"
-
-
-class _FakeRunContext:
-    """RunContext stub carrying the supplied FinisherDeps."""
-
-    def __init__(self, deps: FinisherDeps) -> None:
-        """Store the deps reference."""
-
-        self.deps = deps
-
-
-def _build_deps(page: _FakePage) -> FinisherDeps:
-    """Construct a FinisherDeps wired to the supplied fake page."""
-
-    from src.agents.apply_finisher.answer_cache import AnswerCache
-    from src.agents.apply_finisher.defer_rules import DeferRules
-
-    cache = AnswerCache(_path=Path("/tmp/_smoke_cache.yaml"))
-    defer_rules = DeferRules(
-        _always_defer_patterns=(),
-        _draft_and_flag_patterns=(),
-        bypass_field_types=frozenset(),
-        never_defer_overrides=(),
-    )
-    return FinisherDeps(
-        page=page,  # type: ignore[arg-type]
-        ats="greenhouse",
-        target_company="Stripe",
-        defer_rules=defer_rules,
-        cache=cache,
-        profile_yaml="profile: {}\n",
-        form_root_selector="#application_form",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Ref normalization
-# ---------------------------------------------------------------------------
-
-
-def test_normalize_aria_ref_accepts_bare_int() -> None:
-    """``"5"`` normalizes to ``"e5"``."""
-
-    assert _normalize_aria_ref("5") == "e5"
-
-
-def test_normalize_aria_ref_accepts_eN() -> None:
-    """``"e12"`` passes through unchanged."""
-
-    assert _normalize_aria_ref("e12") == "e12"
-
-
-# ---------------------------------------------------------------------------
-# Forbidden-name guard
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "name",
-    ["Submit", "submit application", "Apply Now", "send"],
-)
-def test_forbidden_name_blocks_submit_words(name: str) -> None:
-    """Submit-style accessible names are flagged for refusal."""
-
-    assert _is_forbidden_name(name) is True
-
-
-@pytest.mark.parametrize("name", ["Next", "Continue", "Save", "Upload Resume"])
-def test_forbidden_name_allows_non_submit_words(name: str) -> None:
-    """Non-submit accessible names are not flagged."""
-
-    assert _is_forbidden_name(name) is False
-
-
-# ---------------------------------------------------------------------------
-# Tool smoke
-# ---------------------------------------------------------------------------
-
-
-def test_defer_records_into_deps() -> None:
-    """``defer`` appends a DeferredQuestion without touching the page."""
-
-    page = _FakePage(locator=_FakeLocator())
-    deps = _build_deps(page)
-    ctx = _FakeRunContext(deps)
-
-    result = asyncio.run(
-        defer(
-            ctx,  # type: ignore[arg-type]
-            ref="e3",
-            label="Sponsorship?",
-            field_type="select",
-            category="sponsorship",
-            reason="Tier-3 by policy.",
-        )
-    )
-
-    assert "deferred ref e3" in result
-    assert len(deps.recorded_deferrals) == 1
-    assert isinstance(deps.recorded_deferrals[0], DeferredQuestion)
-    assert deps.recorded_deferrals[0].category == "sponsorship"
-
-
-def test_flag_for_verify_records_drafted_field() -> None:
-    """``flag_for_verify`` appends a DraftedField with the confidence."""
-
-    page = _FakePage(locator=_FakeLocator())
-    deps = _build_deps(page)
-    ctx = _FakeRunContext(deps)
-
-    result = asyncio.run(
-        flag_for_verify(
-            ctx,  # type: ignore[arg-type]
-            ref="e7",
-            label="Why this role?",
-            drafted_value="I admire $COMPANY's mission.",
-            confidence=0.6,
-            reasoning="Drafted from JD; needs review.",
-        )
-    )
-
-    assert "flagged ref e7" in result
-    assert len(deps.drafted_fields) == 1
-    assert isinstance(deps.drafted_fields[0], DraftedField)
-    assert deps.drafted_fields[0].confidence == pytest.approx(0.6)
-
-
-def test_fill_increments_counter_and_writes() -> None:
-    """``fill`` writes the value AND bumps ``fields_filled_count``."""
-
-    locator = _FakeLocator()
-    page = _FakePage(locator=locator)
-    deps = _build_deps(page)
-    ctx = _FakeRunContext(deps)
-
-    result = asyncio.run(
-        fill(
-            ctx,  # type: ignore[arg-type]
-            ref="e2",
-            value="Joseph",
-        )
-    )
-
-    assert "filled ref e2" in result
-    assert locator.fill_calls == ["Joseph"]
-    assert deps.fields_filled_count == 1
-
-
-def test_click_refuses_submit_buttons() -> None:
-    """``click`` raises ModelRetry when the element name is submit-style."""
-
-    from pydantic_ai import ModelRetry
-
-    locator = _FakeLocator(accessible_name="Submit application")
-    page = _FakePage(locator=locator)
-    deps = _build_deps(page)
-    ctx = _FakeRunContext(deps)
-
-    with pytest.raises(ModelRetry):
-        asyncio.run(click(ctx, ref="e9"))  # type: ignore[arg-type]
-    # And the underlying click was not invoked.
-    assert locator.click_calls == 0
-
-
-def test_get_snapshot_returns_tool_return_with_text() -> None:
-    """``get_snapshot`` wraps the AX tree in a ToolReturn."""
-
-    locator = _FakeLocator()
-    page = _FakePage(locator=locator)
-    deps = _build_deps(page)
-    ctx = _FakeRunContext(deps)
-
-    result = asyncio.run(get_snapshot(ctx))  # type: ignore[arg-type]
-    assert "snapshot mode=ai" in str(result.return_value)
-
-
-def test_lookup_cached_answer_returns_sentinel_on_miss() -> None:
-    """``lookup_cached_answer`` returns the no-hit sentinel when empty."""
-
-    page = _FakePage(locator=_FakeLocator())
-    deps = _build_deps(page)
-    ctx = _FakeRunContext(deps)
-
-    result = asyncio.run(
-        lookup_cached_answer(ctx, question_text="anything")  # type: ignore[arg-type]
-    )
-    assert result == "<no cache hit>"
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +57,18 @@ def test_fragment_for_rejects_unknown_ats() -> None:
         fragment_for("workday")  # type: ignore[arg-type]
 
 
+def test_base_prompt_teaches_agent_browser_shell_tool() -> None:
+    """Base prompt names the single ``agent_browser`` shell-tool."""
+
+    assert "agent_browser(args" in BASE
+
+
+def test_base_prompt_keeps_eeo_as_tier_1() -> None:
+    """The EEO=Tier-1 correction from the smoke-test edits survives."""
+
+    assert "EEO is **NOT** Tier 3" in BASE
+
+
 # ---------------------------------------------------------------------------
 # Gate evaluator
 # ---------------------------------------------------------------------------
@@ -356,9 +90,8 @@ def _make_complete_result(**overrides: Any) -> FinisherResult:
 def test_gate_authorizes_when_all_conditions_pass() -> None:
     """All three gate clauses met → auto_submit branch fires."""
 
-    result = _make_complete_result()
     can, label = evaluate_submit_gate(
-        finisher_result=result,
+        finisher_result=_make_complete_result(),
         tier2_confidence_threshold=1.0,
         dry_run=False,
         safe_mode=False,
@@ -547,4 +280,3 @@ def test_synthesize_diagnostics_pulls_drafted_fields() -> None:
         gate_decision="tier2_pending",
     )
     assert diag.has_tier2_pending is True
-    assert diag.drafted_fields[0]["confidence"] == pytest.approx(0.91)

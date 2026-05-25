@@ -45,7 +45,32 @@ from src.agents.apply_finisher.schemas import (
     FinisherDeps,
     FinisherResult,
 )
-from tests.helpers.fake_finisher_page import FakeFinisherPage
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _stub_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the real agent-browser pre-flight in every runner test.
+
+    The runner pre-flights the CDP session via the agent-browser CLI;
+    none of the runner tests want to spawn that subprocess (and CI may
+    not even have the binary installed). Returning ``(True, "")``
+    keeps the rest of the runner flow under test.
+    """
+
+    async def fake_preflight() -> tuple[bool, str]:
+        """Pretend the agent-browser session is healthy."""
+
+        return True, ""
+
+    monkeypatch.setattr(
+        "src.agents.apply_finisher.runner._preflight_agent_browser_session",
+        fake_preflight,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +89,11 @@ def _make_deps() -> FinisherDeps:
         never_defer_overrides=(),
     )
     return FinisherDeps(
-        page=FakeFinisherPage(),  # type: ignore[arg-type]
         ats="greenhouse",
         target_company="Stripe",
         defer_rules=rules,
         cache=cache,
         profile_yaml="profile: {}\n",
-        form_root_selector="#application_form",
     )
 
 
@@ -289,7 +312,7 @@ def test_run_finisher_completes_when_model_emits_complete_apply(
 
     result = asyncio.run(
         run_finisher(
-            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            apply_url="https://example.com/apply",
             ats="greenhouse",
             target_company="Stripe",
             target_role="SWE",
@@ -332,7 +355,7 @@ def test_run_finisher_returns_runtime_error_when_model_raises(
 
     result = asyncio.run(
         run_finisher(
-            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            apply_url="https://example.com/apply",
             ats="greenhouse",
             target_company="Stripe",
             target_role="SWE",
@@ -390,7 +413,7 @@ def test_run_finisher_logs_soft_cap_warning_when_cost_exceeds_threshold(
     try:
         result = asyncio.run(
             run_finisher(
-                page=FakeFinisherPage(),  # type: ignore[arg-type]
+                apply_url="https://example.com/apply",
                 ats="greenhouse",
                 target_company="Stripe",
                 target_role="SWE",
@@ -458,7 +481,7 @@ def test_run_finisher_usage_limit_exceeded_returns_outcome_label(
 
     result = asyncio.run(
         run_finisher(
-            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            apply_url="https://example.com/apply",
             ats="greenhouse",
             target_company="Stripe",
             target_role="SWE",
@@ -573,7 +596,7 @@ def test_run_finisher_records_cost_event_when_apply_run_id_is_provided(
 
     result = asyncio.run(
         run_finisher(
-            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            apply_url="https://example.com/apply",
             ats="greenhouse",
             target_company="Stripe",
             target_role="SWE",
@@ -638,7 +661,7 @@ def test_run_finisher_skips_cost_recording_when_apply_run_id_is_none(
 
     result = asyncio.run(
         run_finisher(
-            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            apply_url="https://example.com/apply",
             ats="greenhouse",
             target_company="Stripe",
             target_role="SWE",

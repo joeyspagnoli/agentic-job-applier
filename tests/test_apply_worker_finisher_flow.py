@@ -119,6 +119,11 @@ def _patch_shared_seams(
             "selectors_checked": [],
         }
 
+    async def fake_session_bootstrap(_cdp_url: str) -> tuple[bool, str]:
+        """Bypass the real agent-browser CDP bootstrap subprocess."""
+
+        return True, ""
+
     monkeypatch.setattr(browser_module, "detect_ats_platform", lambda *_: ats)
     monkeypatch.setattr(browser_module, "_trigger_simplify_autofill", fake_trigger)
     monkeypatch.setattr(browser_module, "upload_resume", fake_upload)
@@ -127,6 +132,9 @@ def _patch_shared_seams(
     monkeypatch.setattr(browser_module, "_save_screenshot_safe", fake_screenshot)
     monkeypatch.setattr(browser_module, "_save_dom_safe", fake_dom)
     monkeypatch.setattr(browser_module, "verify_after_fill", fake_verify)
+    monkeypatch.setattr(
+        browser_module, "_ensure_agent_browser_session", fake_session_bootstrap
+    )
 
 
 def _build_finisher_context(tmp_path: Path, safe_mode: bool = False) -> FinisherContext:
