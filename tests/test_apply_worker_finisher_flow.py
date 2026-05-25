@@ -119,9 +119,12 @@ def _patch_shared_seams(
             "selectors_checked": [],
         }
 
-    async def fake_session_bootstrap(_cdp_url: str) -> tuple[bool, str]:
+    async def fake_session_bootstrap(
+        _cdp_url: str, apply_url: str | None = None
+    ) -> tuple[bool, str]:
         """Bypass the real agent-browser CDP bootstrap subprocess."""
 
+        _ = apply_url
         return True, ""
 
     monkeypatch.setattr(browser_module, "detect_ats_platform", lambda *_: ats)

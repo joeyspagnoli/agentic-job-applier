@@ -46,7 +46,6 @@ def test_build_system_prompt_includes_base_and_fragment() -> None:
 
     prompt = build_system_prompt("greenhouse")
     assert BASE in prompt
-    assert "Greenhouse-specific quirks" in prompt
     assert fragment_for("greenhouse") in prompt
 
 
@@ -57,16 +56,10 @@ def test_fragment_for_rejects_unknown_ats() -> None:
         fragment_for("workday")  # type: ignore[arg-type]
 
 
-def test_base_prompt_teaches_agent_browser_shell_tool() -> None:
-    """Base prompt names the single ``agent_browser`` shell-tool."""
-
-    assert "agent_browser(args" in BASE
-
-
 def test_base_prompt_keeps_eeo_as_tier_1() -> None:
-    """The EEO=Tier-1 correction from the smoke-test edits survives."""
+    """The EEO=Tier-1 correction survives the XML rewrite."""
 
-    assert "EEO is **NOT** Tier 3" in BASE
+    assert "EEO is NOT Tier 3" in BASE
 
 
 # ---------------------------------------------------------------------------

@@ -1,15 +1,30 @@
 """Pydantic AI agent factory for the apply finisher.
 
-Builds an ``Agent`` configured with the per-ATS system prompt, the 8
-BYO Playwright tools, and a ``ToolOutput(FinisherResult)`` output tool
-named ``complete_apply``. The runner (``runner.py``) drives the agent
-loop via ``agent.iter()`` so it can accumulate per-turn cost without
-relying on ``Agent.run()``.
+Wires the model, system prompt, tool catalog, and the
+``ToolOutput(FinisherResult)`` output tool. The runner drives the
+agent loop via ``agent.iter()`` so it can accumulate per-turn cost
+without relying on ``Agent.run()``.
+
+Two settings are load-bearing for gpt-5.4-mini, per the research in
+``.research/gpt-5.4-mini-prompting/findings.md``:
+
+- ``openai_reasoning_effort="high"`` — gpt-5.4-mini inherits gpt-5.2's
+  ``"none"`` default (zero deliberation), which OpenAI's own
+  troubleshooting guide identifies as the canonical cause of
+  verification skipping and pattern collapse. ``"high"`` is the
+  single biggest expected win.
+- ``parallel_tool_calls=False`` — the DOM mutates after every browser
+  interaction, so any plan the model builds against an old snapshot
+  is invalid by the second concurrent call. The CLI lock in
+  ``browser_cli.py`` is a runtime backstop; this setting eliminates
+  the failure mode at the source by limiting the model to one tool
+  call per assistant turn.
 """
 
 from __future__ import annotations
 
 from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.output import ToolOutput
 
 from src.agents.apply_finisher.prompts import build_system_prompt
@@ -41,11 +56,15 @@ def build_finisher_agent(ats: SupportedAts) -> Agent[FinisherDeps, FinisherResul
     Args:
         ats: One of ``"greenhouse"`` or ``"ashby"``.
     Returns:
-        Configured ``Agent`` with the 8 BYO tools registered and
+        Configured ``Agent`` with the narrow tools registered and
         ``complete_apply`` as the output tool.
     """
 
     system_prompt = build_system_prompt(ats)
+    settings = OpenAIChatModelSettings(
+        openai_reasoning_effort="high",
+        parallel_tool_calls=False,
+    )
 
     return Agent(
         FINISHER_MODEL_NAME,
@@ -54,13 +73,15 @@ def build_finisher_agent(ats: SupportedAts) -> Agent[FinisherDeps, FinisherResul
             FinisherResult,
             name="complete_apply",
             description=(
-                "Call exactly once when every required field is filled or "
-                "deferred. Terminates the run with the final FinisherResult."
+                "Call exactly once when every required field is verified "
+                "filled-or-deferred. Terminates the run with the final "
+                "FinisherResult."
             ),
         ),
         system_prompt=system_prompt,
         tools=list(FINISHER_TOOLS),
         retries=FINISHER_AGENT_RETRIES,
+        model_settings=settings,
     )
 
 
