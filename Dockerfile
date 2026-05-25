@@ -75,6 +75,14 @@ RUN cd /tmp \
 # operators can override per-deployment via env if needed.
 ENV TECTONIC_TIMEOUT_SECONDS=240
 
+# agent-browser — Rust CDP automation CLI for the apply-finisher agent.
+# Ships pre-built per arch so the image build does not run the CLI's
+# Chrome download step; we attach to host Chrome over CDP. glibc 2.36
+# in python:3.11-slim-bookworm satisfies the binary's only dynamic deps
+# (libc, libm, libpthread, libdl).
+COPY deploy/agent-browser/agent-browser-${TARGETARCH} /usr/local/bin/agent-browser
+RUN chmod +x /usr/local/bin/agent-browser && /usr/local/bin/agent-browser --version
+
 # Application source.
 COPY src/ ./src/
 COPY api/ ./api/
