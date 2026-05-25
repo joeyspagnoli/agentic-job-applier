@@ -107,6 +107,7 @@ beforeEach(() => {
   vi.mocked(saveHumanReviewAnswers).mockResolvedValue({
     ok: true,
     user_answers: [],
+    cache_seeded: [],
   });
 });
 

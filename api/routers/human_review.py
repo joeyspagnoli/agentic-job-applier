@@ -11,12 +11,38 @@ from fastapi import Query
 from pydantic import BaseModel, Field
 
 from src.database.db_manager import DatabaseManager
+from src.utils.paths import resolve_repo_root
 
 from api.config import DEFAULT_PAGE_SIZE
 from api.config import MAX_PAGE_SIZE
 from api.errors import _raise_api_error
 from api.schemas.common import ReviewerActionRequest
+from api.services.answer_cache_seeding import (
+    AnswerCacheSeedingError,
+    seed_answer_cache_from_handoff,
+)
 from api.services.salary import _parse_unresolved_fields, _parse_user_answers
+
+
+# Repo-relative location the apply worker reads from; mirrored from
+# ``scripts/process_apply_jobs.ANSWER_CACHE_REL_PATH`` so we keep the
+# router decoupled from that worker script.
+_ANSWER_CACHE_REL_PATH = "data/answer_cache.yaml"
+
+
+def _resolve_answer_cache_path() -> Path:
+    """Return the absolute path to the finisher's persistent answer cache.
+
+    Purpose:
+        Pulled into its own function so tests can monkeypatch the
+        module-level symbol and redirect cache writes onto a temp file
+        instead of mutating ``data/answer_cache.yaml`` in the working
+        tree.
+    Returns:
+        Absolute path to ``data/answer_cache.yaml`` under the repo root.
+    """
+
+    return resolve_repo_root() / _ANSWER_CACHE_REL_PATH
 
 router = APIRouter(prefix="/api/human-review", tags=["human-review"])
 
@@ -307,24 +333,31 @@ async def save_human_review_answers(
         Back the per-question textareas the Human Review page renders for
         each finisher-deferred Tier-3 question. The list replaces any
         previously-stored answers wholesale, so the dashboard can save a
-        partial draft and overwrite it on the next save. Resume-and-submit
-        plumbing is intentionally out of scope; this endpoint only records.
+        partial draft and overwrite it on the next save. After persisting
+        the per-handoff record, every (label, answer) pair is appended to
+        the durable answer cache the finisher reads on subsequent runs —
+        Bug F (2026-05-25). Without that, every Human Review session was
+        throwaway.
     Args:
         handoff_id: Primary key of the target ``apply_handoffs`` row.
         payload: ``{"answers": [{"field_id", "answer"}, ...]}``.
     Output:
-        Returns ``{"ok": True, "user_answers": [...]}`` with the parsed
-        list the dashboard should display after a successful save.
+        Returns ``{"ok": True, "user_answers": [...], "cache_seeded":
+        [...]}``. ``cache_seeded`` summarizes which entries landed in the
+        cache vs. which were skipped (with a short reason).
     """
 
     from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
 
-    serialized = json.dumps(
-        [{"field_id": entry.field_id, "answer": entry.answer} for entry in payload.answers],
-        ensure_ascii=False,
-    )
+    answers_payload = [
+        {"field_id": entry.field_id, "answer": entry.answer}
+        for entry in payload.answers
+    ]
+    serialized = json.dumps(answers_payload, ensure_ascii=False)
 
     db_path = str(_main.resolve_database_path())
+    deferred_questions_json: str | None = None
+    company: str = ""
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_apply_schema()
@@ -346,10 +379,51 @@ async def save_human_review_answers(
                 message=str(exc),
             )
 
+        # Pull the deferred-questions metadata + company in a single
+        # round-trip so the cache-seeding step has labels and the
+        # company name without touching the worker layer.
+        assert db.conn is not None
+        cursor = await db.conn.execute(
+            """
+            SELECT ah.deferred_questions_json, jp.company
+            FROM apply_handoffs ah
+            JOIN job_postings jp ON jp.job_hash = ah.job_hash
+            WHERE ah.id = ?
+            """,
+            (handoff_id,),
+        )
+        row = await cursor.fetchone()
+        if row is not None:
+            deferred_questions_json = (
+                str(row["deferred_questions_json"])
+                if row["deferred_questions_json"]
+                else None
+            )
+            company = str(row["company"] or "")
+
+    cache_path = _resolve_answer_cache_path()
+    try:
+        seed_summary = await seed_answer_cache_from_handoff(
+            cache_path=cache_path,
+            company=company,
+            deferred_questions_json=deferred_questions_json,
+            answers=answers_payload,
+        )
+    except AnswerCacheSeedingError as exc:
+        # User-typed data is already persisted on the handoff row; the
+        # cache append is a downstream optimization, not a write
+        # confirmation. Surface a distinct 500-class code so the
+        # dashboard can show the cache-seeding warning without losing
+        # the user's draft.
+        _raise_api_error(
+            status_code=500,
+            code="ANSWER_CACHE_SEED_FAILED",
+            message=str(exc),
+            details={"handoff_id": handoff_id},
+        )
+
     return {
         "ok": True,
-        "user_answers": [
-            {"field_id": entry.field_id, "answer": entry.answer}
-            for entry in payload.answers
-        ],
+        "user_answers": answers_payload,
+        "cache_seeded": seed_summary,
     }

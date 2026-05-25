@@ -387,7 +387,26 @@ export async function dismissHumanReview(
 export async function saveHumanReviewAnswers(
   handoffId: number,
   answers: readonly { readonly field_id: string; readonly answer: string }[],
-): Promise<{ readonly ok: true; readonly user_answers: readonly { readonly field_id: string; readonly answer: string }[] }> {
+): Promise<{
+  readonly ok: true;
+  readonly user_answers: readonly {
+    readonly field_id: string;
+    readonly answer: string;
+  }[];
+  /**
+   * Per-entry summary of what the API appended to ``data/answer_cache.yaml``
+   * (Bug F, 2026-05-25). Each row carries the ``field_id`` plus either a
+   * ``skipped`` reason or the resolved ``label`` + ``company_specific``
+   * flag. The dashboard does not surface this today but reads it during
+   * RTL tests so cache-seeding regressions are visible.
+   */
+  readonly cache_seeded: readonly {
+    readonly field_id: string;
+    readonly label?: string;
+    readonly company_specific?: boolean;
+    readonly skipped?: string;
+  }[];
+}> {
   return getJson(`/api/human-review/${handoffId}/answers`, {
     method: "POST",
     headers: JSON_HEADERS,
