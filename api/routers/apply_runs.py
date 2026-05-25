@@ -2,13 +2,17 @@
 
 Backs the dashboard `[Apply]` button. Exposes:
 
-* `POST /api/jobs/{job_hash}/apply` — enqueue a browser-apply run.
+* `POST /api/jobs/{job_hash}/apply` — enqueue a browser-apply run and
+  immediately kick off the browser flow in a background task so the
+  user does not wait up to 60 s for the autonomous poll loop to pick
+  it up. Bug 4 in the 2026-05-25 smoke pass.
 * `GET /api/apply-runs/{id}` — read the latest state for that row.
 * `DELETE /api/apply-runs/{id}` — soft-delete + free the in-flight slot.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter
@@ -22,6 +26,75 @@ from api.errors import _raise_api_error
 from api.services.tailored_resume import _validate_job_hash
 
 router = APIRouter(prefix="/api", tags=["apply-runs"])
+
+
+async def _spawn_user_apply_task(
+    *,
+    db_path: str,
+    merged_row: dict[str, Any],
+) -> None:
+    """Drive ``_process_apply_row`` for a user-triggered apply.
+
+    Purpose:
+        The POST handler returns 200 immediately so the dashboard can
+        poll ``/apply-runs/{id}``. This coroutine runs detached (via
+        ``asyncio.create_task``) and owns its own ``DatabaseManager``
+        connection — the request's manager closes the moment the
+        handler returns.
+    Args:
+        db_path: Resolved sqlite path for the per-task DB connection.
+        merged_row: Output of
+            :meth:`DatabaseManager.enqueue_apply_run_for_job`, already
+            carrying ``_apply_run_id`` and ``_apply_claim_token``.
+    """
+
+    # Local imports avoid pulling the heavy apply-worker module at
+    # router-import time.
+    from scripts.process_apply_jobs import (  # noqa: PLC0415
+        DEFAULT_APPLY_MAX_RETRIES,
+        DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER,
+        DEFAULT_APPLY_RETRY_BACKOFF_SECONDS,
+        _process_apply_row,
+    )
+    from api.services.supervisor import (  # noqa: PLC0415
+        build_config_from_env,
+        get_active_supervisor,
+    )
+    from src.agents.apply_worker.finisher_integration import (  # noqa: PLC0415
+        safe_mode_from_env,
+    )
+
+    supervisor = get_active_supervisor()
+    if supervisor is not None:
+        output_dir = supervisor.apply_output_dir
+        cdp_url = supervisor.apply_cdp_url
+    else:
+        # Fallback for tests / one-off invocations that mount the
+        # router without booting the supervisor.
+        config = build_config_from_env()
+        output_dir = config.apply_output_dir
+        cdp_url = config.apply_cdp_url
+
+    dry_run = safe_mode_from_env()
+    run_id = int(merged_row.get("_apply_run_id") or merged_row.get("id") or 0)
+
+    try:
+        async with DatabaseManager(db_path) as db:
+            await db.create_tables()
+            await _process_apply_row(
+                db=db,
+                output_base_dir=output_dir,
+                cdp_url=cdp_url,
+                claimed_row=merged_row,
+                max_retries=DEFAULT_APPLY_MAX_RETRIES,
+                backoff_seconds=DEFAULT_APPLY_RETRY_BACKOFF_SECONDS,
+                backoff_multiplier=DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER,
+                dry_run=dry_run,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "User-triggered apply task failed for run_id={}: {}", run_id, exc,
+        )
 
 
 def _serialize_apply_run_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -80,7 +153,9 @@ async def enqueue_apply_run(job_hash: str) -> dict[str, object]:
         await db.create_tables()
 
         try:
-            result = await db.enqueue_apply_run_for_job(job_hash=validated_hash)
+            merged_row = await db.enqueue_apply_run_for_job(
+                job_hash=validated_hash,
+            )
         except ApplyRunInFlightError as exc:
             logger.info(
                 "Apply run already in flight: job_hash={} run_id={} status={}",
@@ -102,7 +177,25 @@ async def enqueue_apply_run(job_hash: str) -> dict[str, object]:
                 details={"job_hash": validated_hash},
             )
 
-    return {"run_id": int(result["id"]), "status": str(result["status"])}
+    # Bug 4: kick the browser flow off immediately instead of waiting
+    # for the autonomous poll loop to (eventually) re-claim the row.
+    asyncio.create_task(
+        _spawn_user_apply_task(db_path=db_path, merged_row=merged_row),
+    )
+
+    run_id = int(merged_row["_apply_run_id"])
+    status = str(merged_row["status"])
+    # Return both the legacy ``run_id`` key (used by the existing API
+    # tests) and the ``apply_run_id`` key the dashboard's
+    # ``EnqueueApplyRunResponseDto`` expects. Keeping both is a thin
+    # back-compat shim while callers converge on the DTO name.
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "apply_run_id": run_id,
+        "status": status,
+        "job_hash": validated_hash,
+    }
 
 
 @router.get("/apply-runs/{run_id}")

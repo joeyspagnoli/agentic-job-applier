@@ -237,6 +237,18 @@ class ApplyMixin(_BaseMixin):
                         AND ar.status = 'PENDING'
                         AND ar.started_at > datetime('now', ?)
                   )
+                  -- Bug 4 (2026-05-25): never re-claim a PENDING row that
+                  -- already has a claim_token. User-triggered rows from
+                  -- POST /api/jobs/{hash}/apply always carry one, and so
+                  -- does every autonomous-claim row. Stale rows are recovered
+                  -- by ``mark_stale_apply_runs_failed`` at startup, not by
+                  -- the running loop.
+                  AND NOT EXISTS (
+                      SELECT 1 FROM apply_runs ar
+                      WHERE ar.review_run_id = rr.id
+                        AND ar.status = 'PENDING'
+                        AND ar.claim_token IS NOT NULL
+                  )
                   AND (
                       SELECT COUNT(*) FROM apply_runs ar
                       WHERE ar.review_run_id = rr.id
@@ -747,17 +759,30 @@ class ApplyMixin(_BaseMixin):
         return dict(updated_row)
 
     async def enqueue_apply_run_for_job(self, *, job_hash: str) -> dict[str, Any]:
-        """Insert a PENDING apply_runs row inside a BEGIN IMMEDIATE transaction.
+        """Atomically claim a user-triggered apply run for one job.
 
         Purpose:
-            Provide an atomic enqueue path for `POST /api/jobs/{hash}/apply`
-            that prevents double-enqueuing the same job. Finds the most recent
-            SUCCESS review run for the job and uses it as `review_run_id`.
+            Back the ``POST /api/jobs/{hash}/apply`` endpoint. Inside a
+            ``BEGIN IMMEDIATE`` transaction we (a) confirm no in-flight
+            apply exists, (b) find the most recent SUCCESS review run +
+            its job posting, (c) INSERT a new ``apply_runs`` row with a
+            fresh ``claim_token`` so the autonomous loop never duplicates
+            it (Bug 4 in the 2026-05-25 smoke pass), and (d) return a
+            merged row in the same shape as
+            :meth:`claim_next_apply_job` so the router can hand it
+            straight to the background task that runs the browser.
         Args:
             self: The database manager performing the insert.
             job_hash: Stable deduplication hash of the target job.
         Output:
-            Returns `{"id": int, "status": "PENDING"}` on success.
+            Returns a merged dict carrying the same keys
+            :meth:`claim_next_apply_job` emits: ``job_hash``,
+            ``source_url``, ``title``, ``company``, ``description``,
+            ``review_run_id``, ``review_verdict``,
+            ``selected_pdf_path``, ``selected_yaml_path``,
+            ``fallback_base_pdf_path``, plus ``_apply_run_id``,
+            ``_apply_claim_token``, ``status``, and a back-compat
+            ``id`` alias for callers that still read it.
         Raises:
             NoReviewRunError: When no SUCCESS review run exists for the job.
             ApplyRunInFlightError: When a non-deleted PENDING apply run for
@@ -767,6 +792,7 @@ class ApplyMixin(_BaseMixin):
         await self._ensure_review_schema_ready()
         await self._ensure_apply_schema_ready()
         conn = self._require_conn()
+        claim_token = os.urandom(32).hex()
 
         try:
             await conn.execute("BEGIN IMMEDIATE")
@@ -790,33 +816,47 @@ class ApplyMixin(_BaseMixin):
                     status=str(inflight_row["status"]),
                 )
 
-            # Find the most recent SUCCESS review run for this job.
-            review_cursor = await conn.execute(
+            # Find the most recent SUCCESS review run for this job AND
+            # pull the job posting + review verdict columns the worker
+            # needs. One query keeps the transaction tight.
+            joined_cursor = await conn.execute(
                 """
-                SELECT id FROM review_runs
-                WHERE job_hash = ?
-                  AND status = 'SUCCESS'
-                ORDER BY COALESCE(completed_at, started_at) DESC, id DESC
+                SELECT
+                    jp.job_hash AS job_hash,
+                    jp.source_url AS source_url,
+                    jp.title AS title,
+                    jp.company AS company,
+                    jp.description AS description,
+                    rr.id AS review_run_id,
+                    rr.verdict AS review_verdict,
+                    rr.selected_pdf_path AS selected_pdf_path,
+                    rr.selected_yaml_path AS selected_yaml_path,
+                    rr.fallback_base_pdf_path AS fallback_base_pdf_path
+                FROM review_runs rr
+                JOIN job_postings jp ON jp.job_hash = rr.job_hash
+                WHERE rr.job_hash = ?
+                  AND rr.status = 'SUCCESS'
+                ORDER BY COALESCE(rr.completed_at, rr.started_at) DESC, rr.id DESC
                 LIMIT 1
                 """,
                 (job_hash,),
             )
-            review_row = await review_cursor.fetchone()
-            if review_row is None:
+            joined_row = await joined_cursor.fetchone()
+            if joined_row is None:
                 await conn.rollback()
                 raise NoReviewRunError(
                     f"No SUCCESS review run found for job_hash={job_hash!r}"
                 )
 
-            review_run_id = int(review_row["id"])
+            review_run_id = int(joined_row["review_run_id"])
 
             insert_cursor = await conn.execute(
                 """
-                INSERT INTO apply_runs (job_hash, review_run_id, status)
-                VALUES (?, ?, 'PENDING')
-                RETURNING id, status
+                INSERT INTO apply_runs (job_hash, review_run_id, status, claim_token)
+                VALUES (?, ?, 'PENDING', ?)
+                RETURNING id, status, claim_token
                 """,
-                (job_hash, review_run_id),
+                (job_hash, review_run_id, claim_token),
             )
             inserted_row = await insert_cursor.fetchone()
             await conn.commit()
@@ -829,7 +869,16 @@ class ApplyMixin(_BaseMixin):
         if inserted_row is None:
             raise RuntimeError("INSERT INTO apply_runs returned no row")
 
-        return {"id": int(inserted_row["id"]), "status": str(inserted_row["status"])}
+        merged: dict[str, Any] = dict(joined_row)
+        # Back-compat: every existing caller of
+        # ``enqueue_apply_run_for_job`` reads ``result["id"]`` and
+        # ``result["status"]``. Keep those keys live alongside the
+        # ``_apply_*`` keys the worker expects.
+        merged["id"] = int(inserted_row["id"])
+        merged["status"] = str(inserted_row["status"])
+        merged["_apply_run_id"] = int(inserted_row["id"])
+        merged["_apply_claim_token"] = str(inserted_row["claim_token"])
+        return merged
 
     async def get_apply_run(self, run_id: int) -> Optional[JSONObject]:
         """Fetch one apply_runs row by primary key.

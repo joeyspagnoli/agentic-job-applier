@@ -491,7 +491,10 @@ async def _apply_once(
 
     Purpose:
         Execute one apply cycle: claim a reviewed job, run the browser
-        automation, and persist the result.
+        automation, and persist the result. Delegates the per-row
+        execution to :func:`_process_apply_row` so the user-triggered
+        endpoint path (which already holds a claimed row from
+        ``enqueue_apply_run_for_job``) can reuse the same body.
     Args:
         db: Database manager instance.
         output_base_dir: Base directory for apply run artifacts.
@@ -514,6 +517,57 @@ async def _apply_once(
     )
     if claimed_row is None:
         return 0
+
+    return await _process_apply_row(
+        db=db,
+        output_base_dir=output_base_dir,
+        cdp_url=cdp_url,
+        claimed_row=claimed_row,
+        max_retries=max_retries,
+        backoff_seconds=backoff_seconds,
+        backoff_multiplier=backoff_multiplier,
+        dry_run=dry_run,
+    )
+
+
+async def _process_apply_row(
+    *,
+    db: DatabaseManager,
+    output_base_dir: Path,
+    cdp_url: str,
+    claimed_row: Mapping[str, object],
+    max_retries: int,
+    backoff_seconds: int,
+    backoff_multiplier: int,
+    dry_run: bool,
+) -> int:
+    """Run the browser automation for an already-claimed apply row.
+
+    Purpose:
+        Shared body for both ``_apply_once`` (autonomous loop) and the
+        ``POST /api/jobs/{hash}/apply`` background task spawned by
+        :mod:`api.routers.apply_runs`. ``claimed_row`` must already
+        carry ``_apply_run_id`` and ``_apply_claim_token`` from either
+        :meth:`DatabaseManager.claim_next_apply_job` or
+        :meth:`DatabaseManager.enqueue_apply_run_for_job`.
+    Args:
+        db: Database manager instance owning the claim's connection.
+        output_base_dir: Base directory for apply run artifacts.
+        cdp_url: Chrome CDP endpoint URL.
+        claimed_row: Merged job + apply metadata produced by the claim
+            (autonomous) or enqueue (user-triggered) path. Required keys:
+            ``_apply_run_id``, ``_apply_claim_token``, ``job_hash``,
+            ``review_run_id``, ``source_url``, ``title``, ``company``,
+            ``description``, ``selected_pdf_path``, ``selected_yaml_path``,
+            ``fallback_base_pdf_path``, ``review_verdict``.
+        max_retries: Maximum failed attempts per review run.
+        backoff_seconds: Base retry backoff delay.
+        backoff_multiplier: Exponential backoff factor.
+        dry_run: Whether to skip the submit step.
+    Output:
+        Returns 1 when the row was processed (success or persisted
+        failure); returns 0 only when ``claimed_row`` is malformed.
+    """
 
     apply_run_id_raw = claimed_row["_apply_run_id"]
     if not isinstance(apply_run_id_raw, int):
@@ -778,7 +832,7 @@ async def run_apply_loop(
     backoff_seconds: int = DEFAULT_APPLY_RETRY_BACKOFF_SECONDS,
     backoff_multiplier: int = DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER,
     poll_interval_seconds: int = DEFAULT_APPLY_POLL_INTERVAL_SECONDS,
-    dry_run: bool = True,
+    dry_run: bool | None = None,
 ) -> None:
     """Run the apply worker poll loop using a shared database manager.
 
@@ -797,10 +851,17 @@ async def run_apply_loop(
         backoff_seconds: Base retry backoff delay.
         backoff_multiplier: Exponential backoff factor per retry.
         poll_interval_seconds: Sleep duration between cycles.
-        dry_run: Whether to skip the submit step (always True today).
+        dry_run: Whether to skip the submit step. When ``None`` (the default
+            for in-process callers that don't pass it explicitly), resolves
+            from the ``SAFE_MODE`` env var at call time so the supervisor
+            and any future in-process invocation always honor the same
+            kill switch as the CLI ``main()`` path.
     Output:
         Returns `None` only on `asyncio.CancelledError` (re-raised).
     """
+
+    if dry_run is None:
+        dry_run = safe_mode_from_env()
 
     logger.info(
         "Apply loop entering poll: poll={}s lease={}s max_retries={} "

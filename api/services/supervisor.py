@@ -37,6 +37,7 @@ from main import DEFAULT_DISCOVERY_INTERVAL_MINUTES
 from main import run_discovery_loop
 from scripts.process_apply_jobs import DEFAULT_APPLY_OUTPUT_DIR
 from scripts.process_apply_jobs import run_apply_loop
+from src.agents.apply_worker.finisher_integration import safe_mode_from_env
 from scripts.process_new_jobs import run_gate_loop
 from scripts.process_qualified_jobs import (
     DEFAULT_CANDIDATE_PROFILE_YAML_PATH,
@@ -228,6 +229,33 @@ class LoopSupervisor:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._mode_changed = asyncio.Event()
         self._stopped = False
+
+    @property
+    def apply_output_dir(self) -> Path:
+        """Expose the resolved apply artifact root for the API router.
+
+        Purpose:
+            The ``POST /api/jobs/{hash}/apply`` background task needs
+            the same artifact directory the autonomous loop uses so
+            screenshots and DOM snapshots land in one place. Reading
+            through a property keeps the supervisor's internal config
+            object private while granting the router a typed accessor.
+        """
+
+        return self._config.apply_output_dir
+
+    @property
+    def apply_cdp_url(self) -> str:
+        """Expose the resolved Chrome CDP URL for the API router.
+
+        Purpose:
+            Same rationale as :attr:`apply_output_dir` — the user-
+            triggered background task uses the supervisor-resolved URL
+            so the test-controlled env (``CHROME_CDP_URL``) wins for
+            both paths.
+        """
+
+        return self._config.apply_cdp_url
 
     def notify_mode_changed(self) -> None:
         """Wake the mode watcher so toggle flips reconcile immediately.
@@ -527,6 +555,7 @@ class LoopSupervisor:
             db=self._db,
             output_base_dir=self._config.apply_output_dir,
             cdp_url=self._config.apply_cdp_url,
+            dry_run=safe_mode_from_env(),
         )
 
 
