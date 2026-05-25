@@ -126,6 +126,7 @@ function buildArgs(overrides: { provider?: ProviderDraft } = {}): BuiltArgs {
     provider: overrides.provider ?? emptyProvider(),
     applyPrefs: defaultApplyPrefsDraft(),
     watchlist: emptyWatchlist(),
+    education: [],
     fetchSources: fetchSources as unknown as FinishOnboardingArgs["fetchSources"],
     updateSources: updateSources as unknown as FinishOnboardingArgs["updateSources"],
     refetchOnboardingStatus: refetchOnboardingStatus as unknown as FinishOnboardingArgs["refetchOnboardingStatus"],

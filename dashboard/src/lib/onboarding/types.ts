@@ -33,6 +33,49 @@ export interface RolesDraft {
   searchTerms: string;
 }
 
+/**
+ * One row in the candidate's education history.
+ *
+ * @remarks
+ * Captured by the new `StepEducation` wizard step (added 2026-05-25 because
+ * the apply finisher was leaving Greenhouse education questions blank — no
+ * upstream YAML had any entries). Maps 1:1 to the YAML shape consumed by
+ * `CandidateEducationEntryPayload` on the backend, with two wizard-only
+ * additions:
+ *
+ * - `minors` is captured as a free-form string list for the wizard UI; it
+ *   serializes verbatim under each entry so existing tooling can read it.
+ * - `currently_enrolled` is the user-facing checkbox; `is_current` on the
+ *   backend payload is derived from it (still-enrolled rows often lack a
+ *   final `end_date`, so we keep both signals).
+ */
+export interface EducationEntry {
+  /** Stable client-generated identifier (e.g. `edu-1`). */
+  id: string;
+  school: string;
+  degree: string;
+  major: string;
+  minors: string[];
+  /** GPA as a free-form string so international scales (e.g. `10.0`) round-trip. */
+  gpa: string;
+  /** `YYYY-MM`, blank when unknown. */
+  startDate: string;
+  /** `YYYY-MM` (expected graduation for currently enrolled rows). */
+  endDate: string;
+  currentlyEnrolled: boolean;
+}
+
+/**
+ * Tri-state relocation answer the apply finisher needs to surface for
+ * "Are you willing to relocate?" prompts.
+ *
+ * @remarks
+ * Replaces the prior boolean field; legacy YAML loaded via
+ * `LocationPrefs` in `src/config/schema.py` is coerced (`false` → `"no"`,
+ * `true` → `"yes"`) so existing candidate profiles keep loading.
+ */
+export type WillingToRelocate = "yes" | "no" | "open_to_discussion";
+
 /** Draft state for step 4: hard filters. */
 export interface FiltersDraft {
   minSalary: string;
@@ -91,7 +134,7 @@ export interface AvailabilityPrefs {
 
 /** Geographic relocation and remote-work preferences. */
 export interface LocationPrefs {
-  willing_to_relocate: boolean;
+  willing_to_relocate: WillingToRelocate;
   preferred_cities: string[];
   willing_remote: boolean;
   willing_hybrid: boolean;

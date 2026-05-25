@@ -8,12 +8,16 @@ rather than failing silently mid-run.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
+
+
+WillingToRelocate = Literal["yes", "no", "open_to_discussion"]
 
 
 # ── EEO / application defaults ────────────────────────────────────────────────
@@ -71,7 +75,11 @@ class LocationPrefs(BaseModel):
     """Geographic relocation and remote-work preferences.
 
     Attributes:
-        willing_to_relocate: Whether the candidate will relocate for the role.
+        willing_to_relocate: Tri-state answer surfaced to the apply finisher
+            for "Are you willing to relocate?" prompts. Legacy YAML files that
+            still encode this as a boolean are coerced (``False`` -> ``"no"``,
+            ``True`` -> ``"yes"``) by the field validator so candidate
+            profiles written before 2026-05-25 keep loading.
         preferred_cities: Ordered list of preferred work cities.
         willing_remote: Whether the candidate accepts fully-remote roles.
         willing_hybrid: Whether the candidate accepts hybrid roles.
@@ -79,10 +87,26 @@ class LocationPrefs(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    willing_to_relocate: bool = False
+    willing_to_relocate: WillingToRelocate = "open_to_discussion"
     preferred_cities: list[str] = Field(default_factory=list)
     willing_remote: bool = True
     willing_hybrid: bool = True
+
+    @field_validator("willing_to_relocate", mode="before")
+    @classmethod
+    def _coerce_legacy_bool(cls, value: Any) -> Any:
+        """Map legacy boolean YAML values onto the tri-state literal.
+
+        Args:
+            value: Raw value pulled from YAML. May be ``True`` / ``False``
+                under older profiles or a literal string under new ones.
+        Returns:
+            ``"yes"`` / ``"no"`` for booleans, the original value otherwise.
+        """
+
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        return value
 
 
 class ApplicationDefaults(BaseModel):

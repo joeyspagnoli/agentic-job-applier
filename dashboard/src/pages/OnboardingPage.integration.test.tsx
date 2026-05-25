@@ -110,6 +110,10 @@ async function advanceWizardToFinishStep(user: ReturnType<typeof userEvent.setup
 
   await user.click(screen.getByRole("button", { name: "Continue" }));
 
+  // Step 1 — Education. Empty list is valid (gating only applies to
+  // partially-filled rows), so click straight through.
+  await user.click(await screen.findByRole("button", { name: "Continue" }));
+
   const targetRolesField = await screen.findByPlaceholderText(/Software Engineer/);
   await user.type(targetRolesField, "Software Engineer");
 

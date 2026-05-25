@@ -32,6 +32,7 @@ import {
 } from "@/lib/onboarding/constants";
 import {
   defaultApplyPrefsDraft,
+  defaultEducationDraft,
   defaultFiltersDraft,
   defaultProfileDraft,
   defaultProviderDraft,
@@ -41,6 +42,7 @@ import {
 import { finishOnboarding } from "@/lib/onboarding/finish-onboarding";
 import type {
   ApplyPrefsDraft,
+  EducationEntry,
   FiltersDraft,
   ProfileDraft,
   ProviderDraft,
@@ -51,6 +53,7 @@ import { buildWatchlistWarning } from "@/lib/onboarding/watchlist";
 import { NavigationButtons } from "./onboarding/NavigationButtons";
 import { ProgressIndicator } from "./onboarding/ProgressIndicator";
 import { StepApplyPrefs } from "./onboarding/StepApplyPrefs";
+import { StepEducation } from "./onboarding/StepEducation";
 import { StepFilters } from "./onboarding/StepFilters";
 import { StepProfile } from "./onboarding/StepProfile";
 import { StepProvider } from "./onboarding/StepProvider";
@@ -70,6 +73,7 @@ export function OnboardingPage(): JSX.Element {
   const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [profile, setProfile] = useState<ProfileDraft>(defaultProfileDraft);
+  const [education, setEducation] = useState<EducationEntry[]>(defaultEducationDraft);
   const [roles, setRoles] = useState<RolesDraft>(defaultRolesDraft);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeUploaded, setResumeUploaded] = useState<boolean>(false);
@@ -90,24 +94,35 @@ export function OnboardingPage(): JSX.Element {
   });
 
   const canAdvance = useCallback((): boolean => {
+    // Step 0 — About You: require name + email.
     if (currentStep === 0) {
       return profile.fullName.trim() !== "" && profile.email.trim() !== "";
     }
+    // Step 1 — Education: optional today, but every captured row must at
+    // least name the school and the degree so the apply finisher does not
+    // pass blank values into Greenhouse questions.
     if (currentStep === 1) {
+      return education.every(
+        (entry) => entry.school.trim() !== "" && entry.degree.trim() !== "",
+      );
+    }
+    // Step 2 — Target Roles: require at least one role.
+    if (currentStep === 2) {
       return roles.targetRoles.trim() !== "";
     }
-    if (currentStep === 2) {
+    // Step 3 — Resume: require an uploaded resume.
+    if (currentStep === 3) {
       return resumeUploaded;
     }
-    // Step 6 (Apply Prefs): require explicit eligibility answers.
-    if (currentStep === 5) {
+    // Step 6 — Apply Prefs: require explicit eligibility answers.
+    if (currentStep === 6) {
       return (
         applyPrefs.work_authorized_us !== "unknown" &&
         applyPrefs.sponsorship_required_now_or_future !== "unknown"
       );
     }
     return true;
-  }, [currentStep, profile, roles, resumeUploaded, applyPrefs]);
+  }, [currentStep, profile, education, roles, resumeUploaded, applyPrefs]);
 
   /** Advance to the next wizard step. */
   function handleNext(): void {
@@ -140,6 +155,7 @@ export function OnboardingPage(): JSX.Element {
         provider,
         applyPrefs,
         watchlist,
+        education,
         fetchSources: fetchSourcesSettings,
         updateSources: updateSourcesYaml,
         refetchOnboardingStatus: () =>
@@ -195,8 +211,11 @@ export function OnboardingPage(): JSX.Element {
           }}
         >
           {currentStep === 0 && <StepProfile draft={profile} onChange={setProfile} />}
-          {currentStep === 1 && <StepRoles draft={roles} onChange={setRoles} />}
-          {currentStep === 2 && (
+          {currentStep === 1 && (
+            <StepEducation draft={education} onChange={setEducation} />
+          )}
+          {currentStep === 2 && <StepRoles draft={roles} onChange={setRoles} />}
+          {currentStep === 3 && (
             <StepResume
               file={resumeFile}
               uploaded={resumeUploaded}
@@ -204,10 +223,10 @@ export function OnboardingPage(): JSX.Element {
               onFileChange={handleResumeFile}
             />
           )}
-          {currentStep === 3 && <StepFilters draft={filters} onChange={setFilters} />}
-          {currentStep === 4 && <StepProvider draft={provider} onChange={setProvider} />}
-          {currentStep === 5 && <StepApplyPrefs draft={applyPrefs} onChange={setApplyPrefs} />}
-          {currentStep === 6 && <StepWatchlist draft={watchlist} onChange={setWatchlist} />}
+          {currentStep === 4 && <StepFilters draft={filters} onChange={setFilters} />}
+          {currentStep === 5 && <StepProvider draft={provider} onChange={setProvider} />}
+          {currentStep === 6 && <StepApplyPrefs draft={applyPrefs} onChange={setApplyPrefs} />}
+          {currentStep === 7 && <StepWatchlist draft={watchlist} onChange={setWatchlist} />}
 
           {error && (
             <p className="mt-4 text-sm font-medium" style={{ color: COLOR_ERROR }}>

@@ -12,7 +12,11 @@
 
 import type { JSX } from "react";
 import { COLOR_ON_SURFACE, COLOR_ON_SURFACE_VARIANT } from "@/lib/design-tokens";
-import type { ApplyPrefsDraft, LanguageEntry } from "@/lib/onboarding/types";
+import type {
+  ApplyPrefsDraft,
+  LanguageEntry,
+  WillingToRelocate,
+} from "@/lib/onboarding/types";
 import { Field } from "./Field";
 
 /** Props for {@link StepApplyPrefs}. */
@@ -120,9 +124,9 @@ export function StepApplyPrefs({ draft, onChange }: StepApplyPrefsProps): JSX.El
    * @param key - Location preference field name.
    * @param value - New boolean value.
    */
-  function setLocation(
-    key: keyof ApplyPrefsDraft["location_preferences"],
-    value: boolean | string[],
+  function setLocation<K extends keyof ApplyPrefsDraft["location_preferences"]>(
+    key: K,
+    value: ApplyPrefsDraft["location_preferences"][K],
   ): void {
     onChange({
       ...draft,
@@ -423,18 +427,43 @@ export function StepApplyPrefs({ draft, onChange }: StepApplyPrefsProps): JSX.El
           />
           Open to hybrid
         </label>
-        <label className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-          <input
-            type="checkbox"
-            className={checkboxClasses}
-            checked={draft.location_preferences.willing_to_relocate}
-            onChange={(e) => {
-              setLocation("willing_to_relocate", e.target.checked);
-            }}
-          />
-          Willing to relocate
-        </label>
       </div>
+
+      <fieldset className="space-y-2">
+        <legend
+          className="text-xs font-semibold mb-1.5"
+          style={{ color: COLOR_ON_SURFACE_VARIANT }}
+        >
+          Willing to relocate?
+        </legend>
+        <div className="flex flex-wrap gap-4">
+          {(
+            [
+              ["yes", "Yes"],
+              ["no", "No"],
+              ["open_to_discussion", "Open to discussion"],
+            ] as readonly [WillingToRelocate, string][]
+          ).map(([value, label]) => (
+            <label
+              key={value}
+              className="flex items-center gap-2 cursor-pointer text-sm"
+              style={{ color: COLOR_ON_SURFACE_VARIANT }}
+            >
+              <input
+                type="radio"
+                name="willing_to_relocate"
+                value={value}
+                className={checkboxClasses}
+                checked={draft.location_preferences.willing_to_relocate === value}
+                onChange={() => {
+                  setLocation("willing_to_relocate", value);
+                }}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <Field
         label="Preferred cities (one per line)"

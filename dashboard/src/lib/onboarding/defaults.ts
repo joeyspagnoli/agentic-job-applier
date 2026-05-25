@@ -10,6 +10,7 @@
 
 import type {
   ApplyPrefsDraft,
+  EducationEntry,
   FiltersDraft,
   ProfileDraft,
   ProviderDraft,
@@ -87,6 +88,37 @@ export function defaultWatchlistDraft(): WatchlistDraft {
 }
 
 /**
+ * Build the default empty education entry the wizard appends when the user
+ * clicks "Add education".
+ *
+ * @param index - Position in the list, used to seed a stable id.
+ * @returns Fresh entry with all string fields blank.
+ */
+export function defaultEducationEntry(index: number): EducationEntry {
+  return {
+    id: `edu-${String(index + 1)}`,
+    school: "",
+    degree: "",
+    major: "",
+    minors: [],
+    gpa: "",
+    startDate: "",
+    endDate: "",
+    currentlyEnrolled: false,
+  };
+}
+
+/**
+ * Build the default empty education list.
+ *
+ * @returns Fresh empty list. The user must explicitly add a first entry so
+ *   the wizard never persists a placeholder row to YAML.
+ */
+export function defaultEducationDraft(): EducationEntry[] {
+  return [];
+}
+
+/**
  * Build the default apply-preferences draft.
  *
  * @returns Fresh apply-prefs draft with safe defaults.
@@ -113,7 +145,7 @@ export function defaultApplyPrefsDraft(): ApplyPrefsDraft {
       notice_period_weeks: null,
     },
     location_preferences: {
-      willing_to_relocate: false,
+      willing_to_relocate: "open_to_discussion",
       preferred_cities: [],
       willing_remote: true,
       willing_hybrid: true,

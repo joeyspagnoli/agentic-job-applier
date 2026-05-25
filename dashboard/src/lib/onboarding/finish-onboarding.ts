@@ -37,6 +37,7 @@ import { EMPTY_WATCHLIST_RESULT } from "./defaults";
 import { buildStructuredProfilePayload } from "./profile-payload";
 import type {
   ApplyPrefsDraft,
+  EducationEntry,
   FiltersDraft,
   ProfileDraft,
   ProviderDraft,
@@ -55,6 +56,7 @@ export interface FinishOnboardingArgs {
   readonly provider: ProviderDraft;
   readonly applyPrefs: ApplyPrefsDraft;
   readonly watchlist: WatchlistDraft;
+  readonly education: readonly EducationEntry[];
   /**
    * Sources-YAML reader; injected so the integration test can swap it
    * for a mock without monkey-patching the api/client module.
@@ -85,13 +87,14 @@ export async function finishOnboarding(args: FinishOnboardingArgs): Promise<Watc
     provider,
     applyPrefs,
     watchlist,
+    education,
     fetchSources,
     updateSources,
     refetchOnboardingStatus,
   } = args;
 
   await updateProfileStructured(
-    buildStructuredProfilePayload({ profile, roles, filters, applyPrefs }),
+    buildStructuredProfilePayload({ profile, roles, filters, applyPrefs, education }),
   );
 
   if (provider.apiKey.trim() !== "") {
