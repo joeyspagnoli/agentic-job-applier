@@ -61,7 +61,9 @@ class FakeBrowserPage:
         self.fail_on_goto = fail_on_goto
         self.simplify_poll_args: dict[str, int] | None = None
 
-    async def goto(self, source_url: str, timeout: int) -> None:
+    async def goto(
+        self, source_url: str, timeout: int, wait_until: str | None = None
+    ) -> None:
         """Record navigation and optionally raise to emulate page load errors.
 
         Purpose:
@@ -69,6 +71,7 @@ class FakeBrowserPage:
         Args:
             source_url: Destination URL requested by the flow.
             timeout: Navigation timeout value; accepted for signature parity.
+            wait_until: Playwright load-state hint; accepted for signature parity.
         Output:
             Returns `None` unless configured to raise.
         Raises:
@@ -76,6 +79,7 @@ class FakeBrowserPage:
         """
 
         _ = timeout
+        _ = wait_until
         if self.fail_on_goto:
             raise RuntimeError("navigation failed")
         self.url = source_url
@@ -523,6 +527,32 @@ async def test_run_application_flow_navigation_failure_captures_failure_outcome(
     assert result.success is False
     assert result.outcome == ApplyOutcome.FAILED_NAVIGATION
     assert screenshot_calls["count"] == 1
+
+
+def test_normalize_apply_url_appends_apply_for_lever_postings() -> None:
+    """Lever posting URLs must be rewritten to land on the apply form."""
+
+    assert browser._normalize_apply_url(
+        "https://jobs.lever.co/weride/abc-123"
+    ) == "https://jobs.lever.co/weride/abc-123/apply"
+
+
+def test_normalize_apply_url_idempotent_for_lever_apply_paths() -> None:
+    """A URL already ending in /apply must not be rewritten twice."""
+
+    url = "https://jobs.lever.co/weride/abc-123/apply"
+    assert browser._normalize_apply_url(url) == url
+
+
+def test_normalize_apply_url_passthrough_for_non_lever() -> None:
+    """Non-Lever URLs are returned unchanged so other ATSes are unaffected."""
+
+    for url in (
+        "https://boards.greenhouse.io/cloudflare/jobs/7914628",
+        "https://jobs.ashbyhq.com/notion/abc/application",
+        "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/X",
+    ):
+        assert browser._normalize_apply_url(url) == url
 
 
 def test_calculate_next_retry_at_uses_sqlite_utc_format() -> None:

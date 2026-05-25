@@ -139,12 +139,14 @@ class AshbyFetcher(BaseFetcher):
         # Compensation info.
         salary_min, salary_max, salary_source = self._extract_salary(posting)
 
-        # Build the posting URL.
-        job_url = get_str(posting, "jobUrl") or get_str(posting, "applyUrl")
+        # Prefer applyUrl over jobUrl so source_url lands directly on the
+        # application form (jobs.ashbyhq.com/{co}/{id}/application) rather
+        # than the posting detail page that requires an Apply click first.
+        job_url = get_str(posting, "applyUrl") or get_str(posting, "jobUrl")
         if not job_url:
             posting_id = get_str(posting, "id")
             if posting_id:
-                job_url = f"https://jobs.ashbyhq.com/{self.board_id}/{posting_id}"
+                job_url = f"https://jobs.ashbyhq.com/{self.board_id}/{posting_id}/application"
 
         return JobPosting(
             source=self.get_source_name(),

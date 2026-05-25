@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
@@ -116,6 +117,25 @@ _JS_CLICK_SIMPLIFY_AUTOFILL = """
     return 'NO_AUTOFILL_BUTTON';
 }
 """
+
+
+def _normalize_apply_url(source_url: str) -> str:
+    """Rewrite posting URLs to land directly on the application form.
+
+    Some ATSes split the public posting page and the apply form across
+    different paths. Navigating to the form URL directly avoids a click
+    race AND avoids the Simplify content-script "won't re-render after
+    programmatic navigation" failure mode.
+
+    Lever: ``jobs.lever.co/{co}/{uuid}`` → ``…/{uuid}/apply``.
+    """
+
+    parsed = urlparse(source_url)
+    if parsed.netloc == "jobs.lever.co":
+        path = parsed.path.rstrip("/")
+        if path and not path.endswith("/apply"):
+            return f"{parsed.scheme}://{parsed.netloc}{path}/apply"
+    return source_url
 
 
 async def check_chrome_reachable(cdp_url: str = DEFAULT_CDP_URL) -> bool:
@@ -269,28 +289,57 @@ async def _run_application_flow(
 
     playwright_page = cast(Page, page)
 
+    # Rewrite posting URLs to land directly on the application form for
+    # ATSes where the two live at different paths (e.g. Lever).
+    normalized_url = _normalize_apply_url(source_url)
+    if normalized_url != source_url:
+        logger.info(
+            "Normalized apply URL for job_hash={}: {} -> {}",
+            job_hash, source_url, normalized_url,
+        )
+
     # Step 1: Ensure we're on the application page. Skip goto if the page is
     # already at the target URL — re-navigating mid-flow disrupts Chrome
     # extensions (notably Simplify Copilot, whose content script will not
     # re-render its side panel after a programmatic navigation).
+    # Compare on path (ignoring trailing slash) so that ATS redirects which
+    # rewrite the netloc (e.g. boards.greenhouse.io → job-boards.greenhouse.io)
+    # don't trigger a redundant re-navigation, while a normalized suffix
+    # like Lever's /apply DOES trigger one.
     current_url = playwright_page.url
-    needs_navigate = source_url not in current_url and current_url not in source_url
+    needs_navigate = (
+        urlparse(current_url).path.rstrip("/")
+        != urlparse(normalized_url).path.rstrip("/")
+    )
     logger.info(
         "Apply flow start for job_hash={} source_url={} current_url={} "
         "needs_navigate={}",
-        job_hash, source_url, current_url, needs_navigate,
+        job_hash, normalized_url, current_url, needs_navigate,
     )
     try:
         if needs_navigate:
+            # `domcontentloaded` instead of the default `load` so chatty
+            # third-party scripts (analytics, hCaptcha on Lever) don't make
+            # navigation time out before the form is reachable.
             await playwright_page.goto(
-                source_url, timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS
+                normalized_url,
+                timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS,
+                wait_until="domcontentloaded",
             )
-        await playwright_page.wait_for_load_state(
-            "networkidle",
-            timeout=DEFAULT_PAGE_LOAD_TIMEOUT_MS,
-        )
+        # Best-effort networkidle on a shorter budget. Many ATS pages never
+        # reach networkidle because of streaming analytics — that's OK; the
+        # form is already mounted by domcontentloaded.
+        try:
+            await playwright_page.wait_for_load_state(
+                "networkidle",
+                timeout=10_000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "networkidle wait skipped for {}: {}", normalized_url, exc,
+            )
     except Exception as exc:
-        logger.error("Navigation failed for {}: {}", source_url, exc)
+        logger.error("Navigation failed for {}: {}", normalized_url, exc)
         await _save_screenshot_safe(playwright_page, screenshot_path)
         return ApplyRunResult(
             success=False,
