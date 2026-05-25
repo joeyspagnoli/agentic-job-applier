@@ -9,6 +9,7 @@ handoff transition state machine. The handoff transition reaches into
 from __future__ import annotations
 
 import os
+from typing import Any
 from typing import Optional
 
 from loguru import logger
@@ -18,6 +19,27 @@ from src.database._mixins.review import ClaimOwnershipError
 from src.utils.json_types import JSONObject
 
 DEFAULT_APPLY_CLAIM_LEASE_SECONDS = 1800  # Browser ops are slower than agent runs
+
+
+class ApplyRunInFlightError(RuntimeError):
+    """Represent a duplicate-enqueue attempt while a PENDING apply run exists.
+
+    Raised by `enqueue_apply_run_for_job` when a non-deleted PENDING row
+    already exists for the requested job hash.
+    """
+
+    def __init__(self, run_id: int, status: str) -> None:
+        super().__init__(f"Apply run {run_id} is already in flight ({status})")
+        self.run_id = run_id
+        self.status = status
+
+
+class NoReviewRunError(RuntimeError):
+    """Represent a missing eligible review run for an apply-enqueue attempt.
+
+    Raised by `enqueue_apply_run_for_job` when no SUCCESS review run
+    exists for the requested job hash.
+    """
 
 
 class ApplyMixin(_BaseMixin):
@@ -111,6 +133,27 @@ class ApplyMixin(_BaseMixin):
                 ON apply_handoffs(review_run_id);
             """
         )
+        # Idempotent ALTER for finisher columns added in issue #59.
+        existing_cursor = await conn.execute("PRAGMA table_info(apply_handoffs)")
+        existing_rows = await existing_cursor.fetchall()
+        existing_columns = {str(row["name"]) for row in existing_rows}
+        for column_name, column_definition in (
+            ("deferred_questions_json", "TEXT"),
+            ("finisher_diagnostics_json", "TEXT"),
+        ):
+            if column_name in existing_columns:
+                continue
+            await conn.execute(
+                f"ALTER TABLE apply_handoffs ADD COLUMN {column_name} {column_definition}"
+            )
+
+        # Idempotent ALTER: soft-delete support for apply_runs (issue #59 Phase F).
+        runs_cursor = await conn.execute("PRAGMA table_info(apply_runs)")
+        runs_rows = await runs_cursor.fetchall()
+        runs_columns = {str(row["name"]) for row in runs_rows}
+        if "deleted_at" not in runs_columns:
+            await conn.execute("ALTER TABLE apply_runs ADD COLUMN deleted_at TIMESTAMP")
+
         await conn.commit()
         self._apply_schema_ready = True
 
@@ -127,15 +170,6 @@ class ApplyMixin(_BaseMixin):
         """
 
         if self._apply_schema_ready:
-            return
-
-        conn = self._require_conn()
-        cursor = await conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='apply_runs'"
-        )
-        row = await cursor.fetchone()
-        if row is not None:
-            self._apply_schema_ready = True
             return
 
         await self.migrate_apply_schema()
@@ -433,6 +467,8 @@ class ApplyMixin(_BaseMixin):
         dom_snapshot_path: str | None,
         ats_platform: str | None,
         page_url: str | None,
+        deferred_questions_json: str | None = None,
+        finisher_diagnostics_json: str | None = None,
     ) -> None:
         """Create or update a human-review handoff row for one apply attempt.
 
@@ -454,6 +490,10 @@ class ApplyMixin(_BaseMixin):
             dom_snapshot_path: Path to captured DOM snapshot artifact.
             ats_platform: Detected ATS platform slug.
             page_url: Final in-browser URL after automation steps.
+            deferred_questions_json: Serialized list of questions the finisher
+                could not answer autonomously and deferred for human review.
+            finisher_diagnostics_json: Serialized diagnostics blob from the
+                finisher pass, including `simplify_no_op` telemetry.
         Output:
             Returns `None` after upserting handoff persistence state.
         """
@@ -476,9 +516,11 @@ class ApplyMixin(_BaseMixin):
                 screenshot_path,
                 dom_snapshot_path,
                 ats_platform,
-                page_url
+                page_url,
+                deferred_questions_json,
+                finisher_diagnostics_json
             )
-            VALUES (?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(apply_run_id) DO UPDATE SET
                 job_hash = excluded.job_hash,
                 review_run_id = excluded.review_run_id,
@@ -492,6 +534,8 @@ class ApplyMixin(_BaseMixin):
                 dom_snapshot_path = excluded.dom_snapshot_path,
                 ats_platform = excluded.ats_platform,
                 page_url = excluded.page_url,
+                deferred_questions_json = excluded.deferred_questions_json,
+                finisher_diagnostics_json = excluded.finisher_diagnostics_json,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
@@ -508,6 +552,8 @@ class ApplyMixin(_BaseMixin):
                 dom_snapshot_path,
                 ats_platform,
                 page_url,
+                deferred_questions_json,
+                finisher_diagnostics_json,
             ),
         )
         await conn.commit()
@@ -699,3 +745,138 @@ class ApplyMixin(_BaseMixin):
         if updated_row is None:
             raise ValueError("handoff_update_failed")
         return dict(updated_row)
+
+    async def enqueue_apply_run_for_job(self, *, job_hash: str) -> dict[str, Any]:
+        """Insert a PENDING apply_runs row inside a BEGIN IMMEDIATE transaction.
+
+        Purpose:
+            Provide an atomic enqueue path for `POST /api/jobs/{hash}/apply`
+            that prevents double-enqueuing the same job. Finds the most recent
+            SUCCESS review run for the job and uses it as `review_run_id`.
+        Args:
+            self: The database manager performing the insert.
+            job_hash: Stable deduplication hash of the target job.
+        Output:
+            Returns `{"id": int, "status": "PENDING"}` on success.
+        Raises:
+            NoReviewRunError: When no SUCCESS review run exists for the job.
+            ApplyRunInFlightError: When a non-deleted PENDING apply run for
+                this job hash already exists.
+        """
+
+        await self._ensure_review_schema_ready()
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+
+            # Reject if any non-deleted PENDING apply run already exists.
+            inflight_cursor = await conn.execute(
+                """
+                SELECT id, status FROM apply_runs
+                WHERE job_hash = ?
+                  AND deleted_at IS NULL
+                  AND status = 'PENDING'
+                LIMIT 1
+                """,
+                (job_hash,),
+            )
+            inflight_row = await inflight_cursor.fetchone()
+            if inflight_row is not None:
+                await conn.rollback()
+                raise ApplyRunInFlightError(
+                    run_id=int(inflight_row["id"]),
+                    status=str(inflight_row["status"]),
+                )
+
+            # Find the most recent SUCCESS review run for this job.
+            review_cursor = await conn.execute(
+                """
+                SELECT id FROM review_runs
+                WHERE job_hash = ?
+                  AND status = 'SUCCESS'
+                ORDER BY COALESCE(completed_at, started_at) DESC, id DESC
+                LIMIT 1
+                """,
+                (job_hash,),
+            )
+            review_row = await review_cursor.fetchone()
+            if review_row is None:
+                await conn.rollback()
+                raise NoReviewRunError(
+                    f"No SUCCESS review run found for job_hash={job_hash!r}"
+                )
+
+            review_run_id = int(review_row["id"])
+
+            insert_cursor = await conn.execute(
+                """
+                INSERT INTO apply_runs (job_hash, review_run_id, status)
+                VALUES (?, ?, 'PENDING')
+                RETURNING id, status
+                """,
+                (job_hash, review_run_id),
+            )
+            inserted_row = await insert_cursor.fetchone()
+            await conn.commit()
+        except (ApplyRunInFlightError, NoReviewRunError):
+            raise
+        except Exception:
+            await conn.rollback()
+            raise
+
+        if inserted_row is None:
+            raise RuntimeError("INSERT INTO apply_runs returned no row")
+
+        return {"id": int(inserted_row["id"]), "status": str(inserted_row["status"])}
+
+    async def get_apply_run(self, run_id: int) -> Optional[JSONObject]:
+        """Fetch one apply_runs row by primary key.
+
+        Purpose:
+            Back the `GET /api/apply-runs/{id}` endpoint without forcing
+            the router to assemble any join.
+        Args:
+            self: The database manager performing the lookup.
+            run_id: Primary key of the apply_runs row.
+        Output:
+            Returns the row as a dict, or `None` when not found or
+            soft-deleted.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            "SELECT * FROM apply_runs WHERE id = ? AND deleted_at IS NULL",
+            (run_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row is not None else None
+
+    async def soft_delete_apply_run(self, run_id: int) -> bool:
+        """Mark one apply_runs row as soft-deleted.
+
+        Purpose:
+            Free the per-job in-flight slot so new apply runs can be
+            enqueued after a failure, while keeping the row for audit.
+        Args:
+            self: The database manager performing the soft-delete.
+            run_id: Primary key of the apply_runs row.
+        Output:
+            Returns `True` when a row was updated, `False` when the row
+            does not exist or was already soft-deleted.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            UPDATE apply_runs
+            SET deleted_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND deleted_at IS NULL
+            """,
+            (run_id,),
+        )
+        await conn.commit()
+        return cursor.rowcount > 0

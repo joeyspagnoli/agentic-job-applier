@@ -15,24 +15,30 @@ import pytest
 
 import main as discovery_main
 from scripts import process_new_jobs
-from src.agents.root_apply_decider import ApplyDecision, GateDebugInfo, GateRunResult
+from src.agents.root_apply_decider import (
+    ApplyDecision,
+    GateDebugInfo,
+    GateRunOutcome,
+    GateRunResult,
+)
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
+from src.providers.types import CompletionResponse, CostBreakdown, TokenUsage
 
 
-def _build_gate_result(decision: ApplyDecision) -> GateRunResult:
-    """Build a deterministic gate run result for integration tests.
+def _build_gate_outcome(decision: ApplyDecision) -> GateRunOutcome:
+    """Build a deterministic `GateRunOutcome` for integration tests.
 
     Purpose:
         Keep persistence and queue tests independent from live model behavior by
-        returning stable gate payloads.
+        returning stable Phase G-shaped payloads.
     Args:
-        decision: Gate decision to include in the fake result.
+        decision: Gate decision to include in the fake outcome.
     Output:
-        Returns a deterministic `GateRunResult` for test assertions.
+        Returns a deterministic `GateRunOutcome` for test assertions.
     """
 
-    return GateRunResult(
+    result = GateRunResult(
         decision=decision,
         debug=GateDebugInfo(
             confidence=0.95,
@@ -45,6 +51,14 @@ def _build_gate_result(decision: ApplyDecision) -> GateRunResult:
         model="test-model",
         parse_mode="json_recovered",
     )
+    response = CompletionResponse(
+        content=f'{{"decision":"{decision.value}"}}',
+        model="test-model",
+        provider="test",
+        usage=TokenUsage(),
+        cost=CostBreakdown(),
+    )
+    return GateRunOutcome(result=result, response=response)
 
 
 @pytest.mark.asyncio
@@ -155,30 +169,26 @@ async def test_discovery_row_is_handed_to_gate_worker(
             }
         return original_load_yaml(path)
 
-    async def fake_run_decider_for_job(**_: object) -> GateRunResult:
-        """Return deterministic APPLY decision for worker integration test.
+    async def fake_run_gate_with_provider(**_: object) -> GateRunOutcome:
+        """Return deterministic APPLY outcome for worker integration test.
 
         Purpose:
-            Replace live model calls with deterministic gate output.
+            Replace live provider calls with deterministic gate output.
         Args:
             **_: Ignored keyword arguments from production call site.
         Output:
-            Returns deterministic APPLY result.
+            Returns deterministic APPLY outcome.
         """
 
-        return _build_gate_result(ApplyDecision.APPLY)
+        return _build_gate_outcome(ApplyDecision.APPLY)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "jobs.db"
         monkeypatch.setattr(discovery_main, "resolve_database_path", lambda: db_path)
         monkeypatch.setattr(discovery_main, "load_yaml", fake_load_yaml)
         monkeypatch.setattr(discovery_main, "GreenhouseFetcher", FakeGreenhouseFetcher)
-        monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
         monkeypatch.setattr(
-            process_new_jobs, "build_root_agent", lambda model: object()
-        )
-        monkeypatch.setattr(
-            process_new_jobs, "_run_decider_for_job", fake_run_decider_for_job
+            process_new_jobs, "run_gate_with_provider", fake_run_gate_with_provider
         )
 
         await discovery_main.run_job_discovery()
@@ -186,12 +196,18 @@ async def test_discovery_row_is_handed_to_gate_worker(
         async with DatabaseManager(str(db_path)) as db:
             await db.create_tables()
             await db.migrate_agent_schema()
+            # `process_once` calls `record_llm_call_cost` which writes to
+            # `cost_events`; the new columns require `migrate_cost_schema`.
+            await db.migrate_cost_schema()
 
             pending = await db.get_jobs_by_status("NEW", limit=10)
             assert len(pending) == 1
             assert pending[0]["status"] == "NEW"
 
-            processed = await process_new_jobs.process_once(db=db, limit=10)
+            fake_provider = object()
+            processed = await process_new_jobs.process_once(
+                db=db, limit=10, provider=fake_provider  # type: ignore[arg-type]
+            )
             hash_val = pending[0]["job_hash"]
             assert isinstance(hash_val, str)
             stored_row = await db.get_job_by_hash(hash_val)
@@ -219,27 +235,29 @@ async def test_worker_retries_transient_failures_then_succeeds(
 
     call_counter = {"runs": 0}
 
-    async def flaky_decider(**_: object) -> GateRunResult:
-        """Raise twice, then return a deterministic APPLY result.
+    async def flaky_gate(**_: object) -> GateRunOutcome:
+        """Raise twice, then return a deterministic APPLY outcome.
 
         Purpose:
             Simulate transient provider failures before eventual success.
         Args:
             **_: Ignored keyword arguments from production call site.
         Output:
-            Raises twice, then returns APPLY decision payload.
+            Raises twice, then returns APPLY outcome payload.
         """
 
         call_counter["runs"] += 1
         if call_counter["runs"] < 3:
             raise RuntimeError("transient provider error")
-        return _build_gate_result(ApplyDecision.APPLY)
+        return _build_gate_outcome(ApplyDecision.APPLY)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "jobs.db"
         async with DatabaseManager(str(db_path)) as db:
             await db.create_tables()
             await db.migrate_agent_schema()
+            # `process_once` writes to `cost_events`; new columns require this.
+            await db.migrate_cost_schema()
             job = JobPosting(
                 source="test",
                 source_url="https://example.com/jobs/retry",
@@ -249,11 +267,10 @@ async def test_worker_retries_transient_failures_then_succeeds(
             )
             await db.insert_job(job.to_db_dict())
 
-            monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
+            fake_provider = object()
             monkeypatch.setattr(
-                process_new_jobs, "build_root_agent", lambda model: object()
+                process_new_jobs, "run_gate_with_provider", flaky_gate
             )
-            monkeypatch.setattr(process_new_jobs, "_run_decider_for_job", flaky_decider)
             monkeypatch.setattr(
                 process_new_jobs,
                 "_calculate_next_retry_at",
@@ -264,6 +281,7 @@ async def test_worker_retries_transient_failures_then_succeeds(
                 db=db,
                 limit=10,
                 max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
             )
             first_row = await db.get_job_by_hash(job.job_hash)
 
@@ -271,6 +289,7 @@ async def test_worker_retries_transient_failures_then_succeeds(
                 db=db,
                 limit=10,
                 max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
             )
             second_row = await db.get_job_by_hash(job.job_hash)
 
@@ -278,6 +297,7 @@ async def test_worker_retries_transient_failures_then_succeeds(
                 db=db,
                 limit=10,
                 max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
             )
             final_row = await db.get_job_by_hash(job.job_hash)
 
@@ -311,7 +331,7 @@ async def test_worker_terminal_failure_sends_single_notification(
 
     notifications: list[str] = []
 
-    async def always_failing_decider(**_: object) -> GateRunResult:
+    async def always_failing_gate(**_: object) -> GateRunOutcome:
         """Raise deterministic exception for each gate invocation.
 
         Purpose:
@@ -342,6 +362,9 @@ async def test_worker_terminal_failure_sends_single_notification(
         async with DatabaseManager(str(db_path)) as db:
             await db.create_tables()
             await db.migrate_agent_schema()
+            # `process_once` writes to `cost_events` even on failure;
+            # new columns require this migration.
+            await db.migrate_cost_schema()
             job = JobPosting(
                 source="test",
                 source_url="https://example.com/jobs/terminal",
@@ -351,14 +374,11 @@ async def test_worker_terminal_failure_sends_single_notification(
             )
             await db.insert_job(job.to_db_dict())
 
-            monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
-            monkeypatch.setattr(
-                process_new_jobs, "build_root_agent", lambda model: object()
-            )
+            fake_provider = object()
             monkeypatch.setattr(
                 process_new_jobs,
-                "_run_decider_for_job",
-                always_failing_decider,
+                "run_gate_with_provider",
+                always_failing_gate,
             )
             monkeypatch.setattr(
                 process_new_jobs,
@@ -371,9 +391,18 @@ async def test_worker_terminal_failure_sends_single_notification(
                 fake_terminal_notify,
             )
 
-            await process_new_jobs.process_once(db=db, limit=10, max_retries=3)
-            await process_new_jobs.process_once(db=db, limit=10, max_retries=3)
-            await process_new_jobs.process_once(db=db, limit=10, max_retries=3)
+            await process_new_jobs.process_once(
+                db=db, limit=10, max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
+            )
+            await process_new_jobs.process_once(
+                db=db, limit=10, max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
+            )
+            await process_new_jobs.process_once(
+                db=db, limit=10, max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
+            )
             terminal_row = await db.get_job_by_hash(job.job_hash)
 
             # Terminally failed rows should no longer be fetched from NEW backlog.
@@ -381,6 +410,7 @@ async def test_worker_terminal_failure_sends_single_notification(
                 db=db,
                 limit=10,
                 max_retries=3,
+                provider=fake_provider,  # type: ignore[arg-type]
             )
 
     assert terminal_row is not None
@@ -404,24 +434,26 @@ async def test_worker_respects_batch_limit_and_drains_backlog_incrementally(
         Returns `None`; test passes when backlog drains in bounded batches.
     """
 
-    async def deterministic_decider(**_: object) -> GateRunResult:
-        """Return deterministic APPLY decisions for every pending row.
+    async def deterministic_gate(**_: object) -> GateRunOutcome:
+        """Return deterministic APPLY outcomes for every pending row.
 
         Purpose:
             Keep backlog-limit assertions focused on queue logic.
         Args:
             **_: Ignored keyword arguments from production call site.
         Output:
-            Returns deterministic APPLY gate result.
+            Returns deterministic APPLY gate outcome.
         """
 
-        return _build_gate_result(ApplyDecision.APPLY)
+        return _build_gate_outcome(ApplyDecision.APPLY)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "jobs.db"
         async with DatabaseManager(str(db_path)) as db:
             await db.create_tables()
             await db.migrate_agent_schema()
+            # `process_once` calls `record_llm_call_cost` which needs new columns.
+            await db.migrate_cost_schema()
 
             for index in range(3):
                 job = JobPosting(
@@ -433,23 +465,24 @@ async def test_worker_respects_batch_limit_and_drains_backlog_incrementally(
                 )
                 await db.insert_job(job.to_db_dict())
 
-            monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
-            monkeypatch.setattr(
-                process_new_jobs, "build_root_agent", lambda model: object()
-            )
+            fake_provider = object()
             monkeypatch.setattr(
                 process_new_jobs,
-                "_run_decider_for_job",
-                deterministic_decider,
+                "run_gate_with_provider",
+                deterministic_gate,
             )
 
-            first_processed = await process_new_jobs.process_once(db=db, limit=2)
+            first_processed = await process_new_jobs.process_once(
+                db=db, limit=2, provider=fake_provider  # type: ignore[arg-type]
+            )
             new_rows_after_first = await db.get_jobs_by_status("NEW", limit=10)
             qualified_rows_after_first = await db.get_jobs_by_status(
                 "QUALIFIED", limit=10
             )
 
-            second_processed = await process_new_jobs.process_once(db=db, limit=2)
+            second_processed = await process_new_jobs.process_once(
+                db=db, limit=2, provider=fake_provider  # type: ignore[arg-type]
+            )
             new_rows_after_second = await db.get_jobs_by_status("NEW", limit=10)
             qualified_rows_after_second = await db.get_jobs_by_status(
                 "QUALIFIED",

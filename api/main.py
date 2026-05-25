@@ -48,6 +48,7 @@ from api.routers import settings_resume as settings_resume_router
 from api.routers import status as status_router
 from api.routers import system as system_router
 from api.routers import system_settings as system_settings_router
+from api.routers import apply_runs as apply_runs_router
 from api.routers import tailor_runs as tailor_runs_router
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ app.include_router(settings_provider_router.router)
 app.include_router(settings_resume_router.router)
 app.include_router(status_router.router)
 app.include_router(system_settings_router.router)
+app.include_router(apply_runs_router.router)
 app.include_router(tailor_runs_router.router)
 
 

@@ -1,24 +1,30 @@
-"""Record configurable pipeline cost events for dashboard analytics.
+"""Persist per-LLM-call cost telemetry for dashboard analytics.
 
-This module centralizes environment-driven stage rates so each worker can
-emit consistent cost telemetry without duplicating parsing logic. Stages
-that emit token counts in their cost-event metadata (tailor, review)
-opt into a more precise per-model rate computed from
-`COST_RATE_<MODEL>_IN_USD` / `_OUT_USD` env vars; stages without that
-data (apply browser ops) keep the flat env-rate path.
+The previous env-rate protocol (`COST_RATE_*` per-stage and per-model
+env vars) is gone. Providers now compute their own `CostBreakdown`
+and the recorder writes it as-is. Stages that do not invoke an LLM
+(the apply browser-ops stub) still emit a zero-cost row tagged
+`cost_source="internal"` so dashboards keep their per-stage counts.
+
+Public functions:
+    record_llm_call_cost(...) — primary write path; persists the
+        provider-computed cost alongside model, token, and phase
+        metadata.
+    record_apply_browser_stub(...) — apply-stage browser-op stub
+        that records a "this run happened" event without LLM tokens.
+    check_budget_before_claim(...) — claim guard for workers.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import re
 from collections.abc import Mapping
 from typing import Any
 
 from loguru import logger
 
 from src.database.db_manager import DatabaseManager
+from src.providers.types import CompletionResponse
 
 PIPELINE_STAGE_GATE = "GATE"
 PIPELINE_STAGE_TAILOR = "TAILOR"
@@ -26,157 +32,125 @@ PIPELINE_STAGE_REVIEW = "REVIEW"
 PIPELINE_STAGE_APPLY = "APPLY"
 PIPELINE_STAGE_DISCOVERY = "DISCOVERY"
 
-_STAGE_RATE_ENV_KEYS: dict[str, str] = {
-    PIPELINE_STAGE_GATE: "COST_RATE_GATE_USD",
-    PIPELINE_STAGE_TAILOR: "COST_RATE_TAILOR_USD",
-    PIPELINE_STAGE_REVIEW: "COST_RATE_REVIEW_USD",
-    PIPELINE_STAGE_APPLY: "COST_RATE_APPLY_USD",
-    PIPELINE_STAGE_DISCOVERY: "COST_RATE_DISCOVERY_USD",
-}
 
-_DEFAULT_STAGE_RATE_USD = 0.0
-
-_TOKENS_PER_RATE_UNIT = 1000.0
-
-_MODEL_NAME_SANITIZE_PATTERN = re.compile(r"[/.\-]")
-
-_WARNED_UNKNOWN_MODELS: set[str] = set()
-
-
-def _env_var_names_for_model(model: str) -> tuple[str, str]:
-    """Return the `(input_rate_env, output_rate_env)` names for one model.
+async def record_llm_call_cost(
+    *,
+    db: DatabaseManager,
+    stage: str,
+    run_id: str | None,
+    phase: str | None,
+    response: CompletionResponse,
+    job_hash: str | None = None,
+    extra_metadata: Mapping[str, Any] | None = None,
+) -> None:
+    """Persist one provider-computed LLM-call cost row.
 
     Purpose:
-        Derive the two env-var names operators set when they want a
-        precise per-model rate. Replaces `/`, `.`, and `-` with `_` and
-        uppercases the result so identifiers stay shell-friendly.
+        Single write path for every billed model call (gate, tailor,
+        review, apply finisher). The provider has already computed the
+        cost in its own units; the recorder writes it without further
+        pricing logic.
     Args:
-        model: Fully qualified `provider/model` string.
+        db: Connected database manager used for persistence.
+        stage: Pipeline stage label (`GATE`, `TAILOR`, `REVIEW`, `APPLY`).
+        run_id: Optional stage-run identifier (string form so apply IDs
+            and gate hashes can share the column).
+        phase: Optional sub-phase name within the stage (e.g. `tailor`,
+            `trim`, `reviewer`, `finisher_turn_3`).
+        response: Completion response with populated `usage` and `cost`.
+        job_hash: Optional stable job identifier.
+        extra_metadata: Optional mapping merged into the persisted
+            `metadata_json` payload (does not override canonical fields).
     Output:
-        Returns `(in_env_name, out_env_name)`.
+        Returns `None` after writing the cost event.
     """
 
-    sanitized = _MODEL_NAME_SANITIZE_PATTERN.sub("_", model).upper()
-    return f"COST_RATE_{sanitized}_IN_USD", f"COST_RATE_{sanitized}_OUT_USD"
+    usage = response.usage
+    cost = response.cost
+    metadata: dict[str, Any] = {
+        "provider": response.provider,
+        "model": response.model,
+        "phase": phase,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
+        "cost_source": cost.source,
+        "input_cost_usd": cost.input_cost_usd,
+        "output_cost_usd": cost.output_cost_usd,
+        "cached_input_cost_usd": cost.cached_input_cost_usd,
+    }
+    if extra_metadata:
+        for key, value in extra_metadata.items():
+            metadata.setdefault(key, value)
 
+    metadata_json = json.dumps(metadata, ensure_ascii=True, sort_keys=True)
 
-def _parse_rate_env(env_name: str) -> float | None:
-    """Read one rate env var, returning `None` when unparseable or negative.
-
-    Purpose:
-        Centralize parsing so both the model and stage rate paths reject
-        malformed values consistently.
-    Args:
-        env_name: Name of the env var to read.
-    Output:
-        Returns the parsed non-negative `float`, or `None` when unset or
-        invalid.
-    """
-
-    raw_value = os.getenv(env_name)
-    if raw_value is None or raw_value.strip() == "":
-        return None
-    try:
-        parsed_value = float(raw_value)
-    except ValueError:
-        return None
-    if parsed_value < 0:
-        return None
-    return parsed_value
-
-
-def _token_cost_from_metadata(metadata: Mapping[str, Any]) -> float | None:
-    """Compute USD cost from token-usage metadata when rates are configured.
-
-    Purpose:
-        Replace the flat env-rate per stage with model-aware token-based
-        pricing for stages whose metadata carries `model`,
-        `prompt_tokens`, and `completion_tokens`. Stages without that
-        shape (apply browser ops) fall through to the stage rate.
-    Args:
-        metadata: Cost-event metadata dict. Expected keys: `model` (str),
-            `prompt_tokens` (int), `completion_tokens` (int).
-    Output:
-        Returns the computed USD cost (may be `0.0` for known model +
-        zero tokens), or `None` when the model is unknown, the tokens
-        are missing/malformed, or the env vars are not set.
-    """
-
-    model = metadata.get("model")
-    prompt_raw = metadata.get("prompt_tokens")
-    completion_raw = metadata.get("completion_tokens")
-
-    if not isinstance(model, str) or model.strip() == "":
-        return None
-    if not isinstance(prompt_raw, int) or isinstance(prompt_raw, bool):
-        return None
-    if not isinstance(completion_raw, int) or isinstance(completion_raw, bool):
-        return None
-    if prompt_raw < 0 or completion_raw < 0:
-        return None
-
-    in_env, out_env = _env_var_names_for_model(model)
-    in_rate = _parse_rate_env(in_env)
-    out_rate = _parse_rate_env(out_env)
-    if in_rate is None or out_rate is None:
-        if model not in _WARNED_UNKNOWN_MODELS:
-            _WARNED_UNKNOWN_MODELS.add(model)
-            logger.warning(
-                "cost_tracking: no token rate configured for model '{}' "
-                "(checked {} / {}); falling back to stage rate",
-                model,
-                in_env,
-                out_env,
-            )
-        return None
-
-    return (
-        (prompt_raw / _TOKENS_PER_RATE_UNIT) * in_rate
-        + (completion_raw / _TOKENS_PER_RATE_UNIT) * out_rate
+    await db.record_cost_event(
+        stage=stage,
+        cost_usd=cost.total_cost_usd,
+        job_hash=job_hash,
+        run_id=run_id,
+        metadata_json=metadata_json,
+        provider=response.provider,
+        model=response.model,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        cached_input_tokens=usage.cached_input_tokens,
+        reasoning_tokens=usage.reasoning_tokens,
+        phase=phase,
+        cost_source=cost.source,
     )
 
 
-def _coerce_stage_rate_usd(stage: str) -> float:
-    """Resolve one stage rate from environment with safe fallback.
+async def record_apply_browser_stub(
+    *,
+    db: DatabaseManager,
+    job_hash: str | None,
+    run_id: str | None,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    """Record an apply-stage browser-ops event with no LLM cost.
 
     Purpose:
-        Keep worker cost writes resilient to missing or malformed env values so
-        operational pipelines continue while surfacing configuration issues.
+        Preserve per-stage event counts on the cost dashboard for runs
+        whose browser automation did not invoke an LLM. Cost is zero;
+        `cost_source` is `internal` so analytics can distinguish stubs
+        from genuinely-unpriced model calls.
     Args:
-        stage: Pipeline stage label used to select the corresponding env key.
+        db: Connected database manager.
+        job_hash: Optional stable job identifier.
+        run_id: Optional apply-run identifier.
+        metadata: Optional context dict (status, outcome, attempt, ...).
     Output:
-        Returns a non-negative USD rate for this stage.
+        Returns `None` after writing the event.
     """
 
-    env_key = _STAGE_RATE_ENV_KEYS.get(stage)
-    if env_key is None:
-        return _DEFAULT_STAGE_RATE_USD
+    metadata_payload: dict[str, Any] = {
+        "provider": "internal",
+        "model": "browser_ops",
+        "cost_source": "internal",
+    }
+    if metadata:
+        for key, value in metadata.items():
+            metadata_payload.setdefault(key, value)
+    metadata_json = json.dumps(metadata_payload, ensure_ascii=True, sort_keys=True)
 
-    raw_value = os.getenv(env_key)
-    if raw_value is None or raw_value.strip() == "":
-        return _DEFAULT_STAGE_RATE_USD
-
-    try:
-        parsed_value = float(raw_value)
-    except ValueError:
-        logger.warning(
-            "Invalid {}='{}'; using {}",
-            env_key,
-            raw_value,
-            _DEFAULT_STAGE_RATE_USD,
-        )
-        return _DEFAULT_STAGE_RATE_USD
-
-    if parsed_value < 0:
-        logger.warning(
-            "Negative {}={}; using {}",
-            env_key,
-            parsed_value,
-            _DEFAULT_STAGE_RATE_USD,
-        )
-        return _DEFAULT_STAGE_RATE_USD
-
-    return parsed_value
+    await db.record_cost_event(
+        stage=PIPELINE_STAGE_APPLY,
+        cost_usd=0.0,
+        job_hash=job_hash,
+        run_id=run_id,
+        metadata_json=metadata_json,
+        provider="internal",
+        model="browser_ops",
+        prompt_tokens=0,
+        completion_tokens=0,
+        cached_input_tokens=0,
+        reasoning_tokens=0,
+        phase=None,
+        cost_source="internal",
+    )
 
 
 async def record_stage_cost_event(
@@ -187,33 +161,29 @@ async def record_stage_cost_event(
     run_id: str | None,
     metadata: Mapping[str, Any] | None = None,
 ) -> None:
-    """Record one forward-only cost event for a pipeline stage execution.
+    """Record one cost event for a pipeline stage execution.
 
     Purpose:
-        Persist stage telemetry consistently across workers so cost dashboards
-        can report spend by day and by stage.
+        Compatibility shim preserving the pre-refactor call-site contract so
+        existing callers (e.g., ``resume_tailor.pipeline``) continue to work
+        while Phase G migrates them to ``record_llm_call_cost``.
     Args:
         db: Connected database manager used for persistence.
-        stage: Pipeline stage label (for example, `GATE` or `TAILOR`).
-        job_hash: Optional stable job identifier associated with this run.
+        stage: Pipeline stage label (e.g. ``GATE`` or ``TAILOR``).
+        job_hash: Optional stable job identifier.
         run_id: Optional stage-run identifier.
-        metadata: Optional mapping with contextual fields such as model/provider.
-    Output:
-        Returns `None` after writing the cost event.
+        metadata: Optional mapping with contextual fields.
+
+    Returns:
+        None after writing the cost event.
     """
-
-    token_cost: float | None = None
-    if metadata is not None:
-        token_cost = _token_cost_from_metadata(metadata)
-    cost_usd = token_cost if token_cost is not None else _coerce_stage_rate_usd(stage)
-
     metadata_json: str | None = None
     if metadata is not None:
         metadata_json = json.dumps(dict(metadata), ensure_ascii=True, sort_keys=True)
 
     await db.record_cost_event(
         stage=stage,
-        cost_usd=cost_usd,
+        cost_usd=0.0,
         job_hash=job_hash,
         run_id=run_id,
         metadata_json=metadata_json,

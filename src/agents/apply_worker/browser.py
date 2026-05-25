@@ -3,7 +3,8 @@
 Purpose:
     Connect to a running Chrome instance over CDP, navigate to a job
     application page, trigger Simplify Copilot autofill, upload the
-    tailored resume, and capture rich diagnostics for every attempt.
+    tailored resume, run the Pydantic AI long-tail finisher, and
+    decide whether to auto-submit per the issue-#59 binary gate.
 """
 
 from __future__ import annotations
@@ -18,15 +19,29 @@ from loguru import logger
 from playwright.async_api import Page
 from playwright.async_api import async_playwright
 
+from src.agents.apply_finisher.runner import run_finisher
+from src.agents.apply_finisher.schemas import FinisherResult
+from src.agents.apply_worker._verify_after_fill import verify_after_fill
 from src.agents.apply_worker.ats_detection import detect_ats_platform
 from src.agents.apply_worker.confidence import compute_confidence
 from src.agents.apply_worker.field_scanner import scan_unresolved_fields
+from src.agents.apply_worker.finisher_integration import (
+    FinisherContext,
+    evaluate_submit_gate,
+    excerpt_job_description,
+    load_finisher_dependencies,
+    safe_mode_from_env,
+    supported_finisher_ats,
+    synthesize_diagnostics,
+    try_submit_and_classify,
+)
 from src.agents.apply_worker.resume_upload import upload_resume
 from src.agents.apply_worker.schemas import ApplyOutcome
 from src.agents.apply_worker.schemas import ApplyRunResult
 from src.agents.apply_worker.schemas import ATSPlatform
 from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
 from src.agents.apply_worker.schemas import DEFAULT_PAGE_LOAD_TIMEOUT_MS
+from src.agents.apply_worker.schemas import FinisherDiagnostics
 from src.agents.apply_worker.schemas import SIMPLIFY_POLL_INTERVAL_MS
 from src.agents.apply_worker.schemas import SIMPLIFY_POLL_TIMEOUT_MS
 
@@ -167,13 +182,17 @@ async def apply_to_job(
     job_hash: str,
     artifact_dir: Path,
     dry_run: bool = True,
+    finisher_context: FinisherContext | None = None,
 ) -> ApplyRunResult:
     """Execute one browser-based job application attempt.
 
     Connects to Chrome via CDP, navigates to the application page,
-    triggers Simplify autofill, uploads the resume, and captures
-    diagnostics.  In dry-run mode (v1 default), stops before submit
-    and marks the outcome as NEEDS_REVIEW.
+    triggers Simplify autofill, uploads the resume, optionally runs
+    the long-tail finisher, and captures diagnostics. The submit
+    click only fires when ``finisher_context`` is provided, the
+    finisher reports ``COMPLETE`` with no Tier-3 deferrals, no
+    pending Tier-2 drafts, and ``dry_run=False`` plus ``SAFE_MODE``
+    unset.
 
     Args:
         cdp_url: Chrome DevTools Protocol endpoint URL.
@@ -181,11 +200,15 @@ async def apply_to_job(
         resume_pdf_path: Absolute path to the resume PDF to upload.
         job_hash: Job identifier for logging and artifact naming.
         artifact_dir: Directory to store screenshots and DOM snapshots.
-        dry_run: When True, do not click submit. Defaults to True.
+        dry_run: When True, never click submit regardless of gate.
+        finisher_context: Optional finisher inputs (company, role,
+            paths). When ``None`` the worker skips the finisher and
+            keeps the legacy "fill + NEEDS_REVIEW" behavior.
 
     Returns:
-        An ApplyRunResult with success status, diagnostics, and captured
-        artifact paths.
+        An ApplyRunResult with success status, diagnostics, captured
+        artifact paths, and (when the finisher ran) the
+        ``FinisherDiagnostics`` payload + deferred-questions list.
     """
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +250,7 @@ async def apply_to_job(
                 dom_snapshot_path=dom_snapshot_path,
                 unresolved_path=unresolved_path,
                 dry_run=dry_run,
+                finisher_context=finisher_context,
             )
             return result
 
@@ -268,6 +292,7 @@ async def _run_application_flow(
     dom_snapshot_path: Path,
     unresolved_path: Path,
     dry_run: bool,
+    finisher_context: FinisherContext | None,
 ) -> ApplyRunResult:
     """Execute the sequential application flow steps.
 
@@ -282,6 +307,8 @@ async def _run_application_flow(
         dom_snapshot_path: Where to save the DOM snapshot.
         unresolved_path: Where to save unresolved fields JSON.
         dry_run: Whether to skip the submit step.
+        finisher_context: Per-run finisher inputs; ``None`` skips the
+            finisher and keeps the legacy NEEDS_REVIEW path.
 
     Returns:
         An ApplyRunResult with full diagnostics.
@@ -456,7 +483,57 @@ async def _run_application_flow(
         job_hash,
     )
 
-    # Step 7: Capture artifacts
+    # Step 7: Verify-after-fill telemetry (no control flow branch).
+    try:
+        verify_payload = await verify_after_fill(playwright_page, ats_platform)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("verify_after_fill failed for {}: {}", job_hash, exc)
+        verify_payload = {"simplify_no_op": False, "values_seen": {}}
+    simplify_no_op = bool(verify_payload.get("simplify_no_op", False))
+
+    # Step 8: Run finisher when the ATS is supported and context is present.
+    finisher_result: FinisherResult | None = None
+    finisher_dialect = supported_finisher_ats(ats_platform)
+    if finisher_context is not None and finisher_dialect is not None:
+        try:
+            deps = load_finisher_dependencies(finisher_context)
+            finisher_result = await run_finisher(
+                page=playwright_page,
+                ats=finisher_dialect,
+                target_company=finisher_context.target_company,
+                target_role=finisher_context.target_role,
+                profile_yaml=deps.profile_yaml,
+                job_description_excerpt=excerpt_job_description(
+                    finisher_context.job_description,
+                ),
+                defer_rules=deps.defer_rules,
+                cache=deps.answer_cache,
+            )
+            logger.info(
+                "Finisher returned outcome={} turns={} cost=${:.4f} "
+                "filled={} deferred={} for job_hash={}",
+                finisher_result.outcome,
+                finisher_result.turns_used,
+                finisher_result.cost_usd,
+                finisher_result.fields_filled,
+                finisher_result.fields_deferred,
+                job_hash,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Finisher invocation failed for job_hash={}: {}",
+                job_hash,
+                exc,
+            )
+            finisher_result = None
+    elif finisher_dialect is None and finisher_context is not None:
+        logger.info(
+            "Skipping finisher for unsupported ATS={} job_hash={}",
+            ats_platform,
+            job_hash,
+        )
+
+    # Step 9: Capture artifacts
     await _save_screenshot_safe(playwright_page, screenshot_path)
     await _save_dom_safe(playwright_page, dom_snapshot_path)
 
@@ -466,15 +543,75 @@ async def _run_application_flow(
         json.dumps(unresolved_dicts, indent=2, ensure_ascii=False),
     )
 
-    # Step 8: Determine outcome
-    if dry_run:
-        outcome = ApplyOutcome.NEEDS_REVIEW
+    # Step 10: Evaluate the submit gate (binary v1 + SAFE_MODE).
+    safe_mode = (finisher_context.safe_mode if finisher_context else False) or (
+        safe_mode_from_env()
+    )
+    can_auto_submit = False
+    gate_decision = "skipped"
+    tier2_threshold = 1.0
+    submit_errors: list[str] = []
+
+    if finisher_result is not None and finisher_context is not None:
+        deps = load_finisher_dependencies(finisher_context)
+        tier2_threshold = deps.tier2_confidence_threshold
+        can_auto_submit, gate_decision = evaluate_submit_gate(
+            finisher_result=finisher_result,
+            tier2_confidence_threshold=tier2_threshold,
+            dry_run=dry_run,
+            safe_mode=safe_mode,
+        )
+
+    # Step 11: Try submit when authorized, else NEEDS_REVIEW.
+    outcome = ApplyOutcome.NEEDS_REVIEW
+    if can_auto_submit:
+        outcome, submit_errors = await try_submit_and_classify(
+            page=playwright_page,
+            ats_platform=ats_platform,
+        )
         logger.info(
-            "Dry-run mode: skipping submit for job_hash={}", job_hash,
+            "Gate authorized submit; outcome={} errors={} for job_hash={}",
+            outcome,
+            len(submit_errors),
+            job_hash,
         )
     else:
-        # Future: auto-submit when confidence is high and no hard blockers
-        outcome = ApplyOutcome.NEEDS_REVIEW
+        logger.info(
+            "Gate withheld submit ({}) for job_hash={}; leaving NEEDS_REVIEW",
+            gate_decision,
+            job_hash,
+        )
+
+    diagnostics: FinisherDiagnostics = synthesize_diagnostics(
+        finisher_result=finisher_result,
+        simplify_no_op=simplify_no_op,
+        submit_errors=submit_errors,
+        gate_decision=gate_decision,
+    )
+
+    deferred_payload: list[dict[str, object]] = []
+    if finisher_result is not None:
+        deferred_payload = [d.model_dump() for d in finisher_result.deferred_questions]
+
+    # Submit failed silently (no URL change, no toast) — classify as a
+    # recoverable failure so the worker's retry path can re-attempt.
+    if can_auto_submit and outcome == ApplyOutcome.FAILED_OTHER:
+        return ApplyRunResult(
+            success=False,
+            outcome=outcome,
+            failure_reason="submit_no_url_change_no_toast",
+            resume_pdf_path=str(resume_pdf_path),
+            resume_source=None,
+            confidence_score=confidence_report.score,
+            confidence_report=confidence_report,
+            screenshot_path=str(screenshot_path),
+            dom_snapshot_path=str(dom_snapshot_path),
+            unresolved_fields=unresolved_fields,
+            ats_platform=ats_platform,
+            page_url=playwright_page.url,
+            finisher_diagnostics=diagnostics,
+            deferred_questions=deferred_payload,
+        )
 
     return ApplyRunResult(
         success=True,
@@ -488,6 +625,8 @@ async def _run_application_flow(
         unresolved_fields=unresolved_fields,
         ats_platform=ats_platform,
         page_url=playwright_page.url,
+        finisher_diagnostics=diagnostics,
+        deferred_questions=deferred_payload,
     )
 
 

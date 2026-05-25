@@ -1,6 +1,6 @@
 # Agentic Job Applier
 
-> ⚠️ **Alpha software.** Auto-submit is intentionally **disabled** in this release. The apply worker fills forms in a real browser but stops before submitting — you review the filled form and click Submit yourself. See [Status & Safety](#status--safety) before running.
+> ⚠️ **Alpha software.** Auto-submit fires only when a strict binary gate passes — all required fields filled, no pending Tier-2 drafts, no Tier-3 deferred questions. Otherwise the form lands in `NEEDS_REVIEW` for you to finish. `SAFE_MODE=true` disables auto-submit globally. See [Status & Safety](#status--safety) before running.
 
 A self-hosted, AI-driven job discovery and application pipeline. It crawls a long list of ATSes, aggregators, and remote-only boards (full list below), decides which postings are worth applying to, generates a tailored LaTeX resume per job, runs a second-pass review, and drives a real browser to fill the application form (you submit it yourself). State lives in a local SQLite database, and a FastAPI + React dashboard exposes everything that happens at runtime.
 
@@ -20,7 +20,7 @@ A self-hosted, AI-driven job discovery and application pipeline. It crawls a lon
 
 ## Status & Safety
 
-This project is **alpha software**. The discovery, gate, tailor, review, and dashboard pieces work end-to-end. The auto-apply piece intentionally **does not** auto-submit — see below.
+This project is **alpha software**. The discovery, gate, tailor, review, and dashboard pieces work end-to-end. The auto-apply finisher is live on Greenhouse and Ashby with a binary submit gate.
 
 ### What works
 - Discovery across the sources listed above.
@@ -29,9 +29,9 @@ This project is **alpha software**. The discovery, gate, tailor, review, and das
 - Review agent does a second-pass verdict on the tailored resume.
 - Dashboard pipeline timeline updates as each job moves through.
 - Apply worker opens a real browser, navigates to the posting, and triggers Simplify autofill on the form.
+- **Apply finisher drives Greenhouse + Ashby form completion and auto-submits when the binary gate passes:** (a) all required fields are filled, (b) no Tier-2 drafts pending review, (c) no Tier-3 questions deferred. Otherwise the apply lands `NEEDS_REVIEW`. `SAFE_MODE=true` disables auto-submit globally regardless of gate outcome.
 
 ### What does NOT work, on purpose
-- **Auto-submit is hard-disabled in code.** The apply worker fills the form and stops before clicking Submit. There is no env var, CLI flag, or config option that enables auto-submit in this release. The worker creates a `PENDING_REVIEW` handoff visible in the dashboard's Human Review queue. You review the filled form in the browser, click Submit yourself, and mark the application complete in the dashboard.
 - **Multi-provider BYOK.** Onboarding accepts only an OpenAI API key. The provider abstraction at `src/providers/factory.py` is ready for Anthropic, Gemini, OpenRouter, and Codex, but the tailor and review workers are still hardcoded to OpenAI — see [#35](https://github.com/joeyspagnoli/agentic-job-applier/issues/35).
 
 ### Recommended human-in-the-loop flow
@@ -40,8 +40,8 @@ This project is **alpha software**. The discovery, gate, tailor, review, and das
 2. Start host Chrome with the debug port (see [Host Chrome setup](#host-chrome-setup)).
 3. `docker compose up -d`.
 4. Open the dashboard, complete onboarding, then flip the **AUTONOMOUS** toggle in the top bar to ON.
-5. Wait for jobs to flow through to **PENDING_REVIEW** (Human Review queue).
-6. For each pending review: open the job in your browser (the apply worker has already filled the form via Simplify autofill in your host Chrome), verify the application looks right, click Submit yourself, then click "Mark Complete" in the dashboard.
+5. Wait for jobs to flow through. When the binary gate passes the finisher auto-submits; otherwise the job lands in the **NEEDS_REVIEW** queue.
+6. For each `NEEDS_REVIEW` job: open the job in your browser (the apply worker has already filled the form via Simplify autofill in your host Chrome), verify the application looks right, complete any deferred questions, click Submit yourself, then click "Mark Complete" in the dashboard.
 
 Treat the AI's output as a draft. Read the tailored resume before letting it represent you. **Do not write a wrapper that auto-submits forms.** If you do, you own the consequences. The disclosure process for security-relevant changes is in [`SECURITY.md`](SECURITY.md).
 
@@ -153,6 +153,8 @@ docker compose exec app bash           # shell into the running container
 | `RUN_INTERVAL_MINUTES`           | Discovery cadence                           | Defaults to 30.                                           |
 | `API_PORT`                       | Host port for the dashboard                 | Defaults to 8000.                                         |
 | `CHROME_CDP_URL`                 | Apply loop → host Chrome CDP endpoint       | Defaults to `http://host.docker.internal:9222`.            |
+| `SAFE_MODE`                      | Apply finisher kill switch                  | Set `true` to disable auto-submit globally; forms still fill, outcome lands `NEEDS_REVIEW`. Defaults to `false`. |
+| `LITELLM_LOCAL_MODEL_COST_MAP`   | Cost tracking                               | Use litellm's bundled pricing table; avoids outbound calls for price data. Defaults to `true`. |
 
 User-facing YAML files live under `config/` and are persisted via the Docker `./config:/app/config` bind mount:
 
@@ -163,7 +165,6 @@ User-facing YAML files live under `config/` and are persisted via the Docker `./
 | `config/filters.yaml`         | Filters wizard step                    |
 | `config/companies.yaml`       | Watchlist wizard step                  |
 
-Cost telemetry rates (`COST_RATE_GATE_USD`, `COST_RATE_TAILOR_USD`, `COST_RATE_REVIEW_USD`, `COST_RATE_APPLY_USD`, `COST_RATE_DISCOVERY_USD`) default to `0.0` if unset and feed the dashboard cost charts.
 
 ## Local development
 
@@ -221,7 +222,7 @@ fetchers   apply-       Instructor +    Playwright
 | Discovery | `main.py`                                    | `config/companies.yaml`, fetchers       | New rows in `job_postings`, `crawl_history`            |
 | Gate      | `scripts/process_new_jobs.py`                | `NEW` postings, candidate profile       | `QUALIFIED` or `FILTERED` status; cost events          |
 | Tailor + Review | `scripts/process_qualified_jobs.py`    | `QUALIFIED` postings, `resume_content.yaml` | `tailor_runs` + matching `review_runs` rows, tailored LaTeX/PDF artifacts |
-| Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows, `apply_handoffs` at `PENDING_REVIEW` (forms filled, never auto-submitted in this release) |
+| Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows; auto-submitted when binary gate passes, otherwise `apply_handoffs` at `NEEDS_REVIEW` |
 
 State lives in:
 

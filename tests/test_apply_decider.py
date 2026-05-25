@@ -301,7 +301,7 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
 
     Purpose:
         Confirm that the batch workflow updates status and stores the serialized
-        gate payload when the decider succeeds.
+        gate payload when the gate succeeds via the provider-driven unified runtime.
     Args:
         monkeypatch: Pytest fixture used to replace live model behavior.
     Output:
@@ -309,19 +309,22 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
         the stored `agent_result` JSON contains the expected decision payload.
     """
 
-    async def fake_run_decider_for_job(**_: object) -> GateRunResult:
-        """Return a stable fake gate result for batch-processing tests.
+    from src.agents.root_apply_decider import GateRunOutcome
+    from src.providers.types import CompletionResponse, CostBreakdown, TokenUsage
+
+    async def fake_run_gate_with_provider(**_: object) -> GateRunOutcome:
+        """Return a stable fake gate outcome for batch-processing tests.
 
         Purpose:
-            Replace the live ADK/model path so the persistence workflow can be
+            Replace the live provider path so the persistence workflow can be
             tested deterministically and without network calls.
         Args:
             **_: Ignored keyword arguments from the production call site.
         Output:
-            Returns a deterministic `GateRunResult`.
+            Returns a deterministic `GateRunOutcome`.
         """
 
-        return GateRunResult(
+        result = GateRunResult(
             decision=ApplyDecision.APPLY,
             debug=GateDebugInfo(
                 confidence=0.88,
@@ -334,11 +337,17 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
             model="openai/gpt-5-mini",
             parse_mode="json_recovered",
         )
+        response = CompletionResponse(
+            content='{"decision":"APPLY"}',
+            model="openai/gpt-5-mini",
+            provider="openai",
+            usage=TokenUsage(),
+            cost=CostBreakdown(),
+        )
+        return GateRunOutcome(result=result, response=response)
 
-    monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
-    monkeypatch.setattr(process_new_jobs, "build_root_agent", lambda model: object())
     monkeypatch.setattr(
-        process_new_jobs, "_run_decider_for_job", fake_run_decider_for_job
+        process_new_jobs, "run_gate_with_provider", fake_run_gate_with_provider
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -359,7 +368,15 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
             )
             await db.insert_job(job.to_db_dict())
 
-            processed = await process_new_jobs._process_once(db=db, limit=10)
+            # `_process_once` calls `record_llm_call_cost` which writes to
+            # `cost_events`; migrate_cost_schema adds the new columns it needs.
+            await db.migrate_cost_schema()
+            fake_provider = object()
+            processed = await process_new_jobs._process_once(
+                db=db,
+                limit=10,
+                provider=fake_provider,  # type: ignore[arg-type]
+            )
             stored_job = await db.get_job_by_hash(job.job_hash)
 
     assert processed == 1
@@ -380,8 +397,8 @@ async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
     """Verify unrecoverable model output is recorded as an agent failure.
 
     Purpose:
-        Confirm that the workflow only marks a run failed when the parser cannot
-        recover APPLY or SKIP from the model response.
+        Confirm that the workflow only marks a run failed when the provider
+        gate raises an exception (e.g., parse failure).
     Args:
         monkeypatch: Pytest fixture used to replace live model behavior.
     Output:
@@ -389,11 +406,13 @@ async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
         and the job is excluded from normal successful processing.
     """
 
-    async def fake_run_decider_for_job(**_: object) -> GateRunResult:
+    from src.agents.root_apply_decider import GateRunOutcome
+
+    async def fake_run_gate_with_provider(**_: object) -> GateRunOutcome:
         """Raise a stable parser error for failure-path testing.
 
         Purpose:
-            Simulate the one case where the gate workflow should mark a job as
+            Simulate the case where the gate workflow should mark a job as
             failed: when no APPLY or SKIP decision can be recovered.
         Args:
             **_: Ignored keyword arguments from the production call site.
@@ -403,10 +422,8 @@ async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
 
         raise ValueError("Could not recover APPLY or SKIP from model response")
 
-    monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
-    monkeypatch.setattr(process_new_jobs, "build_root_agent", lambda model: object())
     monkeypatch.setattr(
-        process_new_jobs, "_run_decider_for_job", fake_run_decider_for_job
+        process_new_jobs, "run_gate_with_provider", fake_run_gate_with_provider
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -425,9 +442,14 @@ async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
             )
             await db.insert_job(job.to_db_dict())
 
+            # `_process_once` writes to `cost_events` even on failure;
+            # migrate_cost_schema adds the new columns it needs.
+            await db.migrate_cost_schema()
+            fake_provider = object()
             processed = await process_new_jobs._process_once(
                 db=db,
                 limit=10,
+                provider=fake_provider,  # type: ignore[arg-type]
                 max_retries=1,
             )
             stored_job = await db.get_job_by_hash(job.job_hash)

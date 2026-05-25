@@ -36,6 +36,7 @@ import {
 import { EMPTY_WATCHLIST_RESULT } from "./defaults";
 import { buildStructuredProfilePayload } from "./profile-payload";
 import type {
+  ApplyPrefsDraft,
   FiltersDraft,
   ProfileDraft,
   ProviderDraft,
@@ -52,6 +53,7 @@ export interface FinishOnboardingArgs {
   readonly roles: RolesDraft;
   readonly filters: FiltersDraft;
   readonly provider: ProviderDraft;
+  readonly applyPrefs: ApplyPrefsDraft;
   readonly watchlist: WatchlistDraft;
   /**
    * Sources-YAML reader; injected so the integration test can swap it
@@ -81,13 +83,16 @@ export async function finishOnboarding(args: FinishOnboardingArgs): Promise<Watc
     roles,
     filters,
     provider,
+    applyPrefs,
     watchlist,
     fetchSources,
     updateSources,
     refetchOnboardingStatus,
   } = args;
 
-  await updateProfileStructured(buildStructuredProfilePayload({ profile, roles, filters }));
+  await updateProfileStructured(
+    buildStructuredProfilePayload({ profile, roles, filters, applyPrefs }),
+  );
 
   if (provider.apiKey.trim() !== "") {
     await postOpenAiProviderKey(provider.apiKey);

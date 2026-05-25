@@ -1,10 +1,16 @@
 """OpenAI-compatible provider for BYOK mode.
 
 Handles OpenAI, OpenRouter, and any OpenAI-compatible endpoint
-(Ollama, LM Studio, etc.) through the same implementation.
+(Ollama, LM Studio, etc.) through the same implementation. Cost
+computation delegates to `litellm.cost_per_token()` which ships a
+bundled pricing table covering the gpt-5 family (set
+`LITELLM_LOCAL_MODEL_COST_MAP=true` to force local-only pricing and
+avoid the network lookup).
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from loguru import logger
 
@@ -17,11 +23,15 @@ from src.providers.errors import (
 from src.providers.types import (
     CompletionRequest,
     CompletionResponse,
+    CostBreakdown,
     ProviderType,
+    TokenUsage,
 )
 
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_OPENROUTER_MODEL = "openai/gpt-5-mini"
+
+OPENAI_CACHED_INPUT_DISCOUNT = 0.5  # OpenAI bills cached input at 50% rate.
 
 
 class OpenAIProvider:
@@ -81,7 +91,7 @@ class OpenAIProvider:
             request: Provider-agnostic completion request.
 
         Returns:
-            Normalized completion response.
+            Normalized completion response carrying `usage` and `cost`.
 
         Raises:
             ProviderAuthError: If the API key is invalid.
@@ -148,21 +158,95 @@ class OpenAIProvider:
 
         choice = response.choices[0]
         content = choice.message.content or ""
-        usage = response.usage
+        token_usage = _extract_token_usage(response.usage)
+        resolved_model = response.model or model
+        cost = self.compute_cost(resolved_model, token_usage)
 
         logger.debug(
-            "OpenAI completion: model={} tokens={}+{}",
-            response.model,
-            usage.prompt_tokens if usage else 0,
-            usage.completion_tokens if usage else 0,
+            "OpenAI completion: model={} tokens={}+{} cost=${:.6f} ({})",
+            resolved_model,
+            token_usage.prompt_tokens,
+            token_usage.completion_tokens,
+            cost.total_cost_usd,
+            cost.source,
         )
 
         return CompletionResponse(
             content=content,
-            model=response.model or model,
+            model=resolved_model,
             provider=self._provider_type.value,
-            usage_prompt_tokens=usage.prompt_tokens if usage else 0,
-            usage_completion_tokens=usage.completion_tokens if usage else 0,
+            usage=token_usage,
+            cost=cost,
+        )
+
+    def compute_cost(self, model: str, usage: TokenUsage) -> CostBreakdown:
+        """Compute USD cost for one OpenAI/OpenRouter completion.
+
+        Purpose:
+            Delegate to `litellm.cost_per_token()` which ships a bundled
+            pricing table covering OpenAI, OpenRouter, and most major
+            providers. Cached input is billed at 50% per OpenAI's policy;
+            the discount is applied before summing into `total_cost_usd`.
+        Args:
+            model: Fully qualified or provider-bare model identifier.
+                LiteLLM accepts both `openai/gpt-5.4-mini` and
+                `gpt-5.4-mini`.
+            usage: Token counts captured from the raw completion.
+        Returns:
+            A populated `CostBreakdown` with `source="computed"` on
+            success, or `source="unknown"` and zero costs when pricing
+            for the model is not available.
+        """
+
+        try:
+            from litellm import cost_per_token
+        except ImportError:
+            logger.warning(
+                "litellm not installed; cost computation unavailable for {}",
+                model,
+            )
+            return CostBreakdown(source="unknown")
+
+        billable_prompt_tokens = max(
+            usage.prompt_tokens - usage.cached_input_tokens, 0
+        )
+
+        try:
+            prompt_cost, completion_cost = cost_per_token(
+                model=model,
+                prompt_tokens=billable_prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+            )
+        except Exception as exc:  # litellm raises BadRequestError for unknown models
+            logger.debug(
+                "litellm cost_per_token failed for model {}: {}",
+                model,
+                exc,
+            )
+            return CostBreakdown(source="unknown")
+
+        cached_cost = 0.0
+        if usage.cached_input_tokens > 0:
+            try:
+                cached_prompt_cost, _ = cost_per_token(
+                    model=model,
+                    prompt_tokens=usage.cached_input_tokens,
+                    completion_tokens=0,
+                )
+            except Exception:  # pragma: no cover - already-warned model path
+                cached_prompt_cost = 0.0
+            cached_cost = float(cached_prompt_cost) * OPENAI_CACHED_INPUT_DISCOUNT
+
+        input_cost = float(prompt_cost)
+        output_cost = float(completion_cost)
+        total = input_cost + output_cost + cached_cost
+
+        return CostBreakdown(
+            input_cost_usd=input_cost,
+            output_cost_usd=output_cost,
+            cached_input_cost_usd=cached_cost,
+            total_cost_usd=total,
+            source="computed",
         )
 
     async def validate_credentials(self) -> bool:
@@ -188,3 +272,42 @@ class OpenAIProvider:
         except Exception:
             logger.debug("OpenAI credential validation failed")
             return False
+
+
+def _extract_token_usage(raw_usage: Any) -> TokenUsage:
+    """Build a `TokenUsage` from an OpenAI-shaped usage object.
+
+    Purpose:
+        Centralize the parsing so both ChatCompletions and Responses
+        shapes resolve to the same canonical accounting; missing fields
+        default to zero so the caller never has to guard.
+    Args:
+        raw_usage: Provider response usage object, or `None`.
+    Returns:
+        Populated `TokenUsage` (zero-filled when `raw_usage is None`).
+    """
+
+    if raw_usage is None:
+        return TokenUsage()
+
+    prompt_tokens = int(getattr(raw_usage, "prompt_tokens", 0) or 0)
+    completion_tokens = int(getattr(raw_usage, "completion_tokens", 0) or 0)
+
+    cached_input_tokens = 0
+    prompt_details = getattr(raw_usage, "prompt_tokens_details", None)
+    if prompt_details is not None:
+        cached_input_tokens = int(getattr(prompt_details, "cached_tokens", 0) or 0)
+
+    reasoning_tokens = 0
+    completion_details = getattr(raw_usage, "completion_tokens_details", None)
+    if completion_details is not None:
+        reasoning_tokens = int(
+            getattr(completion_details, "reasoning_tokens", 0) or 0
+        )
+
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cached_input_tokens=cached_input_tokens,
+        reasoning_tokens=reasoning_tokens,
+    )

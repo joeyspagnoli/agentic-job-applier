@@ -1,4 +1,10 @@
-"""Cover agent worker status mapping and polling-loop resilience."""
+"""Cover gate worker status mapping and polling-loop resilience.
+
+Purpose:
+    Validate the provider-driven gate worker's batch processing, failure
+    handling, and loop mode after the ADK runtime was replaced with the
+    unified provider runtime in Phase G.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +15,53 @@ from pathlib import Path
 import pytest
 
 from scripts import process_new_jobs
-from src.agents.root_apply_decider import ApplyDecision
+from src.agents.root_apply_decider import (
+    ApplyDecision,
+    GateDebugInfo,
+    GateRunOutcome,
+    GateRunResult,
+    map_decision_to_status,
+)
 from src.database.db_manager import DatabaseManager
+from src.providers.types import CompletionResponse, CostBreakdown, TokenUsage
 
 
-def test_map_status_maps_skip_to_filtered() -> None:
+def _build_fake_outcome(decision: ApplyDecision) -> GateRunOutcome:
+    """Build a deterministic `GateRunOutcome` for resilience tests.
+
+    Purpose:
+        Keep failure-path and loop tests independent from live provider calls
+        by returning stable payloads with the Phase G shape.
+    Args:
+        decision: Gate decision to embed in the result.
+    Output:
+        Returns a populated `GateRunOutcome`.
+    """
+
+    result = GateRunResult(
+        decision=decision,
+        debug=GateDebugInfo(
+            confidence=0.9,
+            explanation="Deterministic test result.",
+            preference_matches=["test"],
+            preference_conflicts=[],
+        ),
+        raw_response=f'{{"decision":"{decision.value}"}}',
+        provider="test",
+        model="test-model",
+        parse_mode="json_recovered",
+    )
+    response = CompletionResponse(
+        content=f'{{"decision":"{decision.value}"}}',
+        model="test-model",
+        provider="test",
+        usage=TokenUsage(),
+        cost=CostBreakdown(),
+    )
+    return GateRunOutcome(result=result, response=response)
+
+
+def test_map_decision_to_status_maps_skip_to_filtered() -> None:
     """Verify SKIP decisions map to FILTERED workflow status.
 
     Purpose:
@@ -24,10 +72,10 @@ def test_map_status_maps_skip_to_filtered() -> None:
         Returns `None`; the test passes when SKIP maps to FILTERED.
     """
 
-    assert process_new_jobs._map_status(ApplyDecision.SKIP) == "FILTERED"
+    assert map_decision_to_status(ApplyDecision.SKIP) == "FILTERED"
 
 
-def test_map_status_maps_apply_to_qualified() -> None:
+def test_map_decision_to_status_maps_apply_to_qualified() -> None:
     """Verify APPLY decisions map to QUALIFIED workflow status.
 
     Purpose:
@@ -38,7 +86,7 @@ def test_map_status_maps_apply_to_qualified() -> None:
         Returns `None`; the test passes when APPLY maps to QUALIFIED.
     """
 
-    assert process_new_jobs._map_status(ApplyDecision.APPLY) == "QUALIFIED"
+    assert map_decision_to_status(ApplyDecision.APPLY) == "QUALIFIED"
 
 
 @pytest.mark.asyncio
@@ -48,10 +96,10 @@ async def test_process_once_skips_rows_missing_job_hash(
     """Verify rows without job_hash are skipped without side effects.
 
     Purpose:
-        Ensure malformed rows do not invoke the decider path and do not crash
+        Ensure malformed rows do not invoke the gate path and do not crash
         the batch cycle.
     Args:
-        monkeypatch: Pytest fixture used to patch model and DB interactions.
+        monkeypatch: Pytest fixture used to patch provider and DB interactions.
     Output:
         Returns `None`; the test passes when processing count is zero.
     """
@@ -121,83 +169,98 @@ async def test_process_once_skips_rows_missing_job_hash(
 
             raise AssertionError("missing-hash rows must not record decisions")
 
-    async def should_not_run_decider(**_: object) -> None:
-        """Fail the test if decider execution is attempted.
+    async def should_not_run_gate(**_: object) -> GateRunOutcome:
+        """Fail the test if gate execution is attempted.
 
         Purpose:
-            Ensure malformed rows are filtered before decider execution.
+            Ensure malformed rows are filtered before gate execution.
         Args:
             **_: Ignored keyword arguments.
         Output:
             Raises `AssertionError`.
         """
 
-        raise AssertionError("decider should not run for missing-hash rows")
+        raise AssertionError("gate should not run for missing-hash rows")
 
-    monkeypatch.setattr(process_new_jobs, "get_decider_model", lambda: object())
-    monkeypatch.setattr(process_new_jobs, "build_root_agent", lambda model: object())
-    monkeypatch.setattr(
-        process_new_jobs, "_run_decider_for_job", should_not_run_decider
+    monkeypatch.setattr(process_new_jobs, "run_gate_with_provider", should_not_run_gate)
+
+    fake_provider = object()
+    processed = await process_new_jobs._process_once(
+        db=FakeDb(),  # type: ignore[arg-type]
+        limit=5,
+        provider=fake_provider,  # type: ignore[arg-type]
     )
-
-    processed = await process_new_jobs._process_once(db=FakeDb(), limit=5)  # type: ignore[arg-type]
     assert processed == 0
 
 
 @pytest.mark.asyncio
-async def test_process_once_skips_batch_when_model_is_not_configured(
+async def test_process_once_skips_batch_when_budget_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify model configuration failures raise dedicated configuration errors.
+    """Verify budget-exceeded guard prevents job processing.
 
     Purpose:
-        Ensure missing model credentials fail fast before any pending-row query
-        and surface a dedicated error type for caller-level alert handling.
+        Ensure the batch exits early when the budget gate returns exceeded,
+        without touching any DB query or gate invocation paths.
     Args:
-        monkeypatch: Pytest fixture used to force model configuration failure.
+        monkeypatch: Pytest fixture used to intercept gate calls.
     Output:
-        Returns `None`; the test passes when model setup raises expected error.
+        Returns `None`; the test passes when zero rows are processed.
     """
 
-    class UnusedDb:
-        """Fail fast if pending-job reads are attempted in skip path."""
+    class BudgetExceededDb:
+        """Return exceeded budget state to trigger early exit."""
 
         async def is_budget_exceeded(self) -> bool:
-            """Return non-exceeded state when model setup should fail first.
+            """Signal budget exhaustion to `_process_once`.
 
             Purpose:
-                Preserve this test's focus on model-configuration errors.
+                Drive the budget-guard early-exit branch.
             Args:
                 self: Fake DB instance.
             Output:
-                Returns `False`.
+                Returns `True`.
             """
 
-            return False
+            return True
 
         async def get_jobs_pending_agent_processing(self, limit: int) -> list[dict[str, object]]:
-            """Raise if called during model-not-configured path.
+            """Fail if called after budget-exceeded guard triggers.
 
             Purpose:
-                Guarantee `_process_once` exits before touching DB query path.
+                Guard against DB queries running after early budget exit.
             Args:
                 self: Fake DB instance.
-                limit: Requested batch size.
+                limit: Ignored.
             Output:
                 Raises `AssertionError`.
             """
 
             _ = limit
-            raise AssertionError("DB query should not run when model is unavailable")
+            raise AssertionError("DB query should not run when budget is exceeded")
 
-    monkeypatch.setattr(
-        process_new_jobs,
-        "get_decider_model",
-        lambda: (_ for _ in ()).throw(RuntimeError("missing API key")),
+    async def should_not_run(**_: object) -> GateRunOutcome:
+        """Fail if gate is invoked after budget-exceeded guard triggers.
+
+        Purpose:
+            Prevent accidental gate calls under budget exhaustion.
+        Args:
+            **_: Ignored keyword arguments.
+        Output:
+            Raises `AssertionError`.
+        """
+
+        raise AssertionError("gate should not run when budget is exceeded")
+
+    monkeypatch.setattr(process_new_jobs, "run_gate_with_provider", should_not_run)
+
+    fake_provider = object()
+    processed = await process_new_jobs._process_once(
+        db=BudgetExceededDb(),  # type: ignore[arg-type]
+        limit=10,
+        provider=fake_provider,  # type: ignore[arg-type]
     )
-
-    with pytest.raises(process_new_jobs.ModelConfigurationError):
-        await process_new_jobs._process_once(db=UnusedDb(), limit=10)  # type: ignore[arg-type]
+    assert processed == 0
 
 
 @pytest.mark.asyncio
@@ -224,6 +287,7 @@ async def test_main_loop_continues_after_process_cycle_exception(
         *,
         db: DatabaseManager,
         limit: int,
+        provider: object,
         max_retries: int = 3,
         backoff_seconds: int = 300,
         backoff_multiplier: int = 3,
@@ -235,13 +299,16 @@ async def test_main_loop_continues_after_process_cycle_exception(
         Args:
             db: Connected DB manager created by the script.
             limit: Batch limit from parsed args.
+            provider: Configured AI provider (ignored in stub).
+            max_retries: Max retries (ignored in stub).
+            backoff_seconds: Backoff base (ignored in stub).
+            backoff_multiplier: Backoff factor (ignored in stub).
         Output:
             Raises once, then returns a processed count.
         """
 
-        _ = db
+        _ = (db, provider, max_retries, backoff_seconds, backoff_multiplier)
         assert limit == 3
-        _ = (max_retries, backoff_seconds, backoff_multiplier)
         calls["process"] += 1
         if calls["process"] == 1:
             raise RuntimeError("transient failure")
@@ -273,7 +340,18 @@ async def test_main_loop_continues_after_process_cycle_exception(
         )
         monkeypatch.setenv("AGENT_POLL_INTERVAL_SECONDS", "1")
         monkeypatch.setattr(process_new_jobs, "resolve_database_path", lambda: db_path)
+
         async def _always_active(_db: object) -> bool:
+            """Return True to keep gate mode active for all test cycles.
+
+            Purpose:
+                Prevent the gate-mode check from skipping cycles under test.
+            Args:
+                _db: Ignored database manager argument.
+            Output:
+                Returns `True`.
+            """
+
             return True
 
         monkeypatch.setattr(process_new_jobs, "_is_gate_mode_active", _always_active)
@@ -305,6 +383,7 @@ async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatc
         *,
         db: DatabaseManager,
         limit: int,
+        provider: object,
         max_retries: int = 3,
         backoff_seconds: int = 300,
         backoff_multiplier: int = 3,
@@ -316,13 +395,16 @@ async def test_main_once_flag_overrides_loop_mode(monkeypatch: pytest.MonkeyPatc
         Args:
             db: Connected DB manager created by the script.
             limit: Batch limit from parsed args.
+            provider: Configured AI provider (ignored in stub).
+            max_retries: Max retries (ignored in stub).
+            backoff_seconds: Backoff base (ignored in stub).
+            backoff_multiplier: Backoff factor (ignored in stub).
         Output:
             Returns a deterministic processed count.
         """
 
-        _ = db
+        _ = (db, provider, max_retries, backoff_seconds, backoff_multiplier)
         assert limit == 1
-        _ = (max_retries, backoff_seconds, backoff_multiplier)
         calls["process"] += 1
         return 1
 

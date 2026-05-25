@@ -36,6 +36,10 @@ from loguru import logger
 
 from src.agents.apply_worker.browser import apply_to_job
 from src.agents.apply_worker.browser import check_chrome_reachable
+from src.agents.apply_worker.finisher_integration import (
+    FinisherContext,
+    safe_mode_from_env,
+)
 from src.agents.apply_worker.schemas import ApplyOutcome
 from src.agents.apply_worker.schemas import DEFAULT_CDP_URL
 from src.database._mixins.system_settings import APPLY_MODE_KEY
@@ -44,10 +48,16 @@ from src.database.db_manager import DEFAULT_APPLY_CLAIM_LEASE_SECONDS
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_APPLY
 from src.utils.cost_tracking import check_budget_before_claim
-from src.utils.cost_tracking import record_stage_cost_event
+from src.utils.cost_tracking import record_apply_browser_stub
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
 from src.utils.paths import resolve_repo_root
+
+# Repo-relative paths for finisher resources. Resolved against
+# ``resolve_repo_root()`` per call so a different deploy layout works.
+CANDIDATE_PROFILE_REL_PATH = "config/candidate_profile.yaml"
+DEFER_RULES_REL_PATH = "config/defer_rules.yaml"
+ANSWER_CACHE_REL_PATH = "data/answer_cache.yaml"
 
 DEFAULT_APPLY_POLL_INTERVAL_SECONDS = 60
 DEFAULT_APPLY_MAX_RETRIES = 2
@@ -92,6 +102,45 @@ def _validate_job_hash(job_hash: str) -> None:
         raise ValueError(
             f"Invalid job_hash format - expected 32-64 hex chars, got {job_hash!r}"
         )
+
+
+def _build_finisher_context(claimed_row: Mapping[str, object]) -> FinisherContext:
+    """Build a per-run :class:`FinisherContext` from the claimed job row.
+
+    Purpose:
+        Centralize the conversion of DB row fields + repo paths into
+        the typed context the apply-finisher needs so the call site
+        stays a one-liner.
+    Args:
+        claimed_row: Row returned by ``claim_next_apply_job`` (carries
+            ``title``, ``company``, ``description`` from
+            ``job_postings``).
+    Returns:
+        A frozen :class:`FinisherContext`.
+    """
+
+    repo_root = resolve_repo_root()
+    target_company_raw = claimed_row.get("company")
+    target_role_raw = claimed_row.get("title")
+    description_raw = claimed_row.get("description")
+
+    target_company = (
+        str(target_company_raw) if isinstance(target_company_raw, str) else "the company"
+    )
+    target_role = (
+        str(target_role_raw) if isinstance(target_role_raw, str) else "this role"
+    )
+    description = str(description_raw) if isinstance(description_raw, str) else ""
+
+    return FinisherContext(
+        target_company=target_company,
+        target_role=target_role,
+        job_description=description,
+        candidate_profile_path=repo_root / CANDIDATE_PROFILE_REL_PATH,
+        defer_rules_path=repo_root / DEFER_RULES_REL_PATH,
+        answer_cache_path=repo_root / ANSWER_CACHE_REL_PATH,
+        safe_mode=safe_mode_from_env(),
+    )
 
 
 def _load_int_env(name: str, default_value: int) -> int:
@@ -388,9 +437,8 @@ async def _record_apply_cost_best_effort(
     """
 
     try:
-        await record_stage_cost_event(
+        await record_apply_browser_stub(
             db=db,
-            stage=PIPELINE_STAGE_APPLY,
             job_hash=job_hash,
             run_id=str(run_id),
             metadata=metadata,
@@ -546,6 +594,8 @@ async def _apply_once(
         job_hash,
     )
 
+    finisher_context = _build_finisher_context(claimed_row)
+
     # Run the browser automation
     try:
         result = await apply_to_job(
@@ -555,6 +605,7 @@ async def _apply_once(
             job_hash=job_hash,
             artifact_dir=artifact_dir,
             dry_run=dry_run,
+            finisher_context=finisher_context,
         )
     except Exception as exc:
         logger.exception(
@@ -624,6 +675,16 @@ async def _apply_once(
             return 1
 
         if resolved_outcome == HUMAN_REVIEW_HANDOFF_OUTCOME:
+            deferred_questions_json = (
+                json.dumps(result.deferred_questions, ensure_ascii=False)
+                if result.deferred_questions
+                else None
+            )
+            finisher_diagnostics_json = (
+                result.finisher_diagnostics.model_dump_json()
+                if result.finisher_diagnostics
+                else None
+            )
             await db.record_apply_handoff(
                 apply_run_id=run_id,
                 job_hash=job_hash,
@@ -636,6 +697,8 @@ async def _apply_once(
                 unresolved_fields_json=unresolved_json,
                 screenshot_path=result.screenshot_path,
                 dom_snapshot_path=result.dom_snapshot_path,
+                deferred_questions_json=deferred_questions_json,
+                finisher_diagnostics_json=finisher_diagnostics_json,
                 ats_platform=(
                     result.ats_platform.value if result.ats_platform else None
                 ),
@@ -844,9 +907,18 @@ async def main() -> None:
     )
     cdp_url = args.cdp_url or os.getenv("CHROME_CDP_URL", DEFAULT_CDP_URL)
 
-    # auto-submit disabled in this release; see SECURITY.md for the policy
-    dry_run = True
-    logger.info(AUTO_SUBMIT_DISABLED_MESSAGE)
+    # Auto-submit is gated by the apply-finisher result; ``SAFE_MODE=true``
+    # is the env-driven kill switch documented in `.env.example` and
+    # SECURITY.md. ``dry_run`` here is the worker-wide ceiling — the per-job
+    # gate inside ``_run_application_flow`` is the policy decision point.
+    dry_run = safe_mode_from_env()
+    if dry_run:
+        logger.info(AUTO_SUBMIT_DISABLED_MESSAGE)
+    else:
+        logger.info(
+            "Apply worker: auto-submit gate ENABLED. "
+            "Set SAFE_MODE=true to disable globally.",
+        )
 
     # Synchronous preflight checks
     try:

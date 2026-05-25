@@ -40,10 +40,11 @@ import yaml
 from loguru import logger
 
 from src.database.db_manager import DatabaseManager
+from src.providers.types import CompletionResponse
 from src.utils.cost_tracking import (
     PIPELINE_STAGE_REVIEW,
     PIPELINE_STAGE_TAILOR,
-    record_stage_cost_event,
+    record_llm_call_cost,
 )
 
 from .compiler import compile_resume_tex, get_pdf_page_count
@@ -411,13 +412,15 @@ async def _record_cost(
     phase: str,
     call_result: LlmCallResult[Any],
 ) -> None:
-    """Best-effort wrapper around `record_stage_cost_event`.
+    """Best-effort wrapper around `record_llm_call_cost`.
 
     Purpose:
         Cost recording is observational — never let a recording
-        failure kill a real pipeline run. Token usage flows in from
-        the Instructor result so per-call metadata stays accurate
-        without a second provider round-trip.
+        failure kill a real pipeline run. Token usage and cost flow in
+        from the Instructor result so per-call metadata stays accurate
+        without a second provider round-trip. A synthetic
+        `CompletionResponse` is built from the `LlmCallResult` fields so
+        `record_llm_call_cost` can persist the full cost breakdown.
     Args:
         db: Connected database manager.
         stage: Pipeline stage constant (`TAILOR` or `REVIEW`).
@@ -432,18 +435,23 @@ async def _record_cost(
     """
 
     try:
-        await record_stage_cost_event(
+        # Derive the provider name from the qualified model prefix so the
+        # recorder carries the right string without an extra import.
+        provider_name = call_result.model.split("/")[0] if "/" in call_result.model else "openai"
+        synthetic_response = CompletionResponse(
+            content="",
+            model=call_result.model,
+            provider=provider_name,
+            usage=call_result.usage,
+            cost=call_result.cost,
+        )
+        await record_llm_call_cost(
             db=db,
             stage=stage,
-            job_hash=job_hash,
             run_id=str(tailor_run_id),
-            metadata={
-                "model": call_result.model,
-                "phase": phase,
-                "prompt_tokens": call_result.prompt_tokens,
-                "completion_tokens": call_result.completion_tokens,
-                "total_tokens": call_result.total_tokens,
-            },
+            phase=phase,
+            response=synthetic_response,
+            job_hash=job_hash,
         )
     except Exception as exc:
         logger.warning("Cost recording failed (stage={}): {}", stage, exc)

@@ -12,10 +12,13 @@ from .runtime import run_decider_for_job
 from .schemas import ApplyDecision
 from .schemas import GateDebugInfo
 from .schemas import GateRunResult
+from .unified_runtime import GateRunOutcome
+from .unified_runtime import run_gate_with_provider
 
 __all__ = [
     "ApplyDecision",
     "GateDebugInfo",
+    "GateRunOutcome",
     "GateRunResult",
     "build_gate_payload",
     "build_root_agent",
@@ -26,4 +29,5 @@ __all__ = [
     "map_decision_to_status",
     "parse_gate_response",
     "run_decider_for_job",
+    "run_gate_with_provider",
 ]

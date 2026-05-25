@@ -10,14 +10,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toJobsRows, type JobsRowModel } from "@/lib/api/adapters";
 import {
+  ApplyRunConflictError,
   deleteTailorRun,
   enqueueTailorRun,
   fetchAutomationSettings,
   fetchJobs,
   fetchJobsNow,
   getTailoredResumeUrl,
+  postApplyRun,
   retryTailorRun,
 } from "@/lib/api/client";
+import type { ApplyRunDto } from "@/lib/api/types";
+import { ApplyButton } from "@/pages/jobs/ApplyButton";
+import { NotTailoredModal } from "@/pages/jobs/NotTailoredModal";
 import {
   COLOR_ON_SURFACE,
   COLOR_ON_SURFACE_VARIANT,
@@ -575,6 +580,65 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     },
   });
 
+  // Apply-run local state — the jobs list does not yet embed apply_run
+  // snapshots, so we hold the latest known run here after user-initiated actions.
+  const [applyRun, setApplyRun] = useState<ApplyRunDto | null>(null);
+  const [isNotTailoredModalOpen, setIsNotTailoredModalOpen] = useState(false);
+  const [applyErrorMessage, setApplyErrorMessage] = useState<string | null>(null);
+
+  const applyMutation = useMutation({
+    mutationFn: () => postApplyRun(row.jobHash),
+    onSuccess: (data) => {
+      // Seed local apply state so the button transitions immediately.
+      setApplyRun({
+        id: data.apply_run_id,
+        job_hash: data.job_hash,
+        status: data.status,
+        outcome: null,
+        ats_platform: null,
+        completed_at: null,
+        screenshot_path: null,
+        error: null,
+      });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (error: unknown) => {
+      if (error instanceof ApplyRunConflictError) {
+        // Non-blocking notice — an active run already exists.
+        setApplyErrorMessage("An apply run is already in progress for this job.");
+        return;
+      }
+      setApplyErrorMessage(error instanceof Error ? error.message : "Apply failed. Please try again.");
+    },
+  });
+
+  const handleApply = useCallback(() => {
+    setIsNotTailoredModalOpen(false);
+    setApplyErrorMessage(null);
+    applyMutation.mutate();
+  }, [applyMutation]);
+
+  const handleTailorThenApply = useCallback(() => {
+    setIsNotTailoredModalOpen(false);
+    setApplyErrorMessage(null);
+    // First tailor, then immediately enqueue the apply run after success.
+    enqueueMutation.mutate(undefined, {
+      onSuccess: () => {
+        applyMutation.mutate();
+      },
+    });
+  }, [enqueueMutation, applyMutation]);
+
+  const handleApplyButtonClick = useCallback(() => {
+    setApplyErrorMessage(null);
+    if (row.tailorRun === null) {
+      // No tailored resume — ask the user before proceeding.
+      setIsNotTailoredModalOpen(true);
+      return;
+    }
+    applyMutation.mutate();
+  }, [row.tailorRun, applyMutation]);
+
   const tailorRun = row.tailorRun;
   const baseDownloadUrl = getTailoredResumeUrl(row.jobHash);
   const errorMessage = enqueueMutation.error
@@ -589,45 +653,190 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
 
   if (tailorRun === null) {
     return (
-      <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-        <p>Tailored Resume: Not generated yet</p>
-        {isAutonomous ? (
-          <p style={{ color: COLOR_OUTLINE }}>
-            Automation mode is autonomous — runs trigger from the worker.
-          </p>
-        ) : (
-          <button
-            type="button"
-            className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all scale-98-on-click disabled:opacity-60"
-            style={{ backgroundColor: COLOR_PRIMARY }}
-            onClick={(e) => {
-              e.stopPropagation();
-              enqueueMutation.mutate();
-            }}
-            disabled={enqueueMutation.isPending}
-          >
-            {enqueueMutation.isPending ? "Enqueuing…" : "Tailor resume"}
-          </button>
-        )}
-        {errorMessage !== null ? (
-          <p style={{ color: "#b91c1c" }}>{errorMessage}</p>
-        ) : null}
-      </div>
+      <>
+        <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+          <p>Tailored Resume: Not generated yet</p>
+          {isAutonomous ? (
+            <p style={{ color: COLOR_OUTLINE }}>
+              Automation mode is autonomous — runs trigger from the worker.
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all scale-98-on-click disabled:opacity-60"
+              style={{ backgroundColor: COLOR_PRIMARY }}
+              onClick={(e) => {
+                e.stopPropagation();
+                enqueueMutation.mutate();
+              }}
+              disabled={enqueueMutation.isPending}
+            >
+              {enqueueMutation.isPending ? "Enqueuing…" : "Tailor resume"}
+            </button>
+          )}
+          {errorMessage !== null ? (
+            <p style={{ color: "#b91c1c" }}>{errorMessage}</p>
+          ) : null}
+        </div>
+        <div className="mt-2">
+          <ApplyButton
+            jobHash={row.jobHash}
+            tailorRun={null}
+            applyRun={applyRun}
+            onApply={handleApply}
+            onTailorThenApply={handleTailorThenApply}
+          />
+          {applyErrorMessage !== null ? (
+            <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
+          ) : null}
+        </div>
+        <NotTailoredModal
+          open={isNotTailoredModalOpen}
+          onClose={() => setIsNotTailoredModalOpen(false)}
+          onApply={handleApply}
+          onTailorThenApply={handleTailorThenApply}
+        />
+      </>
     );
   }
 
   if (tailorRun.status === "PENDING" || tailorRun.status === "RUNNING") {
     return (
-      <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-        Tailored Resume: {tailorRun.status === "PENDING" ? "Queued…" : "Tailoring…"}
-      </p>
+      <>
+        <p className="text-xs" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+          Tailored Resume: {tailorRun.status === "PENDING" ? "Queued…" : "Tailoring…"}
+        </p>
+        <div className="mt-2">
+          <ApplyButton
+            jobHash={row.jobHash}
+            tailorRun={tailorRun}
+            applyRun={applyRun}
+            onApply={handleApply}
+            onTailorThenApply={handleTailorThenApply}
+          />
+        </div>
+        <NotTailoredModal
+          open={isNotTailoredModalOpen}
+          onClose={() => setIsNotTailoredModalOpen(false)}
+          onApply={handleApply}
+          onTailorThenApply={handleTailorThenApply}
+        />
+      </>
     );
   }
 
   if (tailorRun.status === "FAILED") {
     return (
+      <>
+        <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+          <p>Tailored Resume: Tailor failed — {tailorRun.error ?? "unknown error"}</p>
+          <a
+            className="font-semibold hover:underline"
+            href={baseDownloadUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: COLOR_PRIMARY }}
+          >
+            Download base PDF
+          </a>
+          <button
+            type="button"
+            className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
+            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+            onClick={(e) => {
+              e.stopPropagation();
+              retryMutation.mutate(tailorRun.id);
+            }}
+            disabled={retryMutation.isPending}
+          >
+            Delete &amp; retry
+          </button>
+          {retryErrorMessage !== null ? (
+            <p style={{ color: "#b91c1c" }}>{retryErrorMessage}</p>
+          ) : null}
+        </div>
+        <div className="mt-2">
+          <ApplyButton
+            jobHash={row.jobHash}
+            tailorRun={tailorRun}
+            applyRun={applyRun}
+            onApply={handleApply}
+            onTailorThenApply={handleTailorThenApply}
+          />
+          {applyErrorMessage !== null ? (
+            <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
+          ) : null}
+        </div>
+        <NotTailoredModal
+          open={isNotTailoredModalOpen}
+          onClose={() => setIsNotTailoredModalOpen(false)}
+          onApply={handleApply}
+          onTailorThenApply={handleTailorThenApply}
+        />
+      </>
+    );
+  }
+
+  // SUCCESS — verdict drives the copy + button labels.
+  const verdict = (tailorRun.verdict ?? "").toUpperCase();
+  if (verdict === "TAILORED") {
+    return (
+      <>
+        <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
+          <p>Tailored Resume: Reviewer picked the tailored variant.</p>
+          <a
+            className="font-semibold hover:underline"
+            href={baseDownloadUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: COLOR_PRIMARY }}
+          >
+            Download PDF
+          </a>
+          <button
+            type="button"
+            className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
+            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteMutation.mutate(tailorRun.id);
+            }}
+            disabled={deleteMutation.isPending}
+          >
+            Delete tailored
+          </button>
+          {deleteErrorMessage !== null ? (
+            <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+          ) : null}
+        </div>
+        <div className="mt-2">
+          <ApplyButton
+            jobHash={row.jobHash}
+            tailorRun={tailorRun}
+            applyRun={applyRun}
+            onApply={handleApply}
+            onTailorThenApply={handleTailorThenApply}
+          />
+          {applyErrorMessage !== null ? (
+            <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
+          ) : null}
+        </div>
+        <NotTailoredModal
+          open={isNotTailoredModalOpen}
+          onClose={() => setIsNotTailoredModalOpen(false)}
+          onApply={handleApply}
+          onTailorThenApply={handleTailorThenApply}
+        />
+      </>
+    );
+  }
+
+  const verdictCopy = resolveVerdictCopy(verdict, tailorRun.reviewReason);
+
+  return (
+    <>
       <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-        <p>Tailored Resume: Tailor failed — {tailorRun.error ?? "unknown error"}</p>
+        <p>Tailored Resume: {verdictCopy}</p>
         <a
           className="font-semibold hover:underline"
           href={baseDownloadUrl}
@@ -653,73 +862,25 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
           <p style={{ color: "#b91c1c" }}>{retryErrorMessage}</p>
         ) : null}
       </div>
-    );
-  }
-
-  // SUCCESS — verdict drives the copy + button labels.
-  const verdict = (tailorRun.verdict ?? "").toUpperCase();
-  if (verdict === "TAILORED") {
-    return (
-      <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-        <p>Tailored Resume: Reviewer picked the tailored variant.</p>
-        <a
-          className="font-semibold hover:underline"
-          href={baseDownloadUrl}
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: COLOR_PRIMARY }}
-        >
-          Download PDF
-        </a>
-        <button
-          type="button"
-          className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
-          style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
-          onClick={(e) => {
-            e.stopPropagation();
-            deleteMutation.mutate(tailorRun.id);
-          }}
-          disabled={deleteMutation.isPending}
-        >
-          Delete tailored
-        </button>
-        {deleteErrorMessage !== null ? (
-          <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
+      <div className="mt-2">
+        <ApplyButton
+          jobHash={row.jobHash}
+          tailorRun={tailorRun}
+          applyRun={applyRun}
+          onApply={handleApply}
+          onTailorThenApply={handleTailorThenApply}
+        />
+        {applyErrorMessage !== null ? (
+          <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
         ) : null}
       </div>
-    );
-  }
-
-  const verdictCopy = resolveVerdictCopy(verdict, tailorRun.reviewReason);
-
-  return (
-    <div className="text-xs space-y-1" style={{ color: COLOR_ON_SURFACE_VARIANT }}>
-      <p>Tailored Resume: {verdictCopy}</p>
-      <a
-        className="font-semibold hover:underline"
-        href={baseDownloadUrl}
-        target="_blank"
-        rel="noreferrer"
-        style={{ color: COLOR_PRIMARY }}
-      >
-        Download base PDF
-      </a>
-      <button
-        type="button"
-        className="ml-3 rounded-lg px-3 py-1 text-xs font-semibold border"
-        style={{ borderColor: `${COLOR_OUTLINE_VARIANT}80`, color: COLOR_PRIMARY }}
-        onClick={(e) => {
-          e.stopPropagation();
-          retryMutation.mutate(tailorRun.id);
-        }}
-        disabled={retryMutation.isPending}
-      >
-        Delete &amp; retry
-      </button>
-      {retryErrorMessage !== null ? (
-        <p style={{ color: "#b91c1c" }}>{retryErrorMessage}</p>
-      ) : null}
-    </div>
+      <NotTailoredModal
+        open={isNotTailoredModalOpen}
+        onClose={() => setIsNotTailoredModalOpen(false)}
+        onApply={handleApply}
+        onTailorThenApply={handleTailorThenApply}
+      />
+    </>
   );
 }
 

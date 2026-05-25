@@ -14,6 +14,7 @@
 - `src/fetchers/`: Source-specific integrations for every board listed in Purpose, plus shared helpers (`base_fetcher`, `ats_scanner`, `fuzzy_dedup`, `liveness_checker`, `errors`).
 - `src/utils/`: Cross-cutting helpers for logging, deduplication, cost tracking, notifications, and path resolution used across orchestrators and workers.
 - `src/agents/`: Agent schemas and builder code for the apply/skip workflow.
+- `src/agents/apply_finisher/`: Pydantic AI agent + 8 typed BYO Playwright tools that drive Greenhouse and Ashby form completion after Simplify autofill, evaluates the binary submit gate, and clicks Submit when the gate passes.
 - `tests/`: Integration-style tests that validate the database lifecycle, deduplication, crawl tracking, and model normalization.
 
 ## Documentation Standard
@@ -47,6 +48,18 @@
 - Generated artifacts land in `<TAILOR_OUTPUT_DIR>/<job_hash>/{base,tailored_v1,tailored_v2}/...` (default `data/tailored_resumes/...`).
 - Systemd unit: `deploy/job-tailor-worker.service`.
 - Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`, `RESUME_TAILOR_MODEL`, `RESUME_REVIEWER_MODEL`, plus `TAILOR_MODE` / `REVIEW_MODE` for first-boot seeding of the per-stage modes.
+
+## Apply Finisher Worker
+- `src/agents/apply_finisher/`: Pydantic AI agent that picks up after Simplify Copilot autofill and drives Greenhouse and Ashby form completion to the point of submission.
+- ATS scope: Greenhouse and Ashby only. Other ATSes continue to land `NEEDS_REVIEW` without finisher involvement.
+- The agent is equipped with 8 typed BYO Playwright tools: field detection, value injection, file upload, dropdown selection, checkbox/radio handling, form-state snapshot, page-scroll, and submit-click.
+- Binary submit gate (evaluated inside `src/agents/apply_worker/browser.py:_run_application_flow`): `all_required_filled AND no_tier3_deferred AND (no_tier2_pending OR all_tier2_drafts >= threshold)`. If the gate fails the apply lands `NEEDS_REVIEW`; the human-review queue at `/human-review` is the canonical approval point.
+- Soft cost cap: $0.20 per apply run, log-only (no hard abort).
+- `SAFE_MODE=true` env var disables auto-submit globally regardless of gate outcome; the worker still fills forms and writes `apply_handoffs` rows.
+- Runtime caches: `config/defer_rules.yaml` (user-tunable Tier-3 regexes), `data/answer_cache.yaml` (machine-mutable, schema_version 1).
+- New DB columns: `apply_handoffs.deferred_questions_json`, `apply_handoffs.finisher_diagnostics_json`.
+- New REST surface: `POST /api/jobs/{job_hash}/apply` (409 on in-flight conflict), `GET /api/apply-runs/{id}`, `DELETE /api/apply-runs/{id}`.
+- Environment knobs: `SAFE_MODE`, `LITELLM_LOCAL_MODEL_COST_MAP`.
 
 ## Opt-In API Surface
 - `POST /api/jobs/{job_hash}/tailor` enqueues a FastAPI BackgroundTask that runs the same `run_tailor_review_pipeline`. Returns 409 with `code=MODE_AUTONOMOUS` when `tailor_mode=autonomous`, `code=RUN_ALREADY_EXISTS` when a non-deleted active run already exists, or `code=BUDGET_EXCEEDED` when the monthly budget is exhausted.

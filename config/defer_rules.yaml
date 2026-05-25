@@ -1,0 +1,33 @@
+# Defer rules for the apply finisher.
+#
+# These rules classify form field labels into three tiers:
+#   Tier 3: Always defer to human — the finisher never auto-fills these.
+#   Tier 2: Draft + flag — LLM generates an answer, marked needs_review=True.
+#   Tier 1: Default — profile-direct lookup + dropdown fuzzy match.
+#
+# All regex values are matched against the field label (case-insensitive by default
+# when using the (?i) flag). Edit this file to tune behavior without touching code.
+
+# Tier 3 — legally or personally consequential; never auto-fill.
+always_defer_labels:
+  - regex: '(?i)sponsor|visa|authorize.*sponsor'
+  - regex: '(?i)veteran|disability|ethnicity|gender|race|self.?identify'
+  - regex: '(?i)salary|compensation|desired pay'
+  - regex: '(?i)start date|when can you start|earliest start'
+
+# Tier 2 — draft + flag for human review (LLM generates, user verifies).
+draft_and_flag_labels:
+  - regex: '(?i)why .{0,30}(this role|this position|us|company|interest)'
+  - regex: '(?i)tell us about|describe.*experience|hardest problem'
+  - regex: '(?i)cover letter'
+
+# Field types the finisher skips entirely — no labels needed.
+bypass_field_types:
+  - file
+  - hidden
+  - submit
+  - button
+
+# Optional whitelist — labels matching these regexes are NEVER treated as Tier 3
+# even when an always_defer_labels regex would also match. Empty by default.
+never_defer_overrides: []

@@ -19,6 +19,7 @@ from typing import cast
 from src.agents.resume_tailor.llm import LlmCallResult
 from src.agents.resume_tailor.locator import build_bullet_manifest
 from src.agents.resume_tailor.manifest import BulletManifest
+from src.providers.types import CostBreakdown, TokenUsage
 from src.agents.resume_tailor.pipeline_schemas import (
     BulletPatchProposal,
     ReviewerOutput,
@@ -122,12 +123,16 @@ def make_tailor_result(
         bullets=list(bullets or []),
         skipped_bullets=list(skipped_bullets or []),
     )
+    stub_usage = TokenUsage(prompt_tokens=10, completion_tokens=5)
+    stub_cost = CostBreakdown()
     return LlmCallResult(
         parsed=output,
+        model="openai/test-model",
+        usage=stub_usage,
+        cost=stub_cost,
         prompt_tokens=10,
         completion_tokens=5,
         total_tokens=15,
-        model="openai/test-model",
     )
 
 
@@ -168,12 +173,16 @@ def make_reviewer_result(
         verdict=verdict,
         feedback_for_retry=feedback_for_retry,
     )
+    stub_usage = TokenUsage(prompt_tokens=20, completion_tokens=8)
+    stub_cost = CostBreakdown()
     return LlmCallResult(
         parsed=output,
+        model="openai/test-model",
+        usage=stub_usage,
+        cost=stub_cost,
         prompt_tokens=20,
         completion_tokens=8,
         total_tokens=28,
-        model="openai/test-model",
     )
 
 

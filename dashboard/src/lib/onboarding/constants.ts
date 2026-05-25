@@ -13,7 +13,7 @@
 import knownSlugsData from "@/data/greenhouse_known_slugs.json";
 
 /** Total number of wizard steps. */
-export const STEP_COUNT = 6;
+export const STEP_COUNT = 7;
 
 /** Step labels shown in the progress indicator. */
 export const STEP_LABELS = [
@@ -22,6 +22,7 @@ export const STEP_LABELS = [
   "Resume",
   "Filters",
   "AI Provider",
+  "Apply Prefs",
   "Watchlist",
 ] as const;
 

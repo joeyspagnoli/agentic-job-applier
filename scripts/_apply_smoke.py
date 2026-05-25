@@ -758,6 +758,7 @@ async def run_one(target_url: str, iter_num: int) -> dict[str, Any]:
                     job_hash=f"smoke-{iter_num:03d}",
                     screenshot_path=iter_dir / "screenshot.png",
                     dom_snapshot_path=iter_dir / "dom_post.html",
+                    finisher_context=None,
                     unresolved_path=iter_dir / "unresolved_fields.json",
                     dry_run=True,
                 )

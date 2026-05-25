@@ -8,14 +8,30 @@ Anthropic, Gemini) through the same interface.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from loguru import logger
 
-from src.providers.types import AIProvider, CompletionMessage, CompletionRequest
+from src.providers.types import AIProvider, CompletionMessage, CompletionRequest, CompletionResponse
 
 from .agent import parse_gate_response
 from .prompts import ROOT_APPLY_DECIDER_INSTRUCTION, build_gate_payload
 from .schemas import ApplyDecision, GateRunResult
+
+
+@dataclass(frozen=True)
+class GateRunOutcome:
+    """Bundle the gate result with the raw provider response for cost recording.
+
+    Attributes:
+        result: Parsed gate decision and metadata.
+        response: Raw completion response carrying token usage and cost
+            breakdown so the caller can persist via `record_llm_call_cost`
+            without a second provider round-trip.
+    """
+
+    result: GateRunResult
+    response: CompletionResponse
 
 
 def map_decision_to_status(decision: ApplyDecision) -> str:
@@ -34,7 +50,7 @@ async def run_gate_with_provider(
     *,
     provider: AIProvider,
     job: Mapping[str, object],
-) -> GateRunResult:
+) -> GateRunOutcome:
     """Run the gate decision using the unified AI provider.
 
     Sends the system instruction and job payload as a chat completion
@@ -45,7 +61,9 @@ async def run_gate_with_provider(
         job: Database row representing the job being evaluated.
 
     Returns:
-        A validated GateRunResult with the decision and metadata.
+        A `GateRunOutcome` bundling the parsed `GateRunResult` with the
+        raw `CompletionResponse` so callers can write accurate cost rows
+        via `record_llm_call_cost` without an extra provider round-trip.
 
     Raises:
         ValueError: When the model response cannot be parsed into a decision.
@@ -66,15 +84,17 @@ async def run_gate_with_provider(
     response = await provider.complete(request)
 
     logger.debug(
-        "Gate completion: provider={} model={} tokens={}+{}",
+        "Gate completion: provider={} model={} tokens={}+{} cost=${:.6f}",
         response.provider,
         response.model,
-        response.usage_prompt_tokens,
-        response.usage_completion_tokens,
+        response.usage.prompt_tokens,
+        response.usage.completion_tokens,
+        response.cost.total_cost_usd,
     )
 
-    return parse_gate_response(
+    gate_result = parse_gate_response(
         response.content,
         provider=response.provider,
         model=response.model,
     )
+    return GateRunOutcome(result=gate_result, response=response)

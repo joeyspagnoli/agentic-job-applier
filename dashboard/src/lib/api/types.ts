@@ -600,3 +600,65 @@ export interface HandoffMutationDto {
   readonly ok: true;
   readonly handoff: Record<string, unknown>;
 }
+
+// ── Apply runs ──────────────────────────────────────────────────────────────
+
+/**
+ * Application-level outcome for one completed apply run.
+ *
+ * @remarks
+ * Mirrors `ApplyOutcome` in `src/agents/apply_worker/schemas.py`.
+ * `SUBMITTED` is the fully-automated path; `NEEDS_REVIEW` means the agent
+ * stopped and queued the job for human sign-off.
+ */
+export type ApplyOutcome =
+  | "NEEDS_REVIEW"
+  | "SUBMITTED"
+  | "FAILED_PREFILL"
+  | "FAILED_UPLOAD"
+  | "FAILED_NAVIGATION"
+  | "FAILED_OTHER";
+
+/**
+ * Embedded snapshot of one apply run row returned by the jobs and
+ * apply-runs endpoints.
+ *
+ * @remarks
+ * `status` follows the same PENDING / RUNNING / SUCCESS / FAILED lifecycle
+ * used by `tailor_runs`. `outcome` is only populated when `status` is
+ * `"SUCCESS"` or `"FAILED"`.
+ */
+export interface ApplyRunDto {
+  /** Primary key of the apply_runs row. */
+  readonly id: number;
+  /** Stable deduplication hash of the associated job. */
+  readonly job_hash: string;
+  /** Run lifecycle status: PENDING | RUNNING | SUCCESS | FAILED. */
+  readonly status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+  /**
+   * Application-level outcome, populated once the run is no longer in flight.
+   *
+   * @remarks
+   * Null while status is PENDING or RUNNING.
+   */
+  readonly outcome: ApplyOutcome | null;
+  /** Detected ATS platform for diagnostic display. */
+  readonly ats_platform: string | null;
+  /** ISO-8601 timestamp when the run finished, or null if still running. */
+  readonly completed_at: string | null;
+  /** Path to the captured pre-submit screenshot, if available. */
+  readonly screenshot_path: string | null;
+  /** Human-readable failure reason when status is FAILED. */
+  readonly error: string | null;
+}
+
+/** Response payload for `POST /api/jobs/{job_hash}/apply`. */
+export interface EnqueueApplyRunResponseDto {
+  readonly ok: true;
+  /** Primary key of the newly created apply_runs row. */
+  readonly apply_run_id: number;
+  /** Initial lifecycle status — always PENDING immediately after creation. */
+  readonly status: "PENDING";
+  /** Job hash echoed back for cache invalidation. */
+  readonly job_hash: string;
+}

@@ -466,6 +466,7 @@ async def test_run_application_flow_uses_named_simplify_poll_config(
         dom_snapshot_path=tmp_path / "dom.html",
         unresolved_path=tmp_path / "unresolved.json",
         dry_run=True,
+        finisher_context=None,
     )
 
     assert result.success is True
@@ -522,6 +523,7 @@ async def test_run_application_flow_navigation_failure_captures_failure_outcome(
         dom_snapshot_path=tmp_path / "dom.html",
         unresolved_path=tmp_path / "unresolved.json",
         dry_run=True,
+        finisher_context=None,
     )
 
     assert result.success is False
@@ -1183,7 +1185,7 @@ async def test_apply_once_persists_handoff_when_cost_telemetry_fails(
             page_url="https://boards.greenhouse.io/example/jobs/88",
         )
 
-    async def fake_record_stage_cost_event(**_: object) -> None:
+    async def fake_record_apply_browser_stub(**_: object) -> None:
         """Raise deterministic telemetry error for best-effort behavior tests.
 
         Purpose:
@@ -1201,8 +1203,8 @@ async def test_apply_once_persists_handoff_when_cost_telemetry_fails(
     monkeypatch.setattr(process_apply_jobs, "apply_to_job", fake_apply_to_job)
     monkeypatch.setattr(
         process_apply_jobs,
-        "record_stage_cost_event",
-        fake_record_stage_cost_event,
+        "record_apply_browser_stub",
+        fake_record_apply_browser_stub,
     )
 
     fake_db = FakeDB()
@@ -1307,37 +1309,99 @@ async def test_direct_upload_strategy_logs_selector_exceptions(
     assert len(warning_messages) == len(resume_upload._FILE_INPUT_SELECTORS)
 
 
-@pytest.mark.asyncio
-async def test_main_always_runs_with_dry_run_true_regardless_of_env(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Verify the apply worker hard-disables auto-submit at the call site.
+class _FakeDBForMain:
+    """Minimal async-context DB stub for `main` orchestration tests.
 
     Purpose:
-        Lock in the OSS-launch safety contract that `dry_run=True` is always
-        forwarded to `_apply_once`, even when the legacy `APPLY_DRY_RUN`
-        environment variable is set to a falsy value.
-    Args:
-        monkeypatch: Fixture used to inject deterministic preflight, DB, and
-            apply-once stubs while controlling environment state.
-        tmp_path: Temporary directory used as the apply output base dir.
-    Output:
-        Returns `None`; test passes when `dry_run=True` is captured exactly once.
+        Avoid real database I/O in orchestration-focused tests that only
+        need to verify `_apply_once` is called with the right kwargs.
     """
 
-    # Arrange: legacy env var explicitly tries to enable auto-submit.
-    monkeypatch.setenv("APPLY_DRY_RUN", "false")
-    monkeypatch.setattr(sys, "argv", ["process_apply_jobs", "--once"])
-
-    captured_kwargs: list[dict[str, object]] = []
-
-    async def fake_apply_once(**kwargs: object) -> int:
-        """Capture orchestration kwargs so test can assert dry_run value.
+    async def __aenter__(self) -> "_FakeDBForMain":
+        """Return self to support async-with usage in the worker.
 
         Purpose:
-            Avoid side effects from the real apply loop while preserving the
-            keyword interface used by `_apply_once`.
+            Match the production `DatabaseManager` async-context shape.
+        Args:
+            None.
+        Output:
+            Returns this fake DB instance.
+        """
+
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        """Accept context-exit calls without side effects.
+
+        Purpose:
+            Match the production async-context shape.
+        Args:
+            *_: Ignored exception triple.
+        Output:
+            Returns `None`.
+        """
+
+        return None
+
+    async def create_tables(self) -> None:
+        """Accept schema bootstrap call without side effects."""
+
+        return None
+
+    async def migrate_review_schema(self) -> None:
+        """Accept review-schema migration call without side effects."""
+
+        return None
+
+    async def migrate_apply_schema(self) -> None:
+        """Accept apply-schema migration call without side effects."""
+
+        return None
+
+    async def migrate_cost_schema(self) -> None:
+        """Accept cost-schema migration call without side effects."""
+
+        return None
+
+    async def mark_stale_apply_runs_failed(self, *, lease_seconds: int) -> int:
+        """Return zero stale rows for orchestration tests.
+
+        Purpose:
+            Keep startup logging deterministic while exercising `main`.
+        Args:
+            lease_seconds: Lease threshold from worker config (ignored).
+        Output:
+            Returns `0`.
+        """
+
+        _ = lease_seconds
+        return 0
+
+
+def _make_main_stubs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    captured_kwargs: list[dict[str, object]],
+) -> None:
+    """Wire common monkeypatches for `main` orchestration tests.
+
+    Purpose:
+        Reduce duplication between the two `dry_run` behavior tests by
+        centralising the shared stub wiring in one helper.
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        tmp_path: Temporary directory used for paths.
+        captured_kwargs: List that each `_apply_once` call appends to.
+    Output:
+        Returns `None`; side-effects are applied to `monkeypatch`.
+    """
+
+    async def fake_apply_once(**kwargs: object) -> int:
+        """Capture orchestration kwargs so tests can assert `dry_run` value.
+
+        Purpose:
+            Avoid side effects from the real apply loop while preserving
+            the keyword interface expected by callers.
         Args:
             **kwargs: Forwarded keyword payload from `main`.
         Output:
@@ -1364,7 +1428,7 @@ async def test_main_always_runs_with_dry_run_true_regardless_of_env(
         """Bypass dependency preflight in unit tests.
 
         Purpose:
-            Avoid playwright/display checks in this orchestration-focused test.
+            Avoid playwright/display checks in orchestration-focused tests.
         Args:
             _: Ignored CDP URL argument.
         Output:
@@ -1372,69 +1436,6 @@ async def test_main_always_runs_with_dry_run_true_regardless_of_env(
         """
 
         return None
-
-    class FakeDB:
-        """Minimal async-context DB stub for `main` orchestration tests."""
-
-        async def __aenter__(self) -> "FakeDB":
-            """Return self to support async-with usage in the worker.
-
-            Purpose:
-                Match the production `DatabaseManager` async-context shape.
-            Args:
-                None.
-            Output:
-                Returns this fake DB instance.
-            """
-
-            return self
-
-        async def __aexit__(self, *_: object) -> None:
-            """Accept context-exit calls without side effects.
-
-            Purpose:
-                Match the production async-context shape.
-            Args:
-                *_: Ignored exception triple.
-            Output:
-                Returns `None`.
-            """
-
-            return None
-
-        async def create_tables(self) -> None:
-            """Accept schema bootstrap call without side effects."""
-
-            return None
-
-        async def migrate_review_schema(self) -> None:
-            """Accept review-schema migration call without side effects."""
-
-            return None
-
-        async def migrate_apply_schema(self) -> None:
-            """Accept apply-schema migration call without side effects."""
-
-            return None
-
-        async def migrate_cost_schema(self) -> None:
-            """Accept cost-schema migration call without side effects."""
-
-            return None
-
-        async def mark_stale_apply_runs_failed(self, *, lease_seconds: int) -> int:
-            """Return zero stale rows for orchestration tests.
-
-            Purpose:
-                Keep startup logging deterministic while exercising `main`.
-            Args:
-                lease_seconds: Lease threshold from worker config (ignored).
-            Output:
-                Returns `0`.
-            """
-
-            _ = lease_seconds
-            return 0
 
     monkeypatch.setattr(process_apply_jobs, "_apply_once", fake_apply_once)
     monkeypatch.setattr(
@@ -1446,7 +1447,7 @@ async def test_main_always_runs_with_dry_run_true_regardless_of_env(
     monkeypatch.setattr(
         process_apply_jobs,
         "DatabaseManager",
-        lambda *_args, **_kwargs: FakeDB(),
+        lambda *_args, **_kwargs: _FakeDBForMain(),
     )
     monkeypatch.setattr(
         process_apply_jobs,
@@ -1459,12 +1460,50 @@ async def test_main_always_runs_with_dry_run_true_regardless_of_env(
         lambda: tmp_path,
     )
 
-    # Act
+
+@pytest.mark.asyncio
+async def test_main_always_runs_with_dry_run_true_regardless_of_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify `dry_run` derives from `SAFE_MODE` env and defaults to False.
+
+    Purpose:
+        Replace the old "always True" contract with the new `safe_mode_from_env()`
+        contract: `SAFE_MODE=true` → `dry_run=True`; unset or `false` → `dry_run=False`.
+        Both cases are asserted in sequence so a regression in either direction
+        fails loudly.
+    Args:
+        monkeypatch: Fixture used to inject deterministic preflight, DB, and
+            apply-once stubs while controlling environment state.
+        tmp_path: Temporary directory used as the apply output base dir.
+    Output:
+        Returns `None`; test passes when `dry_run` matches `SAFE_MODE` in both cases.
+    """
+
+    # Case 1: SAFE_MODE unset → dry_run should be False.
+    monkeypatch.delenv("SAFE_MODE", raising=False)
+    monkeypatch.setattr(sys, "argv", ["process_apply_jobs", "--once"])
+
+    captured_no_safe_mode: list[dict[str, object]] = []
+    _make_main_stubs(monkeypatch, tmp_path, captured_no_safe_mode)
+
     await process_apply_jobs.main()
 
-    # Assert: dry_run was forwarded as True exactly once, despite env override.
-    assert len(captured_kwargs) == 1
-    assert captured_kwargs[0]["dry_run"] is True
+    assert len(captured_no_safe_mode) == 1
+    assert captured_no_safe_mode[0]["dry_run"] is False
+
+    # Case 2: SAFE_MODE=true → dry_run should be True.
+    monkeypatch.setenv("SAFE_MODE", "true")
+    monkeypatch.setattr(sys, "argv", ["process_apply_jobs", "--once"])
+
+    captured_safe_mode: list[dict[str, object]] = []
+    _make_main_stubs(monkeypatch, tmp_path, captured_safe_mode)
+
+    await process_apply_jobs.main()
+
+    assert len(captured_safe_mode) == 1
+    assert captured_safe_mode[0]["dry_run"] is True
 
 
 def test_main_argparse_rejects_no_dry_run_flag(

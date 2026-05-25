@@ -31,6 +31,7 @@ import {
   WATCHLIST_WARNING_REDIRECT_DELAY_MS,
 } from "@/lib/onboarding/constants";
 import {
+  defaultApplyPrefsDraft,
   defaultFiltersDraft,
   defaultProfileDraft,
   defaultProviderDraft,
@@ -39,6 +40,7 @@ import {
 } from "@/lib/onboarding/defaults";
 import { finishOnboarding } from "@/lib/onboarding/finish-onboarding";
 import type {
+  ApplyPrefsDraft,
   FiltersDraft,
   ProfileDraft,
   ProviderDraft,
@@ -48,6 +50,7 @@ import type {
 import { buildWatchlistWarning } from "@/lib/onboarding/watchlist";
 import { NavigationButtons } from "./onboarding/NavigationButtons";
 import { ProgressIndicator } from "./onboarding/ProgressIndicator";
+import { StepApplyPrefs } from "./onboarding/StepApplyPrefs";
 import { StepFilters } from "./onboarding/StepFilters";
 import { StepProfile } from "./onboarding/StepProfile";
 import { StepProvider } from "./onboarding/StepProvider";
@@ -72,6 +75,7 @@ export function OnboardingPage(): JSX.Element {
   const [resumeUploaded, setResumeUploaded] = useState<boolean>(false);
   const [filters, setFilters] = useState<FiltersDraft>(defaultFiltersDraft);
   const [provider, setProvider] = useState<ProviderDraft>(defaultProviderDraft);
+  const [applyPrefs, setApplyPrefs] = useState<ApplyPrefsDraft>(defaultApplyPrefsDraft);
   const [watchlist, setWatchlist] = useState<WatchlistDraft>(defaultWatchlistDraft);
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +99,15 @@ export function OnboardingPage(): JSX.Element {
     if (currentStep === 2) {
       return resumeUploaded;
     }
+    // Step 6 (Apply Prefs): require explicit eligibility answers.
+    if (currentStep === 5) {
+      return (
+        applyPrefs.work_authorized_us !== "unknown" &&
+        applyPrefs.sponsorship_required_now_or_future !== "unknown"
+      );
+    }
     return true;
-  }, [currentStep, profile, roles, resumeUploaded]);
+  }, [currentStep, profile, roles, resumeUploaded, applyPrefs]);
 
   /** Advance to the next wizard step. */
   function handleNext(): void {
@@ -127,6 +138,7 @@ export function OnboardingPage(): JSX.Element {
         roles,
         filters,
         provider,
+        applyPrefs,
         watchlist,
         fetchSources: fetchSourcesSettings,
         updateSources: updateSourcesYaml,
@@ -194,7 +206,8 @@ export function OnboardingPage(): JSX.Element {
           )}
           {currentStep === 3 && <StepFilters draft={filters} onChange={setFilters} />}
           {currentStep === 4 && <StepProvider draft={provider} onChange={setProvider} />}
-          {currentStep === 5 && <StepWatchlist draft={watchlist} onChange={setWatchlist} />}
+          {currentStep === 5 && <StepApplyPrefs draft={applyPrefs} onChange={setApplyPrefs} />}
+          {currentStep === 6 && <StepWatchlist draft={watchlist} onChange={setWatchlist} />}
 
           {error && (
             <p className="mt-4 text-sm font-medium" style={{ color: COLOR_ERROR }}>

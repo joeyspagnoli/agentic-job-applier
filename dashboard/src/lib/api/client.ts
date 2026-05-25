@@ -8,6 +8,7 @@ import type {
   ApiErrorPayload,
   ApiKeyNameDto,
   ApiKeysResponseDto,
+  ApplyRunDto,
   AutomationMode,
   AutomationSettingsDto,
   BudgetDto,
@@ -18,6 +19,7 @@ import type {
   CostStatsDto,
   DashboardStatsDto,
   DiscoveryTrendDto,
+  EnqueueApplyRunResponseDto,
   EnqueueTailorRunResponseDto,
   RetryTailorRunResponseDto,
   FailuresResponseDto,
@@ -649,6 +651,7 @@ export async function updateProfileStructured(payload: {
   readonly search_defaults: {
     readonly job_board_search_terms: readonly string[];
   };
+  readonly apply_prefs?: unknown;
   readonly prompt_context: string | null;
 }): Promise<SettingsProfileDto> {
   return getJson<SettingsProfileDto>("/api/settings/profile/structured", {
@@ -872,6 +875,87 @@ export interface OnboardingStatusDto {
  */
 export async function fetchOnboardingStatus(): Promise<OnboardingStatusDto> {
   return getJson<OnboardingStatusDto>("/api/settings/onboarding-status");
+}
+
+// ── Apply runs ─────────────────────────────────────────────────────
+
+/**
+ * Thrown when a POST to `/api/jobs/{jobHash}/apply` returns HTTP 409.
+ *
+ * @remarks
+ * A 409 means an apply run already exists for this job and is either
+ * PENDING or RUNNING. The caller should surface this as a non-blocking
+ * notice rather than an error banner, since the in-progress run may
+ * complete shortly.
+ */
+export class ApplyRunConflictError extends Error {
+  /** Machine-readable error code for upstream handling. */
+  readonly code = "APPLY_RUN_CONFLICT" as const;
+
+  /**
+   * @param jobHash - The job hash that already has an active apply run.
+   */
+  constructor(jobHash: string) {
+    super(`An apply run is already active for job ${jobHash}.`);
+    this.name = "ApplyRunConflictError";
+  }
+}
+
+/**
+ * Enqueue a user-triggered apply run for one job.
+ *
+ * @param jobHash - Stable deduplication hash of the target job.
+ * @returns Enqueue response with the new apply_run_id.
+ * @throws {@link ApplyRunConflictError} When HTTP 409 — an active run already exists.
+ * @throws ApiError for other non-2xx responses.
+ */
+export async function postApplyRun(jobHash: string): Promise<EnqueueApplyRunResponseDto> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobHash)}/apply`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+
+  if (response.status === 409) {
+    throw new ApplyRunConflictError(jobHash);
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+    throw buildApiError(
+      payload?.message ?? `Apply enqueue failed (HTTP ${response.status})`,
+      payload?.code ?? "APPLY_ENQUEUE_FAILED",
+      (payload?.details as Record<string, unknown> | undefined) ?? {},
+    );
+  }
+
+  return (await response.json()) as EnqueueApplyRunResponseDto;
+}
+
+/**
+ * Fetch the current state of one apply run.
+ *
+ * @param runId - Primary key of the apply_runs row.
+ * @returns Apply run DTO with current status and outcome.
+ */
+export async function getApplyRun(runId: number): Promise<ApplyRunDto> {
+  return getJson<ApplyRunDto>(`/api/apply-runs/${runId}`);
+}
+
+/**
+ * Soft-delete one apply run.
+ *
+ * @param runId - Primary key of the apply_runs row.
+ */
+export async function deleteApplyRun(runId: number): Promise<void> {
+  const response = await fetch(`/api/apply-runs/${runId}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+    throw buildApiError(
+      payload?.message ?? `Apply run delete failed (HTTP ${response.status})`,
+      payload?.code ?? "APPLY_DELETE_FAILED",
+      (payload?.details as Record<string, unknown> | undefined) ?? {},
+    );
+  }
 }
 
 // ── Job Import ─────────────────────────────────────────────────────

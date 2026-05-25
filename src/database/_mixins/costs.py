@@ -3,6 +3,12 @@
 Owns the `cost_events`, `budget_settings`, and `app_settings` tables.
 Recorded cost events feed dashboards while the budget rollup powers
 worker guards and the settings UI.
+
+Issue #59 added per-LLM-call columns (`provider`, `model`,
+`prompt_tokens`, `completion_tokens`, `cached_input_tokens`,
+`reasoning_tokens`, `phase`, `cost_source`) so dashboards can break
+spend down by model and phase. Existing rows are backfilled to
+`unknown` via the PRAGMA-guarded `ALTER TABLE` block.
 """
 
 from __future__ import annotations
@@ -11,6 +17,20 @@ from src.database._mixins.base import _BaseMixin
 from src.utils.json_types import JSONObject, get_float_opt
 
 DEFAULT_MONTHLY_BUDGET_USD = 500.0
+
+# Per-LLM-call columns added in issue #59. Each entry is
+# (column_name, column_definition_sql) and is applied via PRAGMA-guarded
+# ALTER TABLE so the migration is idempotent.
+_COST_EVENTS_NEW_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("provider", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("model", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("prompt_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("completion_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("cached_input_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("reasoning_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("phase", "TEXT"),
+    ("cost_source", "TEXT NOT NULL DEFAULT 'unknown'"),
+)
 
 
 class CostsMixin(_BaseMixin):
@@ -22,6 +42,9 @@ class CostsMixin(_BaseMixin):
         Purpose:
             Bootstrap forward-only cost tracking and monthly budget settings so
             dashboard endpoints can report spend without separate migrations.
+            Also applies PRAGMA-guarded `ALTER TABLE` for the per-LLM-call
+            columns added in issue #59 so existing databases pick them up
+            on the next startup.
         Args:
             self: The database manager performing the migration.
         Output:
@@ -39,8 +62,17 @@ class CostsMixin(_BaseMixin):
                 cost_usd REAL NOT NULL,
                 metadata_json TEXT,
                 recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                provider TEXT NOT NULL DEFAULT 'unknown',
+                model TEXT NOT NULL DEFAULT 'unknown',
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                phase TEXT,
+                cost_source TEXT NOT NULL DEFAULT 'unknown',
                 CHECK (stage IN ('GATE', 'TAILOR', 'REVIEW', 'APPLY', 'DISCOVERY')),
-                CHECK (cost_usd >= 0)
+                CHECK (cost_usd >= 0),
+                CHECK (cost_source IN ('provider', 'computed', 'internal', 'unknown'))
             );
             CREATE INDEX IF NOT EXISTS idx_cost_events_recorded_at
                 ON cost_events(recorded_at);
@@ -62,6 +94,27 @@ class CostsMixin(_BaseMixin):
             );
             """
         )
+
+        # Idempotent ALTER for databases that pre-date the issue #59
+        # columns. SQLite has no `ADD COLUMN IF NOT EXISTS`, so probe
+        # with `PRAGMA table_info` first.
+        existing_cursor = await conn.execute("PRAGMA table_info(cost_events)")
+        existing_rows = await existing_cursor.fetchall()
+        existing_columns = {str(row["name"]) for row in existing_rows}
+        for column_name, column_definition in _COST_EVENTS_NEW_COLUMNS:
+            if column_name in existing_columns:
+                continue
+            await conn.execute(
+                f"ALTER TABLE cost_events ADD COLUMN {column_name} {column_definition}"
+            )
+
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cost_events_run_id ON cost_events(run_id)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cost_events_model ON cost_events(model)"
+        )
+
         await conn.execute(
             """
             INSERT INTO budget_settings (id, monthly_budget_usd)
@@ -106,19 +159,37 @@ class CostsMixin(_BaseMixin):
         job_hash: str | None = None,
         run_id: str | None = None,
         metadata_json: str | None = None,
+        provider: str = "unknown",
+        model: str = "unknown",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        cached_input_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        phase: str | None = None,
+        cost_source: str = "unknown",
     ) -> None:
-        """Record one pipeline execution cost event.
+        """Record one LLM-call cost event with full provider/token detail.
 
         Purpose:
             Persist stage-level spend in a forward-only event table so costs
-            can be rolled up by day and by stage without historical rewrites.
+            can be rolled up by day, stage, model, and phase without
+            historical rewrites or runtime re-pricing.
         Args:
             self: The database manager writing telemetry.
             stage: Pipeline stage label (GATE, TAILOR, REVIEW, APPLY, DISCOVERY).
             cost_usd: Non-negative USD cost for this execution attempt.
             job_hash: Optional stable job identifier for correlation.
             run_id: Optional worker run identifier.
-            metadata_json: Optional JSON string with model/provider context.
+            metadata_json: Optional JSON string with full context payload.
+            provider: Provider that handled the call (`openai`, `internal`).
+            model: Model identifier returned by the provider.
+            prompt_tokens: Billable prompt tokens (includes cached).
+            completion_tokens: Completion tokens produced.
+            cached_input_tokens: Cached subset of `prompt_tokens`.
+            reasoning_tokens: Hidden reasoning tokens (gpt-5.x families).
+            phase: Optional sub-phase within the stage.
+            cost_source: How the cost was derived
+                (`provider`, `computed`, `internal`, `unknown`).
         Output:
             Returns `None` after inserting the event and committing.
         Raises:
@@ -137,10 +208,32 @@ class CostsMixin(_BaseMixin):
                 job_hash,
                 run_id,
                 cost_usd,
-                metadata_json
-            ) VALUES (?, ?, ?, ?, ?)
+                metadata_json,
+                provider,
+                model,
+                prompt_tokens,
+                completion_tokens,
+                cached_input_tokens,
+                reasoning_tokens,
+                phase,
+                cost_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (stage, job_hash, run_id, cost_usd, metadata_json),
+            (
+                stage,
+                job_hash,
+                run_id,
+                cost_usd,
+                metadata_json,
+                provider,
+                model,
+                prompt_tokens,
+                completion_tokens,
+                cached_input_tokens,
+                reasoning_tokens,
+                phase,
+                cost_source,
+            ),
         )
         await conn.commit()
 

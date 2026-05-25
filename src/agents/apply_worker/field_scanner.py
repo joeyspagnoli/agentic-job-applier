@@ -148,6 +148,19 @@ _FIELD_SCAN_JS = """
             return;
         }
 
+        // Skip the hidden text-search INPUT that React-Select injects inside a
+        // combobox wrapper — it has no id, name, or label and would produce an
+        // unactionable `input:nth-child(N)` selector in the unresolved-field list.
+        const isPhantomReactSelectInput = (
+            el.tagName === 'INPUT' &&
+            !el.id &&
+            !el.name &&
+            !getLabelText(el) &&
+            el.closest('[class*="select__"], [class*="Select__"]') &&
+            el.closest('[role="combobox"]')
+        );
+        if (isPhantomReactSelectInput) return;
+
         const value = el.value || '';
         const isRequired = isFieldRequired(el);
         const validationError = getValidationError(el);

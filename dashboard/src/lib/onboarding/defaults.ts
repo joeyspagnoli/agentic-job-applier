@@ -9,6 +9,7 @@
  */
 
 import type {
+  ApplyPrefsDraft,
   FiltersDraft,
   ProfileDraft,
   ProviderDraft,
@@ -83,6 +84,46 @@ export function defaultProviderDraft(): ProviderDraft {
  */
 export function defaultWatchlistDraft(): WatchlistDraft {
   return { companies: "" };
+}
+
+/**
+ * Build the default apply-preferences draft.
+ *
+ * @returns Fresh apply-prefs draft with safe defaults.
+ */
+export function defaultApplyPrefsDraft(): ApplyPrefsDraft {
+  return {
+    pronouns: "",
+    eeo_defaults: {
+      gender: "prefer_not_to_say",
+      race_ethnicity: "prefer_not_to_say",
+      veteran_status: "prefer_not_to_say",
+      disability_status: "prefer_not_to_say",
+    },
+    // Intentionally left at 'unknown' so the user is forced to answer.
+    sponsorship_required_now_or_future: "unknown",
+    work_authorized_us: "unknown",
+    compensation: {
+      expected_salary_min_usd: null,
+      expected_salary_max_usd: null,
+      expected_hourly_rate_usd: null,
+    },
+    availability: {
+      earliest_start_date: "flexible",
+      notice_period_weeks: null,
+    },
+    location_preferences: {
+      willing_to_relocate: false,
+      preferred_cities: [],
+      willing_remote: true,
+      willing_hybrid: true,
+    },
+    application_defaults: {
+      how_did_you_hear: "",
+      tier2_confidence_threshold: 1.0,
+    },
+    languages: [],
+  };
 }
 
 /** Empty result returned when there are no companies to save. */

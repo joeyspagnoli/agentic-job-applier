@@ -67,6 +67,67 @@ export interface WatchlistDraft {
   companies: string;
 }
 
+/** EEO demographic defaults used by the apply finisher. */
+export interface EeoDefaults {
+  gender: string;
+  race_ethnicity: string;
+  veteran_status: string;
+  disability_status: string;
+}
+
+/** Salary and hourly-rate expectations. */
+export interface CompensationPrefs {
+  expected_salary_min_usd: number | null;
+  expected_salary_max_usd: number | null;
+  expected_hourly_rate_usd: number | null;
+}
+
+/** Earliest-start and notice-period preferences. */
+export interface AvailabilityPrefs {
+  /** ISO date string `YYYY-MM-DD`, or `"flexible"`. */
+  earliest_start_date: string;
+  notice_period_weeks: number | null;
+}
+
+/** Geographic relocation and remote-work preferences. */
+export interface LocationPrefs {
+  willing_to_relocate: boolean;
+  preferred_cities: string[];
+  willing_remote: boolean;
+  willing_hybrid: boolean;
+}
+
+/** Application-level defaults supplied to the auto-apply finisher. */
+export interface ApplicationDefaults {
+  how_did_you_hear: string;
+  /**
+   * Confidence threshold (0.0–1.0) above which tier-2 answers are auto-submitted.
+   * `1.0` means only fully-certain answers are submitted automatically.
+   */
+  tier2_confidence_threshold: number;
+}
+
+/** One entry in the candidate's languages list. */
+export interface LanguageEntry {
+  language: string;
+  proficiency: "basic" | "conversational" | "fluent" | "native";
+}
+
+/** Draft state for step 7: apply preferences. */
+export interface ApplyPrefsDraft {
+  pronouns: string;
+  eeo_defaults: EeoDefaults;
+  /** `'unknown'` forces the user to make an explicit choice before finishing. */
+  sponsorship_required_now_or_future: "yes" | "no" | "unknown";
+  /** `'unknown'` forces the user to make an explicit choice before finishing. */
+  work_authorized_us: "yes" | "no" | "unknown";
+  compensation: CompensationPrefs;
+  availability: AvailabilityPrefs;
+  location_preferences: LocationPrefs;
+  application_defaults: ApplicationDefaults;
+  languages: LanguageEntry[];
+}
+
 /**
  * Outcome of probing a guessed Greenhouse board slug.
  *

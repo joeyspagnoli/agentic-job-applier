@@ -40,12 +40,21 @@ This is a self-hosted personal project, not a service. There is no production de
 
 ## Auto-submit policy
 
-Auto-submitting job applications on a user's behalf is **intentionally disabled in code**. The apply worker (`scripts/process_apply_jobs.py`) hardcodes `dry_run = True` at the call site; no env var, CLI flag, or config option flips it back on. The worker fills forms in a real browser and stops before clicking Submit, leaving an `apply_handoffs` row at `PENDING_REVIEW` for the operator to finalize.
+Auto-submitting job applications is gated behind a strict binary condition evaluated in `src/agents/apply_worker/browser.py:_run_application_flow`. The gate passes only when **all three** of the following are true:
 
-This is a deliberate safety boundary, not a feature gap. Pull requests that re-enable auto-submit must, at a minimum:
+1. All required fields are filled.
+2. No Tier-2 draft answers are pending review.
+3. No Tier-3 questions have been deferred.
 
-1. Explain the threat model in the PR description (account bans, employer-side trust, accidental wrong-job submissions).
-2. Add a positive opt-in stronger than a single env var (e.g., a per-job confirmation, a daily rate cap, an audit log signed by the operator).
-3. Update this section with the new policy.
+If the gate fails — for any reason — the apply writes an `apply_handoffs` row at `NEEDS_REVIEW` and stops. The operator finalizes those applications via the Human Review queue at `/human-review`.
 
-Until those bars are met, please review and submit applications yourself.
+The **`SAFE_MODE=true`** env var is a hard global kill switch: it disables auto-submit regardless of gate outcome. Forms are still filled; the result always lands `NEEDS_REVIEW`.
+
+Scope: the finisher acts only on Greenhouse and Ashby forms. All other ATSes bypass the finisher and land `NEEDS_REVIEW` unconditionally.
+
+**Do not write a wrapper that auto-submits forms outside of the gate.** If you do, you own the consequences — account bans, employer-side trust damage, and accidental wrong-job submissions are the operator's liability.
+
+Pull requests that widen the gate or remove `SAFE_MODE` must, at a minimum:
+
+1. Explain the updated threat model in the PR description.
+2. Update this section with the new policy before the PR is merged.

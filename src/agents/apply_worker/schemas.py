@@ -9,6 +9,7 @@ Purpose:
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -190,6 +191,57 @@ class ConfidenceReport(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Finisher diagnostics
+# ---------------------------------------------------------------------------
+
+
+class FinisherDiagnostics(BaseModel):
+    """Telemetry payload persisted to ``apply_handoffs.finisher_diagnostics_json``.
+
+    Purpose:
+        Bundle every signal the human reviewer needs to debug a
+        NEEDS_REVIEW or FAILED outcome — the finisher's terminal state,
+        cost / turn counters, the Tier-2 drafts, the verify-after-fill
+        result, and any submit-time error toasts. Stored as JSON in the
+        ``apply_handoffs`` row added in issue #59.
+
+    Attributes:
+        finisher_outcome: ``COMPLETE`` / ``AGENT_GAVE_UP`` /
+            ``USAGE_LIMIT_HIT`` / ``RUNTIME_ERROR`` / ``SKIPPED`` (the
+            last when the finisher was not invoked, e.g. Lever).
+        turns_used: Number of agent iterations consumed.
+        cost_usd: USD cost computed via ``litellm.cost_per_token``.
+        fields_filled: Tier-1 fills the agent reported.
+        fields_deferred: Tier-3 fields the agent skipped.
+        all_required_filled: True when every required field is
+            either filled or drafted.
+        has_tier3_deferred: Convenience mirror of
+            ``len(deferred_questions) > 0``.
+        has_tier2_pending: True when any draft is awaiting human review.
+        drafted_fields: Tier-2 drafts with per-field confidence scores.
+        simplify_no_op: True when post-Simplify verify saw all known
+            fields empty (telemetry only).
+        submit_errors: Error-toast text scraped after a submit attempt.
+            Empty when the gate did not fire submit.
+        gate_decision: ``"auto_submit"`` / ``"dry_run"`` / ``"skipped"``
+            describing which gate branch fired.
+    """
+
+    finisher_outcome: str = "SKIPPED"
+    turns_used: int = 0
+    cost_usd: float = 0.0
+    fields_filled: int = 0
+    fields_deferred: int = 0
+    all_required_filled: bool = False
+    has_tier3_deferred: bool = False
+    has_tier2_pending: bool = False
+    drafted_fields: list[dict[str, Any]] = Field(default_factory=list)
+    simplify_no_op: bool = False
+    submit_errors: list[str] = Field(default_factory=list)
+    gate_decision: str = "skipped"
+
+
+# ---------------------------------------------------------------------------
 # Run result model
 # ---------------------------------------------------------------------------
 
@@ -215,6 +267,11 @@ class ApplyRunResult(BaseModel):
         unresolved_fields: Rich metadata for every unresolved form field.
         ats_platform: Detected ATS platform.
         page_url: Final page URL after any redirects.
+        finisher_diagnostics: Issue #59 finisher telemetry (None when
+            the finisher was not invoked, e.g. unsupported ATS).
+        deferred_questions: Tier-3 questions the finisher logged; the
+            worker persists these to
+            ``apply_handoffs.deferred_questions_json``.
     """
 
     success: bool
@@ -229,6 +286,8 @@ class ApplyRunResult(BaseModel):
     unresolved_fields: list[UnresolvedField] = Field(default_factory=list)
     ats_platform: ATSPlatform | None = None
     page_url: str | None = None
+    finisher_diagnostics: FinisherDiagnostics | None = None
+    deferred_questions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 __all__ = [
@@ -242,5 +301,6 @@ __all__ = [
     "ApplyRunResult",
     "ConfidenceCheck",
     "ConfidenceReport",
+    "FinisherDiagnostics",
     "UnresolvedField",
 ]

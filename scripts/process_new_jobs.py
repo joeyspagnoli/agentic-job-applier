@@ -18,24 +18,22 @@ from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 
 from dotenv import load_dotenv
-from google.adk.agents import BaseAgent
 from loguru import logger
 
 from src.agents.root_apply_decider import (
     ApplyDecision,
     GateRunResult,
-    build_root_agent,
-    get_decider_model,
-    get_decider_model_name,
-    get_decider_provider,
+    GateRunOutcome,
     map_decision_to_status,
-    run_decider_for_job,
+    run_gate_with_provider,
 )
 from src.database._mixins.system_settings import GATE_MODE_KEY
 from src.database.db_manager import DatabaseManager
+from src.providers.factory import build_provider_from_env
+from src.providers.types import AIProvider
 from src.utils.cost_tracking import PIPELINE_STAGE_GATE
 from src.utils.cost_tracking import check_budget_before_claim
-from src.utils.cost_tracking import record_stage_cost_event
+from src.utils.cost_tracking import record_llm_call_cost
 from src.utils.notifications import send_ntfy_notification
 from src.utils.paths import resolve_database_path
 
@@ -54,21 +52,6 @@ GATE_AUTONOMOUS_MODES: frozenset[str] = frozenset({"autonomous", "both"})
 
 class ModelConfigurationError(RuntimeError):
     """Represent missing or invalid model configuration for the gate worker."""
-
-
-def _map_status(decision: ApplyDecision) -> str:
-    """Translate an agent decision into the stored workflow status.
-
-    Purpose:
-        Keep the mapping from gate output to database workflow status in one
-        place so both scripts persist the same status values.
-    Args:
-        decision: Apply/skip decision returned by the gate.
-    Output:
-        Returns `QUALIFIED` for apply decisions and `FILTERED` for skip decisions.
-    """
-
-    return map_decision_to_status(decision)
 
 
 def _load_int_env(name: str, default_value: int) -> int:
@@ -216,34 +199,11 @@ async def _notify_worker_configuration_failure(error: str) -> None:
     )
 
 
-async def _run_decider_for_job(
-    *,
-    agent: BaseAgent,
-    job: Mapping[str, object],
-) -> GateRunResult:
-    """Run the ADK decider for one job and parse its raw response locally.
-
-    Purpose:
-        Execute one isolated ADK session, capture the model's final text
-        response, and turn it into a durable gate result payload.
-    Args:
-        agent: Configured ADK agent instance to run.
-        job: Database row representing the job being evaluated.
-    Output:
-        Returns a validated `GateRunResult`, or raises an error when the
-        decision cannot be recovered from the model response.
-    """
-
-    return await run_decider_for_job(
-        agent=agent,
-        job=job,
-    )
-
-
 async def _process_once(
     *,
     db: DatabaseManager,
     limit: int,
+    provider: AIProvider,
     max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
     backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
     backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
@@ -251,12 +211,15 @@ async def _process_once(
     """Process one batch of pending jobs through the decider.
 
     Purpose:
-        Drive the end-to-end batch workflow for loading the model, fetching
-        pending jobs, handling failures, and recording successful decisions.
+        Drive the end-to-end batch workflow for fetching pending jobs,
+        handling failures, and recording successful decisions. Uses the
+        provider-agnostic unified runtime so token-based cost rows fire
+        correctly for every gate call.
 
     Arg(s):
         db: Connected database manager used to load and update job rows.
         limit: Maximum number of pending jobs to process in this batch.
+        provider: Configured AI provider built once at worker startup.
         max_retries: Maximum attempts allowed before terminal failure.
         backoff_seconds: Base delay in seconds for retry scheduling.
         backoff_multiplier: Multiplicative factor applied per retry attempt.
@@ -265,12 +228,6 @@ async def _process_once(
         Returns the number of jobs successfully processed in the batch.
     """
 
-    try:
-        model = get_decider_model()
-    except Exception as exc:
-        raise ModelConfigurationError(str(exc)) from exc
-
-    agent = build_root_agent(model=model)
     if not await check_budget_before_claim(db=db, stage=PIPELINE_STAGE_GATE):
         return 0
 
@@ -290,25 +247,31 @@ async def _process_once(
         # Each job is isolated so a single provider or parsing error does not
         # stop the rest of the batch from being evaluated and persisted.
         try:
-            result = await _run_decider_for_job(
-                agent=agent,
+            outcome: GateRunOutcome = await run_gate_with_provider(
+                provider=provider,
                 job=job,
             )
         except Exception as exc:
             error_text = str(exc)
             retry_count_raw = job.get("agent_retry_count")
             retry_count = int(retry_count_raw) + 1 if isinstance(retry_count_raw, int) else 1
-            await record_stage_cost_event(
-                db=db,
+            # No CompletionResponse available on failure — write a zero-cost row
+            # directly via db.record_cost_event so the dashboard retains the event.
+            import json as _json
+            await db.record_cost_event(
                 stage=PIPELINE_STAGE_GATE,
+                cost_usd=0.0,
                 job_hash=job_hash,
                 run_id=f"gate-{job_hash}-{retry_count}",
-                metadata={
-                    "status": "FAILED",
-                    "model": get_decider_model_name(),
-                    "provider": get_decider_provider(),
-                    "retry_count": retry_count,
-                },
+                metadata_json=_json.dumps(
+                    {
+                        "status": "FAILED",
+                        "retry_count": retry_count,
+                        "phase": "gate_failed",
+                    },
+                    ensure_ascii=True,
+                    sort_keys=True,
+                ),
             )
 
             if retry_count < max_retries:
@@ -352,22 +315,20 @@ async def _process_once(
             )
             continue
 
+        result = outcome.result
         await db.record_agent_decision(
             job_hash=job_hash,
             agent_result=result.model_dump_json(),
-            status=_map_status(result.decision),
+            status=map_decision_to_status(result.decision),
         )
-        await record_stage_cost_event(
+        await record_llm_call_cost(
             db=db,
             stage=PIPELINE_STAGE_GATE,
-            job_hash=job_hash,
             run_id=f"gate-{job_hash}",
-            metadata={
-                "status": "SUCCESS",
-                "model": result.model,
-                "provider": get_decider_provider(),
-                "decision": result.decision.value,
-            },
+            phase="decision",
+            response=outcome.response,
+            job_hash=job_hash,
+            extra_metadata={"decision": result.decision.value},
         )
         processed += 1
 
@@ -383,15 +344,6 @@ async def _process_once(
         )
 
     return processed
-
-
-    # If Codex home has auth, prefer unified path.
-    codex_home = os.getenv("CODEX_HOME", "")
-    if codex_home:
-        auth_path = os.path.join(codex_home, "auth.json")
-        if os.path.isfile(auth_path):
-            return True
-    return False
 
 
 async def _is_gate_mode_active(db: DatabaseManager) -> bool:
@@ -422,6 +374,7 @@ async def process_once(
     *,
     db: DatabaseManager,
     limit: int,
+    provider: AIProvider | None = None,
     max_retries: int = DEFAULT_AGENT_MAX_RETRIES,
     backoff_seconds: int = DEFAULT_AGENT_RETRY_BACKOFF_SECONDS,
     backoff_multiplier: int = DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
@@ -435,6 +388,7 @@ async def process_once(
     Arg(s):
         db: Connected database manager used for queue reads and updates.
         limit: Maximum number of jobs to process in this batch.
+        provider: Configured AI provider; built from env when not supplied.
         max_retries: Maximum attempts before terminal failure.
         backoff_seconds: Base backoff delay for retry scheduling.
         backoff_multiplier: Multiplicative backoff factor per retry attempt.
@@ -442,9 +396,11 @@ async def process_once(
     Output:
         Returns the number of jobs successfully processed in the batch.
     """
+    resolved_provider = provider if provider is not None else build_provider_from_env()
     return await _process_once(
         db=db,
         limit=limit,
+        provider=resolved_provider,
         max_retries=max_retries,
         backoff_seconds=backoff_seconds,
         backoff_multiplier=backoff_multiplier,
@@ -466,7 +422,9 @@ async def run_gate_loop(
         Provide an importable entry point so the API supervisor can run
         the gate loop as an in-process asyncio task. The loop reads the
         per-stage automation mode every cycle and emits zero LLM calls
-        when the mode is `opt_in`.
+        when the mode is `opt_in`. The provider is built once at loop
+        startup so the API key is validated immediately rather than
+        per-batch.
     Args:
         db: Connected database manager shared with other in-process loops.
         limit: Maximum jobs claimed per batch.
@@ -485,12 +443,15 @@ async def run_gate_loop(
         max_retries,
     )
 
+    provider = build_provider_from_env()
+
     while True:
         try:
             if await _is_gate_mode_active(db):
-                processed = await process_once(
+                processed = await _process_once(
                     db=db,
                     limit=limit,
+                    provider=provider,
                     max_retries=max_retries,
                     backoff_seconds=backoff_seconds,
                     backoff_multiplier=backoff_multiplier,
@@ -498,8 +459,6 @@ async def run_gate_loop(
                 logger.info("Gate batch complete: processed={}", processed)
         except asyncio.CancelledError:
             raise
-        except ModelConfigurationError as exc:
-            logger.error("Decider model not configured; will retry: {}", exc)
         except Exception as exc:
             logger.exception("Gate polling cycle failed: {}", exc)
 
@@ -531,7 +490,7 @@ async def main() -> None:
                 await asyncio.sleep(3600)
         return
 
-    parser = argparse.ArgumentParser(description="Process NEW jobs using ADK decider")
+    parser = argparse.ArgumentParser(description="Process NEW jobs with the gate decider")
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--loop", action="store_true", help="Poll forever")
     mode_group.add_argument(
@@ -567,27 +526,27 @@ async def main() -> None:
         "AGENT_RETRY_BACKOFF_MULTIPLIER",
         DEFAULT_AGENT_RETRY_BACKOFF_MULTIPLIER,
     )
+
+    # Build the provider once; validates the API key before entering the loop.
+    provider = build_provider_from_env()
+
     db_path = str(resolve_database_path())
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
         await db.migrate_agent_schema()
         await db.migrate_cost_schema()
-        startup_alert_sent = False
 
         # The default behavior is a single batch run so the script remains easy
         # to invoke manually and safe to schedule externally.
         if not should_loop:
-            try:
-                await _process_once(
-                    db=db,
-                    limit=args.limit,
-                    max_retries=max_retries,
-                    backoff_seconds=backoff_seconds,
-                    backoff_multiplier=backoff_multiplier,
-                )
-            except ModelConfigurationError as exc:
-                logger.error("Decider model not configured: {}", exc)
-                await _notify_worker_configuration_failure(str(exc))
+            await _process_once(
+                db=db,
+                limit=args.limit,
+                provider=provider,
+                max_retries=max_retries,
+                backoff_seconds=backoff_seconds,
+                backoff_multiplier=backoff_multiplier,
+            )
             return
 
         while True:
@@ -598,27 +557,14 @@ async def main() -> None:
                 processed = await _process_once(
                     db=db,
                     limit=args.limit,
+                    provider=provider,
                     max_retries=max_retries,
                     backoff_seconds=backoff_seconds,
                     backoff_multiplier=backoff_multiplier,
                 )
-                logger.info(
-                    "Agent batch complete: processed={} provider={} model={}",
-                    processed,
-                    get_decider_provider(),
-                    get_decider_model_name(),
-                )
-                startup_alert_sent = False
-            except ModelConfigurationError as exc:
-                logger.error(
-                    "Decider model not configured; worker will retry next cycle: {}",
-                    exc,
-                )
-                if not startup_alert_sent:
-                    await _notify_worker_configuration_failure(str(exc))
-                    startup_alert_sent = True
+                logger.info("Agent batch complete: processed={}", processed)
             except Exception as exc:
-                logger.exception(f"Agent polling cycle failed: {exc}")
+                logger.exception("Agent polling cycle failed: {}", exc)
             await asyncio.sleep(poll_interval_seconds)
 
 

@@ -113,35 +113,38 @@ def test_build_client_raises_value_error_for_unsupported_provider(
 
 
 def test_extract_usage_returns_zeros_when_completion_has_no_usage() -> None:
-    """A completion without a `usage` attribute returns `(0, 0, 0)`."""
+    """A completion without a `usage` attribute returns a zero `TokenUsage`."""
 
     completion = SimpleNamespace()
 
-    prompt, completion_tokens, total = llm._extract_usage(completion)
+    result = llm._extract_usage(completion)
 
-    assert (prompt, completion_tokens, total) == (0, 0, 0)
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
 
 def test_extract_usage_infers_total_when_only_prompt_and_completion_present() -> None:
-    """When `total_tokens` is missing, the helper sums the two known fields."""
+    """When only `prompt_tokens` and `completion_tokens` are present they are read correctly."""
 
     usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5)
     completion = SimpleNamespace(usage=usage)
 
-    prompt, completion_tokens, total = llm._extract_usage(completion)
+    result = llm._extract_usage(completion)
 
-    assert (prompt, completion_tokens, total) == (10, 5, 15)
+    assert result.prompt_tokens == 10
+    assert result.completion_tokens == 5
 
 
 def test_extract_usage_respects_explicit_total_tokens() -> None:
-    """An explicit `total_tokens` overrides the inferred sum."""
+    """An explicit `total_tokens` field is ignored; the TokenUsage prompt+completion fields are set."""
 
     usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=20)
     completion = SimpleNamespace(usage=usage)
 
-    prompt, completion_tokens, total = llm._extract_usage(completion)
+    result = llm._extract_usage(completion)
 
-    assert (prompt, completion_tokens, total) == (10, 5, 20)
+    assert result.prompt_tokens == 10
+    assert result.completion_tokens == 5
 
 
 def test_extract_usage_coerces_none_attributes_to_zero() -> None:
@@ -150,19 +153,21 @@ def test_extract_usage_coerces_none_attributes_to_zero() -> None:
     usage = SimpleNamespace(prompt_tokens=None, completion_tokens=None, total_tokens=None)
     completion = SimpleNamespace(usage=usage)
 
-    prompt, completion_tokens, total = llm._extract_usage(completion)
+    result = llm._extract_usage(completion)
 
-    assert (prompt, completion_tokens, total) == (0, 0, 0)
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
 
 def test_extract_usage_returns_zeros_when_usage_is_none() -> None:
-    """A completion whose `usage` field is `None` returns `(0, 0, 0)`."""
+    """A completion whose `usage` field is `None` returns a zero `TokenUsage`."""
 
     completion: Any = SimpleNamespace(usage=None)
 
-    prompt, completion_tokens, total = llm._extract_usage(completion)
+    result = llm._extract_usage(completion)
 
-    assert (prompt, completion_tokens, total) == (0, 0, 0)
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
 
 def test_get_tailor_model_name_returns_default_when_env_unset(

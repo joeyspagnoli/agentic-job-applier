@@ -10,7 +10,7 @@
  * is just a re-key + line-split adapter.
  */
 
-import type { FiltersDraft, ProfileDraft, RolesDraft } from "./types";
+import type { ApplyPrefsDraft, FiltersDraft, ProfileDraft, RolesDraft } from "./types";
 import { splitLines } from "./yaml-builders";
 
 /**
@@ -20,18 +20,20 @@ export interface BuildStructuredProfilePayloadArgs {
   readonly profile: ProfileDraft;
   readonly roles: RolesDraft;
   readonly filters: FiltersDraft;
+  readonly applyPrefs: ApplyPrefsDraft;
 }
 
 /**
  * Convert wizard drafts into the structured profile payload.
  *
- * @param args - Profile, roles, and filter drafts captured by the wizard.
+ * @param args - Profile, roles, filter, and apply-prefs drafts captured by the wizard.
  * @returns The payload shape consumed by `updateProfileStructured`.
  */
 export function buildStructuredProfilePayload({
   profile,
   roles,
   filters,
+  applyPrefs,
 }: BuildStructuredProfilePayloadArgs): {
   profile: {
     summary: string;
@@ -50,8 +52,8 @@ export function buildStructuredProfilePayload({
     work_authorization: {
       citizenship_country_code: string;
       citizenship_country_label: string;
-      authorized_to_work_us: "unknown";
-      requires_sponsorship_now_or_future: "unknown";
+      authorized_to_work_us: "yes" | "no" | "unknown";
+      requires_sponsorship_now_or_future: "yes" | "no" | "unknown";
     };
     education_summary: string;
     education_entries: readonly never[];
@@ -62,6 +64,7 @@ export function buildStructuredProfilePayload({
     preferences: readonly never[];
   };
   search_defaults: { job_board_search_terms: string[] };
+  apply_prefs: ApplyPrefsDraft;
   prompt_context: null;
 } {
   return {
@@ -82,8 +85,8 @@ export function buildStructuredProfilePayload({
       work_authorization: {
         citizenship_country_code: profile.countryCode,
         citizenship_country_label: "",
-        authorized_to_work_us: "unknown",
-        requires_sponsorship_now_or_future: "unknown",
+        authorized_to_work_us: applyPrefs.work_authorized_us,
+        requires_sponsorship_now_or_future: applyPrefs.sponsorship_required_now_or_future,
       },
       education_summary: "",
       education_entries: [],
@@ -96,6 +99,7 @@ export function buildStructuredProfilePayload({
     search_defaults: {
       job_board_search_terms: splitLines(roles.searchTerms),
     },
+    apply_prefs: applyPrefs,
     prompt_context: null,
   };
 }

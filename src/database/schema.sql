@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS apply_runs (
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     claim_token TEXT,
+    deleted_at TIMESTAMP,
 
     CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
     -- keep in sync with ApplyOutcome (src/agents/apply_worker/schemas.py)
@@ -223,6 +224,8 @@ CREATE TABLE IF NOT EXISTS apply_handoffs (
     reviewed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deferred_questions_json TEXT,
+    finisher_diagnostics_json TEXT,
     CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')),
     -- keep in sync with ApplyOutcome (src/agents/apply_worker/schemas.py)
     CHECK (apply_outcome IN (

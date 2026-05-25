@@ -38,19 +38,22 @@ async def test_process_once_public_interface_delegates_to_private_helper(
 
     Purpose:
         Encourage test coverage to target public worker interfaces while still
-        ensuring argument flow remains correct.
+        ensuring argument flow remains correct. The `provider` kwarg is optional
+        on the public wrapper; when omitted the wrapper resolves it from env.
     Args:
         monkeypatch: Pytest fixture used to intercept private helper call.
     Output:
         Returns `None`; test passes when delegation preserves all arguments.
     """
 
-    captured: dict[str, int] = {}
+    captured: dict[str, object] = {}
+    sentinel_provider = object()
 
     async def fake_process_once(
         *,
         db: object,
         limit: int,
+        provider: object,
         max_retries: int,
         backoff_seconds: int,
         backoff_multiplier: int,
@@ -62,6 +65,7 @@ async def test_process_once_public_interface_delegates_to_private_helper(
         Args:
             db: Database manager provided by caller.
             limit: Batch size from caller.
+            provider: Configured AI provider forwarded from public wrapper.
             max_retries: Max retries from caller.
             backoff_seconds: Base retry delay from caller.
             backoff_multiplier: Retry multiplier from caller.
@@ -71,12 +75,20 @@ async def test_process_once_public_interface_delegates_to_private_helper(
 
         _ = db
         captured["limit"] = limit
+        captured["provider"] = provider
         captured["max_retries"] = max_retries
         captured["backoff_seconds"] = backoff_seconds
         captured["backoff_multiplier"] = backoff_multiplier
         return 9
 
     monkeypatch.setattr(process_new_jobs, "_process_once", fake_process_once)
+    # Stub `build_provider_from_env` so we can assert provider forwarding
+    # without needing a real API key in the test environment.
+    monkeypatch.setattr(
+        process_new_jobs,
+        "build_provider_from_env",
+        lambda: sentinel_provider,
+    )
 
     processed = await process_new_jobs.process_once(
         db=object(),  # type: ignore[arg-type]
@@ -87,12 +99,11 @@ async def test_process_once_public_interface_delegates_to_private_helper(
     )
 
     assert processed == 9
-    assert captured == {
-        "limit": 7,
-        "max_retries": 4,
-        "backoff_seconds": 11,
-        "backoff_multiplier": 5,
-    }
+    assert captured["limit"] == 7
+    assert captured["provider"] is sentinel_provider
+    assert captured["max_retries"] == 4
+    assert captured["backoff_seconds"] == 11
+    assert captured["backoff_multiplier"] == 5
 
 
 def test_apply_decider_tests_use_structural_prompt_assertions() -> None:
@@ -119,6 +130,8 @@ def test_process_once_public_signature_is_documented_and_stable() -> None:
 
     Purpose:
         Guard against accidental API churn in script-facing helper signatures.
+        The `provider` kwarg was added in Phase G to accept a pre-built provider
+        for testing; it is optional (defaults to env resolution).
     Args:
         None.
     Output:
@@ -129,6 +142,7 @@ def test_process_once_public_signature_is_documented_and_stable() -> None:
     expected_params = {
         "db",
         "limit",
+        "provider",
         "max_retries",
         "backoff_seconds",
         "backoff_multiplier",

@@ -22,11 +22,15 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Generic, Type, TypeVar
 
 import instructor
 from loguru import logger
 from openai import OpenAI
+
+from src.providers.openai_provider import OpenAIProvider
+from src.providers.types import CostBreakdown, ProviderType, TokenUsage
 
 from .pipeline_schemas import ReviewerOutput, TailorOutput
 from .prompts import REVIEWER_INSTRUCTION, TAILOR_INSTRUCTION, TRIM_INSTRUCTION
@@ -42,6 +46,22 @@ INSTRUCTOR_MAX_RETRIES = 3
 T = TypeVar("T")
 
 
+@lru_cache(maxsize=1)
+def _get_cost_provider() -> OpenAIProvider:
+    """Return a lazily constructed OpenAIProvider used only for cost computation.
+
+    Purpose:
+        `compute_cost` delegates to `litellm.cost_per_token` and never
+        touches the network, so the `api_key` value here is irrelevant.
+        A placeholder is used to satisfy the constructor guard; `OPENAI_API_KEY`
+        from the environment is preferred when available.
+    """
+    return OpenAIProvider(
+        api_key=os.environ.get("OPENAI_API_KEY", "x"),
+        provider_type=ProviderType.OPENAI,
+    )
+
+
 @dataclass(frozen=True)
 class LlmCallResult(Generic[T]):
     """Result of one structured LLM call.
@@ -50,13 +70,25 @@ class LlmCallResult(Generic[T]):
         Bundle the parsed Pydantic response with the raw token usage
         metadata so the pipeline can record cost telemetry without
         re-querying the provider.
+
+    Attributes:
+        parsed: Validated Pydantic model returned by the LLM.
+        model: Fully qualified ``provider/model`` identifier used for the call.
+        usage: Per-call token accounting extracted from the provider response.
+        cost: USD cost breakdown computed from ``usage`` via the provider's
+            pricing table.
+        prompt_tokens: Convenience alias for ``usage.prompt_tokens``.
+        completion_tokens: Convenience alias for ``usage.completion_tokens``.
+        total_tokens: Convenience alias for the sum of prompt + completion.
     """
 
     parsed: T
+    model: str
+    usage: TokenUsage
+    cost: CostBreakdown
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    model: str
 
 
 def get_tailor_model_name() -> str:
@@ -152,24 +184,27 @@ def _build_client(qualified_model: str) -> tuple[Any, str]:
     )
 
 
-def _extract_usage(raw_completion: Any) -> tuple[int, int, int]:
+def _extract_usage(raw_completion: Any) -> TokenUsage:
     """Pull token usage out of a raw completion object.
 
     Purpose:
         Instructor returns the underlying provider response object
         alongside the parsed Pydantic model; this helper normalizes the
-        usage triple across providers that report it slightly differently.
+        usage fields across providers that report them slightly differently.
+        Reads ``prompt_tokens_details.cached_tokens`` and
+        ``completion_tokens_details.reasoning_tokens`` when present (zero
+        when not available).
     Args:
         raw_completion: Raw completion returned by
             `create_with_completion`.
     Output:
-        Returns `(prompt_tokens, completion_tokens, total_tokens)` with
-        any missing field coerced to `0`.
+        Returns a populated `TokenUsage` with any missing field coerced to `0`.
     """
 
     usage = getattr(raw_completion, "usage", None)
     if usage is None:
-        return 0, 0, 0
+        return TokenUsage()
+
     # Responses API uses input_tokens/output_tokens; Chat Completions uses
     # prompt_tokens/completion_tokens. Read either spelling.
     prompt = int(
@@ -182,8 +217,25 @@ def _extract_usage(raw_completion: Any) -> tuple[int, int, int]:
         or getattr(usage, "output_tokens", 0)
         or 0
     )
-    total = int(getattr(usage, "total_tokens", prompt + completion) or 0)
-    return prompt, completion, total
+
+    cached_input_tokens = 0
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_details is not None:
+        cached_input_tokens = int(getattr(prompt_details, "cached_tokens", 0) or 0)
+
+    reasoning_tokens = 0
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    if completion_details is not None:
+        reasoning_tokens = int(
+            getattr(completion_details, "reasoning_tokens", 0) or 0
+        )
+
+    return TokenUsage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        cached_input_tokens=cached_input_tokens,
+        reasoning_tokens=reasoning_tokens,
+    )
 
 
 def _structured_call_sync(
@@ -222,19 +274,24 @@ def _structured_call_sync(
             {"role": "user", "content": user_message},
         ],
     )
-    prompt_tokens, completion_tokens, total_tokens = _extract_usage(raw_completion)
+    token_usage = _extract_usage(raw_completion)
+    cost = _get_cost_provider().compute_cost(bare_model, token_usage)
     logger.debug(
-        "LLM call: model={} prompt_tokens={} completion_tokens={}",
+        "LLM call: model={} prompt_tokens={} completion_tokens={} cost=${:.6f} ({})",
         qualified_model,
-        prompt_tokens,
-        completion_tokens,
+        token_usage.prompt_tokens,
+        token_usage.completion_tokens,
+        cost.total_cost_usd,
+        cost.source,
     )
     return LlmCallResult(
         parsed=parsed,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        total_tokens=total_tokens,
         model=qualified_model,
+        usage=token_usage,
+        cost=cost,
+        prompt_tokens=token_usage.prompt_tokens,
+        completion_tokens=token_usage.completion_tokens,
+        total_tokens=token_usage.prompt_tokens + token_usage.completion_tokens,
     )
 
 
