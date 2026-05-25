@@ -1,0 +1,71 @@
+<!--
+  PII-scrubbed Ashby application form fragment derived from the smoke-loop
+  iteration 013 dom_post.html (Notion BDR). Trimmed to the form region.
+
+  PII tokens scrubbed:
+    - Joseph Spagnoli → APPLICANT NAME
+    - jspagnoli1705@gmail.com → applicant@example.test
+    - phone digits → 5550000000
+-->
+<form id="ashby-application-form">
+  <h2>Application</h2>
+
+  <label for="_systemfield_name">Full name <span aria-hidden="true">*</span></label>
+  <input id="_systemfield_name" type="text" required value="APPLICANT NAME" />
+
+  <label for="_systemfield_email">Email <span aria-hidden="true">*</span></label>
+  <input id="_systemfield_email" type="email" required value="applicant@example.test" />
+
+  <label for="_systemfield_phoneNumber">Phone</label>
+  <input id="_systemfield_phoneNumber" type="tel" value="5550000000" />
+
+  <label for="_systemfield_resume">Resume <span aria-hidden="true">*</span></label>
+  <input id="_systemfield_resume" type="file" required />
+
+  <label for="_systemfield_location">Location</label>
+  <input id="_systemfield_location" type="text" value="San Francisco, CA" />
+
+  <label for="_systemfield_linkedinUrl">LinkedIn URL</label>
+  <input id="_systemfield_linkedinUrl" type="url" />
+
+  <!-- Tier-2 essay -->
+  <label for="custom_why_notion">Why Notion? <span aria-hidden="true">*</span></label>
+  <textarea id="custom_why_notion" required></textarea>
+
+  <!-- React fieldset whose UUIDs change between renders.
+       Every field below is Tier 3 (EEO). -->
+  <fieldset id="eeo_fieldset" data-render-uuid="abc123-old">
+    <legend>Voluntary self-identification</legend>
+
+    <label>Gender</label>
+    <div role="radiogroup" aria-label="Gender">
+      <label><input type="radio" name="gender" value="male" /> Male</label>
+      <label><input type="radio" name="gender" value="female" /> Female</label>
+      <label><input type="radio" name="gender" value="decline" /> Prefer not to say</label>
+    </div>
+
+    <label>Race / Ethnicity</label>
+    <div role="radiogroup" aria-label="Race / Ethnicity">
+      <label><input type="radio" name="ethnicity" value="hispanic" /> Hispanic or Latino</label>
+      <label><input type="radio" name="ethnicity" value="decline" /> Prefer not to say</label>
+    </div>
+
+    <label>Veteran status</label>
+    <select aria-label="Veteran status">
+      <option value="">Please select</option>
+      <option value="veteran">I am a veteran</option>
+      <option value="not_veteran">I am not a veteran</option>
+      <option value="decline">I don't wish to answer</option>
+    </select>
+
+    <label>Disability status</label>
+    <select aria-label="Disability status">
+      <option value="">Please select</option>
+      <option value="yes">Yes</option>
+      <option value="no">No</option>
+      <option value="decline">I don't wish to answer</option>
+    </select>
+  </fieldset>
+
+  <button type="submit" aria-label="Submit application">Submit application</button>
+</form>

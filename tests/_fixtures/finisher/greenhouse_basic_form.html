@@ -1,0 +1,86 @@
+<!--
+  PII-scrubbed Greenhouse application form fragment derived from the
+  smoke-loop iteration 006 dom_post.html. Trimmed to the application form
+  region; chrome / analytics / shadow roots removed.
+
+  Tests import this fixture via:
+      Path(__file__).parent / "_fixtures" / "finisher" / "greenhouse_basic_form.html"
+
+  PII tokens scrubbed:
+    - Joseph Spagnoli → APPLICANT NAME
+    - jspagnoli1705@gmail.com → applicant@example.test
+    - 6513027720 / 651-302-7720 → 5550000000
+-->
+<form id="application_form" action="/jobs/7914628/applications" method="post">
+  <fieldset>
+    <legend>Submit your application</legend>
+
+    <label for="first_name">First Name <abbr title="required">*</abbr></label>
+    <input id="first_name" name="job_application[first_name]" type="text" required value="APPLICANT" />
+
+    <label for="last_name">Last Name <abbr title="required">*</abbr></label>
+    <input id="last_name" name="job_application[last_name]" type="text" required value="NAME" />
+
+    <label for="email">Email <abbr title="required">*</abbr></label>
+    <input id="email" name="job_application[email]" type="email" required value="applicant@example.test" />
+
+    <label for="phone">Phone</label>
+    <input id="phone" name="job_application[phone]" type="tel" value="5550000000" />
+
+    <label for="resume">Resume/CV <abbr title="required">*</abbr></label>
+    <input id="resume" type="file" required />
+
+    <label for="job_application_location">Current Location (City)</label>
+    <input id="job_application_location" name="job_application[location]" type="text" />
+
+    <!-- React-Select combobox for Country -->
+    <div role="combobox" aria-label="Country" id="s2id_job_application_country">
+      <input role="textbox" aria-label="Country search" />
+    </div>
+
+    <label for="how_did_you_hear">How did you hear about us?</label>
+    <input id="how_did_you_hear" name="job_application[answers_attributes][0][text_value]" type="text" />
+
+    <!-- Tier-2 essay -->
+    <label for="why_this_role">Why are you interested in this role? <abbr title="required">*</abbr></label>
+    <textarea id="why_this_role" name="job_application[answers_attributes][1][text_value]" required></textarea>
+  </fieldset>
+
+  <!-- US EEO fieldset (every field Tier 3) -->
+  <fieldset>
+    <legend>U.S. Equal Opportunity Employment Information</legend>
+
+    <label for="gender">Gender</label>
+    <select id="gender" name="job_application[demographic_answers_attributes][0]">
+      <option value="">Please select</option>
+      <option value="male">Male</option>
+      <option value="female">Female</option>
+      <option value="decline">I don't wish to answer</option>
+    </select>
+
+    <label for="ethnicity">Race/Ethnicity</label>
+    <select id="ethnicity" name="job_application[demographic_answers_attributes][1]">
+      <option value="">Please select</option>
+      <option value="hispanic">Hispanic or Latino</option>
+      <option value="decline">I don't wish to answer</option>
+    </select>
+
+    <label for="veteran">Veteran Status</label>
+    <select id="veteran" name="job_application[demographic_answers_attributes][2]">
+      <option value="">Please select</option>
+      <option value="veteran">I am a veteran</option>
+      <option value="not_veteran">I am not a veteran</option>
+      <option value="decline">I don't wish to answer</option>
+    </select>
+
+    <label for="disability">Disability Status</label>
+    <select id="disability" name="job_application[demographic_answers_attributes][3]">
+      <option value="">Please select</option>
+      <option value="yes">Yes</option>
+      <option value="no">No</option>
+      <option value="decline">I don't wish to answer</option>
+    </select>
+  </fieldset>
+
+  <button type="submit" aria-label="Submit application">Submit Application</button>
+</form>
