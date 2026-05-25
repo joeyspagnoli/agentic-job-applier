@@ -88,6 +88,14 @@ export interface TailorRunSummaryDto {
   readonly error: string | null;
   readonly pdf_url: string | null;
   /**
+   * URL of the persisted planner-rationale artifact (Bug E,
+   * 2026-05-25). Non-null only when the tailor run succeeded AND the
+   * pipeline managed to write `tailored_v1.plan.json` to disk. The
+   * dashboard hides the "Why these edits" panel when this is null so
+   * older runs do not accidentally show an empty rationale section.
+   */
+  readonly plan_url?: string | null;
+  /**
    * Structured reason pulled from `review_runs.review_report_json` when the
    * verdict is `NO_IMPROVEMENT`. Possible values include `"tailor_bailed"`
    * (the tailor model returned an empty edits list) and
@@ -97,6 +105,39 @@ export interface TailorRunSummaryDto {
    * the field still type-check.
    */
   readonly review_reason?: string | null;
+}
+
+/**
+ * Response payload for `GET /api/tailor-runs/{id}/plan`.
+ *
+ * @remarks
+ * Mirrors the JSON file the pipeline writes under
+ * `<artifact_dir>/tailored_v1.plan.json`. Every field is `readonly`
+ * because the dashboard only reads — it never echoes the payload back
+ * to the API.
+ */
+export interface TailorRunPlanDto {
+  readonly ok: true;
+  readonly plan: {
+    readonly model: string;
+    readonly saved_at: string;
+    readonly rewrite_plan: string;
+    readonly bullets_applied: number;
+    readonly bullets_dropped: readonly {
+      readonly id: string;
+      readonly rationale: string;
+    }[];
+    readonly bullets: readonly {
+      readonly id: string;
+      readonly rationale: string;
+      readonly action: "keep" | "rewrite";
+      readonly new_text: string;
+    }[];
+    readonly kept_unchanged: readonly {
+      readonly id: string;
+      readonly reason: string;
+    }[];
+  };
 }
 
 /** One jobs table item row returned by backend. */

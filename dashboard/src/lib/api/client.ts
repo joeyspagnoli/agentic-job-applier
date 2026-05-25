@@ -36,6 +36,7 @@ import type {
   SettingsResumeUploadDto,
   SystemLifecycleActionDto,
   TailorRunDetailDto,
+  TailorRunPlanDto,
 } from "@/lib/api/types";
 
 const JSON_HEADERS = {
@@ -221,6 +222,18 @@ export async function enqueueTailorRun(
  */
 export async function fetchTailorRun(runId: number): Promise<TailorRunDetailDto> {
   return getJson<TailorRunDetailDto>(`/api/tailor-runs/${runId}`);
+}
+
+/**
+ * Fetch the persisted planner-rationale JSON for one tailor run.
+ *
+ * @param runId - Primary key of the tailor_runs row.
+ * @returns The planner artifact wrapped in `{ ok, plan }`.
+ */
+export async function fetchTailorRunPlan(
+  runId: number,
+): Promise<TailorRunPlanDto> {
+  return getJson<TailorRunPlanDto>(`/api/tailor-runs/${runId}/plan`);
 }
 
 /**

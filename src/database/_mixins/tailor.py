@@ -87,6 +87,13 @@ class TailorMixin(_BaseMixin):
             await conn.execute(
                 "ALTER TABLE tailor_runs ADD COLUMN deleted_at TIMESTAMP"
             )
+        if "plan_json_path" not in column_names:
+            # Issue #59 Bug E (2026-05-25): persist the planner's
+            # rationale-first JSON to the artifact directory and store
+            # its path here so the dashboard can surface "Why these edits".
+            await conn.execute(
+                "ALTER TABLE tailor_runs ADD COLUMN plan_json_path TEXT"
+            )
 
         # Widen the status CHECK to include 'RUNNING' on legacy databases via
         # the SQLite-recommended table-rebuild pattern. The check is cheap on
@@ -337,6 +344,7 @@ class TailorMixin(_BaseMixin):
         artifact_tex_path: str,
         artifact_pdf_path: str,
         page_count: int | None,
+        plan_json_path: str | None = None,
     ) -> None:
         """Mark a tailor run as successful with artifact metadata.
 
@@ -350,6 +358,10 @@ class TailorMixin(_BaseMixin):
             artifact_tex_path: Filesystem path to the generated TeX file.
             artifact_pdf_path: Filesystem path to the generated PDF file.
             page_count: Final page count of the generated PDF.
+            plan_json_path: Filesystem path to the planner's rationale-first
+                JSON artifact (``tailored_v1.plan.json``). Passed as a
+                keyword-only optional so legacy callers that predate Bug E
+                continue to work without modification.
         Output:
             Returns `None` after updating the row and committing.
         """
@@ -363,6 +375,7 @@ class TailorMixin(_BaseMixin):
                 artifact_yaml_path = ?,
                 artifact_tex_path = ?,
                 artifact_pdf_path = ?,
+                plan_json_path = ?,
                 page_count = ?,
                 completed_at = CURRENT_TIMESTAMP,
                 next_retry_at = NULL
@@ -372,6 +385,7 @@ class TailorMixin(_BaseMixin):
                 artifact_yaml_path,
                 artifact_tex_path,
                 artifact_pdf_path,
+                plan_json_path,
                 page_count,
                 run_id,
             ),

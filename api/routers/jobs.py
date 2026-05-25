@@ -233,6 +233,13 @@ async def get_jobs(
                     LIMIT 1
                 ) AS tailor_run_error,
                 (
+                    SELECT tr.plan_json_path FROM tailor_runs tr
+                    WHERE tr.job_hash = jp.job_hash
+                      AND tr.deleted_at IS NULL
+                    ORDER BY tr.started_at DESC, tr.id DESC
+                    LIMIT 1
+                ) AS tailor_run_plan_json_path,
+                (
                     SELECT rr.verdict FROM review_runs rr
                     JOIN tailor_runs tr ON tr.id = rr.tailor_run_id
                     WHERE rr.job_hash = jp.job_hash
@@ -274,8 +281,11 @@ async def get_jobs(
         if row["tailor_run_id"] is not None:
             tailor_run_status = str(row["tailor_run_status"] or "")
             pdf_url: str | None = None
+            plan_url: str | None = None
             if tailor_run_status == "SUCCESS":
                 pdf_url = f"/api/jobs/{str(row['job_hash'])}/resume"
+                if row["tailor_run_plan_json_path"]:
+                    plan_url = f"/api/tailor-runs/{int(row['tailor_run_id'])}/plan"
             tailor_run_payload = {
                 "id": int(row["tailor_run_id"]),
                 "status": tailor_run_status,
@@ -283,6 +293,7 @@ async def get_jobs(
                 "page_count": row["tailor_run_page_count"],
                 "error": row["tailor_run_error"],
                 "pdf_url": pdf_url,
+                "plan_url": plan_url,
                 "review_reason": _extract_review_reason(
                     row["tailor_run_review_report_json"]
                 ),

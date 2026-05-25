@@ -40,6 +40,12 @@ export interface TailorRunSummaryModel {
    * `TailorRunSummaryDto.review_reason` for full semantics.
    */
   readonly reviewReason: string | null;
+  /**
+   * URL of the planner-rationale artifact, when the tailor run wrote one
+   * (Bug E, 2026-05-25). `null` for older runs and for failures, so the
+   * dashboard can hide the "Why these edits" panel without speculating.
+   */
+  readonly planUrl: string | null;
 }
 
 /** One normalized jobs row used by jobs-page table rendering. */
@@ -136,6 +142,7 @@ export function toJobsRows(dto: JobsResponseDto): readonly JobsRowModel[] {
             error: item.tailor_run.error,
             pdfUrl: item.tailor_run.pdf_url,
             reviewReason: item.tailor_run.review_reason ?? null,
+            planUrl: item.tailor_run.plan_url ?? null,
           }
         : null,
   }));

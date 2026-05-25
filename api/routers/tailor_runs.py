@@ -91,7 +91,10 @@ def _serialize_tailor_run_row(row: dict[str, Any]) -> dict[str, Any]:
         Keep the response shape consistent across the POST, GET, and
         `/api/jobs?has_tailor_run=1` endpoints. The `pdf_url` field is
         intentionally only set on SUCCESS; clients fall back to the
-        existing `/api/jobs/{hash}/resume` download endpoint.
+        existing `/api/jobs/{hash}/resume` download endpoint. The
+        ``plan_url`` field surfaces the planner-rationale artifact only
+        when both the run has SUCCESS-ed and ``plan_json_path`` is on
+        disk; the dashboard hides the "Why these edits" panel otherwise.
     Args:
         row: Raw `tailor_runs` row mapping.
     Output:
@@ -99,9 +102,17 @@ def _serialize_tailor_run_row(row: dict[str, Any]) -> dict[str, Any]:
     """
 
     job_hash = str(row.get("job_hash") or "")
+    run_id_value: Optional[int] = None
+    raw_id = row.get("id")
+    if isinstance(raw_id, int):
+        run_id_value = raw_id
+
     pdf_url: Optional[str] = None
+    plan_url: Optional[str] = None
     if str(row.get("status") or "") == "SUCCESS" and job_hash:
         pdf_url = f"/api/jobs/{job_hash}/resume"
+        if row.get("plan_json_path") and run_id_value is not None:
+            plan_url = f"/api/tailor-runs/{run_id_value}/plan"
 
     return {
         "id": int(row["id"]),
@@ -113,6 +124,7 @@ def _serialize_tailor_run_row(row: dict[str, Any]) -> dict[str, Any]:
         "completed_at": row.get("completed_at"),
         "deleted_at": row.get("deleted_at"),
         "pdf_url": pdf_url,
+        "plan_url": plan_url,
     }
 
 
@@ -243,6 +255,71 @@ async def get_tailor_run(run_id: int) -> dict[str, object]:
         )
 
     return {"ok": True, "tailor_run": _serialize_tailor_run_row(row)}
+
+
+@router.get("/tailor-runs/{run_id}/plan")
+async def get_tailor_run_plan(run_id: int) -> dict[str, object]:
+    """Return the planner-rationale JSON artifact for one tailor run.
+
+    Purpose:
+        Back the dashboard's "Why these edits" panel without exposing
+        on-disk paths to the browser. The endpoint reads
+        ``apply_handoffs.plan_json_path`` from the tailor row, then
+        streams the file contents back as JSON.
+    Args:
+        run_id: Primary key of the target tailor_runs row.
+    Returns:
+        ``{"ok": True, "plan": {...}}`` on success.
+    Raises:
+        HTTPException: 404 when the row is missing, the artifact was
+            never written, or the file is no longer on disk.
+    """
+
+    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
+    import json as _json  # noqa: PLC0415 — local-only JSON parse
+
+    db_path = str(_main.resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        row = await db.get_tailor_run(run_id)
+
+    if row is None:
+        _raise_api_error(
+            status_code=404,
+            code="TAILOR_RUN_NOT_FOUND",
+            message="Tailor run not found.",
+            details={"run_id": run_id},
+        )
+
+    raw_path = row.get("plan_json_path") if isinstance(row, dict) else None
+    if not raw_path:
+        _raise_api_error(
+            status_code=404,
+            code="TAILOR_PLAN_NOT_AVAILABLE",
+            message="No planner artifact was recorded for this tailor run.",
+            details={"run_id": run_id},
+        )
+
+    plan_path = Path(str(raw_path))
+    if not plan_path.exists():
+        _raise_api_error(
+            status_code=404,
+            code="TAILOR_PLAN_FILE_MISSING",
+            message="Planner artifact path is recorded but the file is missing.",
+            details={"run_id": run_id, "path": str(plan_path)},
+        )
+
+    try:
+        plan_payload = _json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _raise_api_error(
+            status_code=500,
+            code="TAILOR_PLAN_UNREADABLE",
+            message=f"Failed to read planner artifact: {exc}",
+            details={"run_id": run_id},
+        )
+
+    return {"ok": True, "plan": plan_payload}
 
 
 def _cleanup_tailor_artifacts(run_id: int, row: dict[str, Any]) -> None:

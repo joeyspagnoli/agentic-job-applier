@@ -33,6 +33,7 @@ variant lives in a per-run artifact dir.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -73,6 +74,80 @@ PAGE_LIMIT = 1
 BASE_VARIANT_NAME = "base"
 TAILORED_V1_VARIANT_NAME = "tailored_v1"
 TAILORED_V2_VARIANT_NAME = "tailored_v2"
+
+# Filename for the planner-rationale artifact written next to the
+# compiled tailored_v1 PDF / TeX. Bug E (2026-05-25) — the planner's
+# per-bullet reasoning was being computed, billed for, then thrown
+# away; we now persist it to disk so the dashboard can surface
+# "Why these edits" without re-running the model.
+PLAN_JSON_BASENAME = "tailored_v1.plan.json"
+
+
+def _build_planner_artifact_payload(
+    *,
+    tailor_output: TailorOutput,
+    model: str,
+    bullets_applied: int,
+    bullets_dropped: list[BulletPatchProposal],
+) -> dict[str, object]:
+    """Assemble the JSON payload persisted to ``tailored_v1.plan.json``.
+
+    Purpose:
+        Capture the planner's rationale-first output verbatim — every
+        bullet's reasoning, the kept-unchanged notes, and the overall
+        ``rewrite_plan`` — alongside the model name and a timestamp so
+        the dashboard can render "Why these edits" without another LLM
+        round-trip.
+    Args:
+        tailor_output: Validated structured response from the planner
+            LLM call.
+        model: Fully qualified ``provider/model`` identifier billed for
+            the call.
+        bullets_applied: Number of rewrite proposals the patcher
+            successfully spliced into the resume.
+        bullets_dropped: Proposals whose manifest IDs were unknown and
+            therefore not applied.
+    Returns:
+        JSON-serializable dict ready to write to disk.
+    """
+
+    return {
+        "model": model,
+        "saved_at": datetime.now(tz=timezone.utc).isoformat(),
+        "rewrite_plan": tailor_output.rewrite_plan,
+        "bullets_applied": bullets_applied,
+        "bullets_dropped": [
+            {"id": proposal.id, "rationale": proposal.rationale}
+            for proposal in bullets_dropped
+        ],
+        "bullets": [proposal.model_dump() for proposal in tailor_output.bullets],
+        "kept_unchanged": [note.model_dump() for note in tailor_output.skipped_bullets],
+    }
+
+
+def _write_planner_artifact(
+    *,
+    variant_dir: Path,
+    payload: dict[str, object],
+) -> Path:
+    """Persist the planner payload as ``tailored_v1.plan.json`` and
+    return its filesystem path.
+
+    Args:
+        variant_dir: Directory holding ``tailored_v1.tex`` / ``.pdf``;
+            the JSON artifact lands alongside them.
+        payload: Pre-built dict from :func:`_build_planner_artifact_payload`.
+    Returns:
+        Absolute path to the freshly-written JSON file.
+    """
+
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = variant_dir / PLAN_JSON_BASENAME
+    plan_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False),
+        encoding="utf-8",
+    )
+    return plan_path
 
 
 def _format_candidate_profile_snippet(profile_yaml_path: Path) -> str:
@@ -827,12 +902,37 @@ async def run_tailor_review_pipeline(
             fallback_base_pdf_path=str(base_pdf_artifact),
         )
 
+        # Persist the planner's rationale-first JSON next to the tailored
+        # artifacts. Best-effort: a filesystem failure here is logged but
+        # must not fail the tailor run, which has already produced valid
+        # PDF/TeX outputs the reviewer has approved.
+        plan_json_path: Optional[str] = None
+        try:
+            plan_payload = _build_planner_artifact_payload(
+                tailor_output=tailor_output,
+                model=tailor_call.model,
+                bullets_applied=len(v1_patches),
+                bullets_dropped=v1_dropped,
+            )
+            plan_artifact = _write_planner_artifact(
+                variant_dir=v1_dir,
+                payload=plan_payload,
+            )
+            plan_json_path = str(plan_artifact)
+        except Exception as exc:  # noqa: BLE001 - observational artifact
+            logger.warning(
+                "Planner artifact write failed for tailor_run_id={}: {}",
+                tailor_run_id,
+                exc,
+            )
+
         await db.record_tailor_success(
             run_id=tailor_run_id,
             artifact_yaml_path="",
             artifact_tex_path=str(tailored_artifacts[0]),
             artifact_pdf_path=str(tailored_artifacts[1]),
             page_count=tailored_page_count,
+            plan_json_path=plan_json_path,
         )
 
         return TailorRunResult(

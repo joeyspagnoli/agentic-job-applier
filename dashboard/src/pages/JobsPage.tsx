@@ -23,6 +23,7 @@ import {
 import type { ApplyRunDto } from "@/lib/api/types";
 import { ApplyButton } from "@/pages/jobs/ApplyButton";
 import { NotTailoredModal } from "@/pages/jobs/NotTailoredModal";
+import { TailorPlanPanel } from "@/pages/jobs/TailorPlanPanel";
 import {
   COLOR_ON_SURFACE,
   COLOR_ON_SURFACE_VARIANT,
@@ -807,6 +808,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             <p style={{ color: "#b91c1c" }}>{deleteErrorMessage}</p>
           ) : null}
         </div>
+        {tailorRun.planUrl !== null && <TailorPlanPanel runId={tailorRun.id} />}
         <div className="mt-2">
           <ApplyButton
             jobHash={row.jobHash}
