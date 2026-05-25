@@ -24,6 +24,7 @@ The browser-touching CLI plumbing lives in
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic_ai import ModelRetry, RunContext
@@ -39,6 +40,13 @@ from src.agents.apply_finisher.schemas import (
 # every Greenhouse / Ashby answer label we've seen; longer suggests the
 # caller is pasting prose by mistake.
 _MAX_FILTER_LEN: int = 60
+
+# Listbox-settle delay. The React-Select listbox takes ~250-400ms to
+# mount after the trigger click; without it, the next keyboard-insert
+# goes into the body instead of the (still-empty) input. Same window
+# applies between filter typing and option click for the filtered
+# option list to settle.
+_REACT_SELECT_SETTLE_SECONDS: float = 0.45
 
 # Verifier eval template. Reads .select__single-value text via DOM
 # traversal from the field input id. Returns the picked label or the
@@ -102,19 +110,25 @@ def _validate_field_id(field_id: str) -> str:
     The narrow combobox helpers interpolate ``field_id`` into a JS
     string. Single quotes / angle brackets would either escape the
     literal or trip the prompt-injection guard. Greenhouse / Ashby
-    field ids match ``[A-Za-z0-9_\\-]+`` in practice; rejecting
-    anything else fails closed.
+    field ids match ``[A-Za-z0-9_\\-]+`` in practice.
+
+    Also rejects snapshot-ref shape (``eN`` where ``N`` is purely
+    digits) — those are agent-browser refs, not DOM ids, and the
+    model has been mistakenly passing them. A DOM id looks like
+    ``question_66747918`` / ``country`` / ``candidate-location``;
+    never bare ``e3`` / ``e42``.
 
     Args:
         field_id: DOM id of the React-Select input element.
     Returns:
         The validated field id unchanged.
     Raises:
-        ModelRetry: When ``field_id`` is empty or contains characters
-            outside the allowed set.
+        ModelRetry: When ``field_id`` is empty, contains characters
+            outside the allowed set, or matches the agent-browser
+            snapshot-ref shape ``eN``.
     """
 
-    stripped = (field_id or "").strip()
+    stripped = (field_id or "").strip().lstrip("@")
     if not stripped:
         raise ModelRetry("field_id must be non-empty.")
     allowed = set(
@@ -124,6 +138,17 @@ def _validate_field_id(field_id: str) -> str:
         raise ModelRetry(
             f"field_id {field_id!r} contains characters outside "
             "[A-Za-z0-9_-]. Use the bare DOM id from the snapshot."
+        )
+    if (
+        len(stripped) >= 2
+        and stripped[0] == "e"
+        and stripped[1:].isdigit()
+    ):
+        raise ModelRetry(
+            f"field_id {field_id!r} looks like an agent-browser snapshot "
+            "ref (`eN`), not a DOM id. Pass the bare DOM id (e.g. "
+            "'question_66747918', 'country', 'candidate-location') — "
+            "you can read it from the snapshot's combobox row."
         )
     return stripped
 
@@ -175,45 +200,61 @@ async def open_combobox(field_id: str) -> dict[str, Any]:
 
     Purpose:
         Wraps the verified pattern
-        ``click '[aria-labelledby="<field_id>-label"]'``. The model
-        had been substituting the wrong id into the CSS selector or
-        falling back to ``click @eN`` on an unrelated snapshot ref;
-        binding ``field_id`` as a typed arg removes both failure modes.
+        ``click '[aria-labelledby="<field_id>-label"]'`` AND blocks
+        for the React-Select listbox to mount before returning. The
+        settle delay is mandatory: without it the next tool call
+        lands on the body before the listbox finishes mounting, the
+        filter goes nowhere, and the agent burns turns retrying.
     Args:
         field_id: DOM id of the React-Select input (e.g.
             ``"question_66747918"``, ``"country"``). Read from the
             snapshot's combobox row — NOT a ``@eN`` ref.
     Returns:
-        The full ``invoke_agent_browser_cli`` result dict so the
-        agent sees exit code / stderr on failure.
+        The full ``invoke_agent_browser_cli`` result dict.
     Raises:
         ModelRetry: When ``field_id`` is empty or has illegal chars.
     """
 
     validated = _validate_field_id(field_id)
     selector = f"[aria-labelledby=\"{validated}-label\"]"
-    return await invoke_agent_browser_cli(["click", selector])
+    # Scroll into view first — off-screen comboboxes may swallow the
+    # click event silently in agent-browser's CDP implementation.
+    # Best-effort; ignore failures (will hard-fail at click instead).
+    await invoke_agent_browser_cli(["scrollintoview", selector])
+    result = await invoke_agent_browser_cli(["click", selector])
+    if result["ok"]:
+        await asyncio.sleep(_REACT_SELECT_SETTLE_SECONDS)
+    return result
 
 
-async def type_combobox_filter(text: str) -> dict[str, Any]:
-    """Type a filter string into the currently-open React-Select listbox.
+async def type_combobox_filter(field_id: str, text: str) -> dict[str, Any]:
+    """Type a filter string into a specific React-Select combobox input.
 
     Purpose:
         Greenhouse Q comboboxes expose ~245 options (240 country
         phone codes + the real 2-6 answers). Typing 3-6 characters
         narrows the visible list so the subsequent ``pick_option``
-        click resolves uniquely. Uses ``keyboard inserttext`` (a
-        paste-style insertion) which React-Select's onChange listens
-        to.
+        click resolves uniquely.
+
+        Targets the combobox input via its
+        ``[aria-labelledby="<field_id>-label"]`` selector and uses
+        the CLI's ``type`` action (which scopes events to the
+        selector). Previous iterations used ``keyboard inserttext``
+        which goes to the focused element — fragile because React-
+        Select's listbox mount briefly takes focus away.
     Args:
+        field_id: DOM id of the combobox input. Must match the field
+            that was opened in the immediately-preceding
+            ``open_combobox`` call.
         text: Filter substring. Keep short (≤60 chars enforced).
     Returns:
         Full CLI result dict.
     Raises:
-        ModelRetry: When ``text`` is empty or longer than
-            ``_MAX_FILTER_LEN``.
+        ModelRetry: When ``field_id`` is invalid, ``text`` is empty,
+            or ``text`` exceeds ``_MAX_FILTER_LEN``.
     """
 
+    validated = _validate_field_id(field_id)
     cleaned = (text or "").strip()
     if not cleaned:
         raise ModelRetry("text must be non-empty.")
@@ -222,9 +263,11 @@ async def type_combobox_filter(text: str) -> dict[str, Any]:
             f"text is {len(cleaned)} chars (max {_MAX_FILTER_LEN}); "
             "pass a short unique prefix, not the full option label."
         )
-    return await invoke_agent_browser_cli(
-        ["keyboard", "inserttext", cleaned]
-    )
+    selector = f"[aria-labelledby=\"{validated}-label\"]"
+    result = await invoke_agent_browser_cli(["type", selector, cleaned])
+    if result["ok"]:
+        await asyncio.sleep(_REACT_SELECT_SETTLE_SECONDS)
+    return result
 
 
 async def pick_option(

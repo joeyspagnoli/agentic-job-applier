@@ -31,7 +31,7 @@ _REQUIRED_XML_TAGS: tuple[str, ...] = (
 _REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "agent_browser(args)",
     "open_combobox(field_id)",
-    "type_combobox_filter(text)",
+    "type_combobox_filter(field_id, text)",
     "pick_option(option_text",
     "verify_combobox_filled(field_id)",
     "dispatch_async_typeahead_query(field_id, query)",
@@ -41,19 +41,20 @@ _REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "complete_apply",
 )
 
-# Verified field-id + target-label pairs from
-# .research/final-widget-fix/greenhouse-q-fields/findings.md. Each row
-# the prompt names must keep the verified label so the model never
-# guesses (e.g. month-year dates for q924).
-_GREENHOUSE_FIELD_TABLE_PAIRS: tuple[tuple[str, str], ...] = (
+# Label-keyed semantic rows the Greenhouse fragment must teach (one
+# per question class we've seen in the wild). Keyed by a substring of
+# the label and a substring of the verified target option text so the
+# tests work on ANY Greenhouse posting, not just Cloudflare's question
+# IDs.
+_GREENHOUSE_LABEL_SEMANTICS: tuple[tuple[str, str], ...] = (
     ("country", "United States +1"),
-    ("candidate-location", "Gainesville, Florida, United States"),
-    ("question_66747918", "I am willing to relocate"),
-    ("question_66747919", '"No"'),
-    ("question_66747921", '"Yes"'),
-    ("question_66747923", "Bachelor's"),
-    ("question_66747924", "Need to return to school and available upon graduation"),
-    ("question_66747925", '"Yes"'),
+    ("city", "candidate-location"),
+    ("relocate", "I am willing to relocate"),
+    ("sponsorship", "No"),
+    ("enrolled", "Yes"),
+    ("degree", "Bachelor's"),
+    ("start", "Need to return to school and available upon graduation"),
+    ("Python", "Yes"),
 )
 
 
@@ -111,17 +112,44 @@ def test_prompt_carries_no_placeholder_tokens() -> None:
         )
 
 
-@pytest.mark.parametrize(("field_id", "target_excerpt"), _GREENHOUSE_FIELD_TABLE_PAIRS)
-def test_greenhouse_field_table_row_present(
-    field_id: str, target_excerpt: str
+@pytest.mark.parametrize(("label_substr", "target_excerpt"), _GREENHOUSE_LABEL_SEMANTICS)
+def test_greenhouse_label_semantics_row_present(
+    label_substr: str, target_excerpt: str
 ) -> None:
-    """Greenhouse fragment names each verified field id + target label."""
+    """Greenhouse fragment maps each known label semantic to a verified target."""
 
     rendered = build_system_prompt("greenhouse")
-    assert field_id in rendered, f"missing field_id row for {field_id!r}"
-    assert target_excerpt in rendered, (
-        f"missing target label excerpt {target_excerpt!r} for {field_id!r}"
+    assert label_substr in rendered, (
+        f"missing label semantic substring {label_substr!r}"
     )
+    assert target_excerpt in rendered, (
+        f"missing target excerpt {target_excerpt!r} for label {label_substr!r}"
+    )
+
+
+def test_greenhouse_fragment_does_not_hardcode_cloudflare_ids() -> None:
+    """The classifier teaches by label semantics, not Cloudflare-only IDs.
+
+    The Cloudflare worked-example block names question_66747918 as a
+    concrete analogy, but the primary classifier (which the model
+    consults for every field) MUST be label-driven so the prompt
+    works on any Greenhouse posting whose question_NNNNNNN ids
+    differ.
+    """
+
+    rendered = build_system_prompt("greenhouse")
+    cloudflare_only_ids = (
+        "question_66747919",
+        "question_66747921",
+        "question_66747923",
+        "question_66747924",
+        "question_66747925",
+    )
+    for ghid in cloudflare_only_ids:
+        assert ghid not in rendered, (
+            f"prompt still hardcodes Cloudflare-only id {ghid!r} — "
+            "must be classified by label semantics instead"
+        )
 
 
 def test_greenhouse_eeo_block_present() -> None:

@@ -24,7 +24,7 @@ Two settings are load-bearing for gpt-5.4-mini, per the research in
 from __future__ import annotations
 
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModelSettings
+from pydantic_ai.models.openai import OpenAIResponsesModelSettings
 from pydantic_ai.output import ToolOutput
 
 from src.agents.apply_finisher.prompts import build_system_prompt
@@ -38,7 +38,14 @@ from src.agents.apply_finisher.tools import FINISHER_TOOLS
 # Pin the finisher model. gpt-5.4-mini outscores gpt-5-mini by ~1.7x
 # on OSWorld-Verified (72.1 vs 42.0); the cost delta is small enough
 # to absorb inside the per-apply soft cap.
-FINISHER_MODEL_NAME: str = "openai:gpt-5.4-mini"
+#
+# The ``openai-responses:`` prefix is REQUIRED — gpt-5.4-mini rejects
+# function tools combined with reasoning_effort on /v1/chat/completions
+# with: "Function tools with reasoning_effort are not supported for
+# gpt-5.4-mini in /v1/chat/completions. Please use /v1/responses
+# instead." The bare ``openai:`` prefix still routes to Chat
+# Completions in pydantic-ai 1.x.
+FINISHER_MODEL_NAME: str = "openai-responses:gpt-5.4-mini"
 
 # Retries inside individual tool calls. ``ModelRetry`` raised from a
 # tool body counts against this budget.
@@ -61,8 +68,15 @@ def build_finisher_agent(ats: SupportedAts) -> Agent[FinisherDeps, FinisherResul
     """
 
     system_prompt = build_system_prompt(ats)
-    settings = OpenAIChatModelSettings(
-        openai_reasoning_effort="high",
+    # reasoning_effort="low": both "high" (~3K reasoning tokens/turn)
+    # and "medium" (~1K) blew through the 200K TPM quota at turn ~28
+    # of a ~40-call form. The narrow per-step helpers do all the
+    # procedural reasoning (which selector, which JS literal); the
+    # model just routes a label to the right helper. "low" effort
+    # generates ~200-400 reasoning tokens/turn, keeping a full
+    # ~40-turn run inside the per-minute budget.
+    settings = OpenAIResponsesModelSettings(
+        openai_reasoning_effort="low",
         parallel_tool_calls=False,
     )
 

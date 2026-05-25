@@ -106,17 +106,21 @@ async def test_open_combobox_rejects_empty_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_type_combobox_filter_uses_keyboard_inserttext(
+async def test_type_combobox_filter_targets_input_by_aria_labelledby(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The filter helper runs ``keyboard inserttext <text>``."""
+    """The filter helper runs ``type <aria-labelledby selector> <text>``."""
 
     captured: dict[str, Any] = {}
     _stub_invoke(monkeypatch, captured)
 
-    await type_combobox_filter("I am willing")
+    await type_combobox_filter("question_66747918", "willing")
 
-    assert captured["args"] == ["keyboard", "inserttext", "I am willing"]
+    assert captured["args"] == [
+        "type",
+        "[aria-labelledby=\"question_66747918-label\"]",
+        "willing",
+    ]
 
 
 @pytest.mark.asyncio
@@ -124,7 +128,7 @@ async def test_type_combobox_filter_rejects_empty_text() -> None:
     """Empty filter text fails closed."""
 
     with pytest.raises(ModelRetry):
-        await type_combobox_filter("   ")
+        await type_combobox_filter("country", "   ")
 
 
 @pytest.mark.asyncio
@@ -132,7 +136,15 @@ async def test_type_combobox_filter_rejects_overlong_text() -> None:
     """Filter text above the 60-char cap is rejected to catch prose mistakes."""
 
     with pytest.raises(ModelRetry):
-        await type_combobox_filter("x" * 200)
+        await type_combobox_filter("country", "x" * 200)
+
+
+@pytest.mark.asyncio
+async def test_type_combobox_filter_rejects_invalid_field_id() -> None:
+    """A field_id with illegal chars fails closed via ModelRetry."""
+
+    with pytest.raises(ModelRetry):
+        await type_combobox_filter("bad id!", "Yes")
 
 
 # ---------------------------------------------------------------------------
