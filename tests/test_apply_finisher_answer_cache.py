@@ -299,3 +299,46 @@ def test_append_entry_raises_when_company_specific_without_company(
             company_specific=True,
             company=None,
         )
+
+
+# ---------------------------------------------------------------------------
+# First-run bootstrap: missing cache file creates an empty cache on disk
+# ---------------------------------------------------------------------------
+
+
+def test_load_answer_cache_creates_empty_file_when_missing(tmp_path: Path) -> None:
+    """First finisher run on a fresh checkout: ``answer_cache.yaml`` does not
+    yet exist. ``load_answer_cache`` must seed an empty file instead of
+    raising ``FileNotFoundError``, otherwise the finisher crashes before the
+    first LLM call and every apply lands NEEDS_REVIEW.
+    """
+    cache_file = tmp_path / "subdir" / "answer_cache.yaml"
+    assert not cache_file.exists()
+    assert not cache_file.parent.exists()
+
+    cache = load_answer_cache(cache_file)
+
+    # File and parent dir created.
+    assert cache_file.exists(), "load_answer_cache should seed the file on first run"
+    assert cache_file.parent.is_dir()
+    # Seeded content is a valid, parseable empty cache.
+    assert cache_file.read_text(encoding="utf-8").strip() == "entries: []"
+    # Lookups against the empty cache return None, never raise.
+    assert cache.lookup("anything at all", company="Acme") is None
+
+    # Re-loading the just-seeded file works (catches a regression where the
+    # seed produces YAML the loader cannot parse).
+    reloaded = load_answer_cache(cache_file)
+    assert reloaded.lookup("anything at all", company="Acme") is None
+
+
+def test_load_answer_cache_tolerates_empty_yaml_file(tmp_path: Path) -> None:
+    """An empty file (``touch answer_cache.yaml`` with no content) should load
+    as an empty cache, not crash on ``raw.get`` against ``None``.
+    """
+    cache_file = tmp_path / "answer_cache.yaml"
+    cache_file.write_text("", encoding="utf-8")
+
+    cache = load_answer_cache(cache_file)
+
+    assert cache.lookup("any question", company="Acme") is None

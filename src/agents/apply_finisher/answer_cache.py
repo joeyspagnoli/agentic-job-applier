@@ -436,17 +436,19 @@ def load_answer_cache(path: Path) -> AnswerCache:
         path: Path to ``answer_cache.yaml``.
 
     Returns:
-        A ready-to-use :class:`AnswerCache` instance.
+        A ready-to-use :class:`AnswerCache` instance. When ``path`` does
+        not exist (fresh install, never-run finisher), the file is seeded
+        with an empty ``entries: []`` document so the finisher can write
+        new answers back without an explicit bootstrap step.
 
     Raises:
-        FileNotFoundError: If ``path`` does not exist.
-        yaml.YAMLError: If the file is not valid YAML.
-
-    Example::
-
-        cache = load_answer_cache(Path("data/answer_cache.yaml"))
+        yaml.YAMLError: If the file exists but is not valid YAML.
     """
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("entries: []\n", encoding="utf-8")
+        return AnswerCache(_path=path, _per_company={}, _anonymized=[])
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     raw_entries: list[dict[str, object]] = raw.get("entries") or []
 
     per_company: dict[str, list[CacheEntry]] = {}
