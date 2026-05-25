@@ -629,16 +629,6 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     });
   }, [enqueueMutation, applyMutation]);
 
-  const handleApplyButtonClick = useCallback(() => {
-    setApplyErrorMessage(null);
-    if (row.tailorRun === null) {
-      // No tailored resume — ask the user before proceeding.
-      setIsNotTailoredModalOpen(true);
-      return;
-    }
-    applyMutation.mutate();
-  }, [row.tailorRun, applyMutation]);
-
   const tailorRun = row.tailorRun;
   const baseDownloadUrl = getTailoredResumeUrl(row.jobHash);
   const errorMessage = enqueueMutation.error

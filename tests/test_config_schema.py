@@ -39,8 +39,15 @@ def test_live_profile_round_trips() -> None:
 
     Purpose:
         Catch regressions where a hand-edit to the live YAML breaks the schema
-        that the apply finisher and startup hook depend on.
+        that the apply finisher and startup hook depend on. Skipped on hosts
+        without a configured profile (the file is gitignored as user data).
     """
+
+    if not _LIVE_PROFILE.exists():
+        pytest.skip(
+            "live candidate_profile.yaml not present "
+            "(gitignored — populate locally to exercise this round-trip)"
+        )
 
     raw = _live_profile_text()
     parsed = _load(raw)
