@@ -364,6 +364,25 @@ export async function dismissHumanReview(
 }
 
 /**
+ * Persist reviewer-typed answers for one handoff's deferred questions.
+ *
+ * @param handoffId - Handoff identifier.
+ * @param answers - Array of `{field_id, answer}` entries. The list
+ *   replaces any previously-stored answers wholesale.
+ * @returns Mutation response payload containing the persisted answers.
+ */
+export async function saveHumanReviewAnswers(
+  handoffId: number,
+  answers: readonly { readonly field_id: string; readonly answer: string }[],
+): Promise<{ readonly ok: true; readonly user_answers: readonly { readonly field_id: string; readonly answer: string }[] }> {
+  return getJson(`/api/human-review/${handoffId}/answers`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ answers }),
+  });
+}
+
+/**
  * Request unified failures payload.
  *
  * @param args - Failures query options.

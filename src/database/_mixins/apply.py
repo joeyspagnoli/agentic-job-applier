@@ -140,6 +140,7 @@ class ApplyMixin(_BaseMixin):
         for column_name, column_definition in (
             ("deferred_questions_json", "TEXT"),
             ("finisher_diagnostics_json", "TEXT"),
+            ("user_answers_json", "TEXT"),
         ):
             if column_name in existing_columns:
                 continue
@@ -744,6 +745,66 @@ class ApplyMixin(_BaseMixin):
                 (resolved_job_status, handoff_row["job_hash"]),
             )
 
+            updated_cursor = await conn.execute(
+                "SELECT * FROM apply_handoffs WHERE id = ?",
+                (handoff_id,),
+            )
+            updated_row = await updated_cursor.fetchone()
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+        if updated_row is None:
+            raise ValueError("handoff_update_failed")
+        return dict(updated_row)
+
+    async def save_handoff_user_answers(
+        self,
+        *,
+        handoff_id: int,
+        user_answers_json: str,
+    ) -> JSONObject:
+        """Persist reviewer-supplied answers for one human-review handoff.
+
+        Purpose:
+            Back the ``POST /api/human-review/{id}/answers`` endpoint so
+            reviewers can type values for finisher-deferred Tier-3 questions
+            and have them survive a page refresh. The actual resume-and-submit
+            machinery is a follow-up; this call just records what the human
+            wrote into ``apply_handoffs.user_answers_json``.
+        Args:
+            self: The database manager performing the update.
+            handoff_id: Primary key of the target row.
+            user_answers_json: Pre-serialized JSON payload (e.g.
+                ``[{"field_id": "e368", "answer": "Female"}, ...]``).
+        Output:
+            Returns the updated handoff row as a dictionary.
+        Raises:
+            ValueError: When the handoff does not exist.
+        """
+
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+            cursor = await conn.execute(
+                "SELECT id FROM apply_handoffs WHERE id = ?",
+                (handoff_id,),
+            )
+            if await cursor.fetchone() is None:
+                await conn.rollback()
+                raise ValueError("handoff_not_found")
+
+            await conn.execute(
+                """
+                UPDATE apply_handoffs
+                SET user_answers_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (user_answers_json, handoff_id),
+            )
             updated_cursor = await conn.execute(
                 "SELECT * FROM apply_handoffs WHERE id = ?",
                 (handoff_id,),

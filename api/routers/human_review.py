@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi import Body
 from fastapi import Query
+from pydantic import BaseModel, Field
 
 from src.database.db_manager import DatabaseManager
 
@@ -14,9 +16,34 @@ from api.config import DEFAULT_PAGE_SIZE
 from api.config import MAX_PAGE_SIZE
 from api.errors import _raise_api_error
 from api.schemas.common import ReviewerActionRequest
-from api.services.salary import _parse_unresolved_fields
+from api.services.salary import _parse_unresolved_fields, _parse_user_answers
 
 router = APIRouter(prefix="/api/human-review", tags=["human-review"])
+
+
+class _UserAnswer(BaseModel):
+    """One reviewer-supplied answer for a deferred Tier-3 question.
+
+    Attributes:
+        field_id: Identifier of the deferred field (e.g. ``"e368"``).
+        answer: Reviewer-typed value to persist.
+    """
+
+    field_id: str = Field(min_length=1, max_length=128)
+    answer: str = Field(max_length=4096)
+
+
+class _SaveAnswersRequest(BaseModel):
+    """Payload for ``POST /api/human-review/{id}/answers``.
+
+    Attributes:
+        answers: One entry per question the reviewer answered. The
+            list replaces any previously-stored answers wholesale so
+            the dashboard can save a partial draft and overwrite it
+            cleanly on the next save.
+    """
+
+    answers: list[_UserAnswer] = Field(default_factory=list)
 
 
 @router.get("")
@@ -88,6 +115,8 @@ async def get_human_review_queue(
                 ah.confidence_score,
                 ah.apply_outcome,
                 ah.unresolved_fields_json,
+                ah.deferred_questions_json,
+                ah.user_answers_json,
                 ah.reviewer_notes,
                 ah.resume_pdf_path,
                 ah.ats_platform,
@@ -108,9 +137,21 @@ async def get_human_review_queue(
 
     items: list[dict[str, object]] = []
     for row in rows:
-        unresolved_fields = _parse_unresolved_fields(
-            str(row["unresolved_fields_json"] or "")
-        )
+        # Prefer the finisher's deferred_questions_json — it carries
+        # human-readable labels and reason text. Fall back to the older
+        # unresolved_fields_json shape only when the finisher did not run
+        # (Lever and older Greenhouse handoffs).
+        deferred_raw = str(row["deferred_questions_json"] or "")
+        deferred_fields = _parse_unresolved_fields(deferred_raw)
+        if deferred_fields:
+            unresolved_fields = deferred_fields
+        else:
+            unresolved_fields = _parse_unresolved_fields(
+                str(row["unresolved_fields_json"] or "")
+            )
+
+        user_answers = _parse_user_answers(str(row["user_answers_json"] or ""))
+
         confidence_score = float(row["confidence_score"] or 0.0)
         confidence_pct = int(round(confidence_score * 100.0))
         items.append(
@@ -130,6 +171,7 @@ async def get_human_review_queue(
                     str(row["resume_pdf_path"] or "resume.pdf")
                 ).name,
                 "unresolved_fields": unresolved_fields,
+                "user_answers": user_answers,
             }
         )
 
@@ -251,4 +293,63 @@ async def dismiss_human_review(
     return {
         "ok": True,
         "handoff": updated_row,
+    }
+
+
+@router.post("/{handoff_id}/answers")
+async def save_human_review_answers(
+    handoff_id: int,
+    payload: _SaveAnswersRequest = Body(...),
+) -> dict[str, object]:
+    """Persist reviewer-typed answers for one handoff's deferred questions.
+
+    Purpose:
+        Back the per-question textareas the Human Review page renders for
+        each finisher-deferred Tier-3 question. The list replaces any
+        previously-stored answers wholesale, so the dashboard can save a
+        partial draft and overwrite it on the next save. Resume-and-submit
+        plumbing is intentionally out of scope; this endpoint only records.
+    Args:
+        handoff_id: Primary key of the target ``apply_handoffs`` row.
+        payload: ``{"answers": [{"field_id", "answer"}, ...]}``.
+    Output:
+        Returns ``{"ok": True, "user_answers": [...]}`` with the parsed
+        list the dashboard should display after a successful save.
+    """
+
+    from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
+
+    serialized = json.dumps(
+        [{"field_id": entry.field_id, "answer": entry.answer} for entry in payload.answers],
+        ensure_ascii=False,
+    )
+
+    db_path = str(_main.resolve_database_path())
+    async with DatabaseManager(db_path) as db:
+        await db.create_tables()
+        await db.migrate_apply_schema()
+        try:
+            await db.save_handoff_user_answers(
+                handoff_id=handoff_id,
+                user_answers_json=serialized,
+            )
+        except ValueError as exc:
+            if str(exc) == "handoff_not_found":
+                _raise_api_error(
+                    status_code=404,
+                    code="HANDOFF_NOT_FOUND",
+                    message=f"Handoff {handoff_id} does not exist.",
+                )
+            _raise_api_error(
+                status_code=400,
+                code="HANDOFF_ANSWERS_WRITE_FAILED",
+                message=str(exc),
+            )
+
+    return {
+        "ok": True,
+        "user_answers": [
+            {"field_id": entry.field_id, "answer": entry.answer}
+            for entry in payload.answers
+        ],
     }

@@ -64,12 +64,17 @@ def _parse_unresolved_fields(raw_json: str | None) -> list[dict[str, str]]:
 
     Purpose:
         Convert flexible worker JSON output into a stable structure consumed by
-        the review dashboard table expansion panel.
+        the review dashboard table expansion panel. Handles both the legacy
+        Simplify-only ``unresolved_fields_json`` shape (pre-finisher runs) and
+        the finisher's ``deferred_questions_json`` shape, which carries
+        ``field_id`` / ``label`` / ``reason`` / ``category`` per question.
     Args:
         raw_json: Serialized unresolved-fields JSON from apply telemetry.
     Output:
-        Returns a list with `field_name`, `ai_answer`, `reasoning`, and
-        `answer_confidence` keys.
+        Returns a list with `field_id`, `field_name`, `ai_answer`,
+        `reasoning`, and `answer_confidence` keys. ``field_name`` falls back
+        to ``field_id`` and finally ``"(no label)"`` — never the prior
+        ``"Unresolved field"`` placeholder which carried no information.
     """
 
     if not raw_json:
@@ -88,22 +93,33 @@ def _parse_unresolved_fields(raw_json: str | None) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
 
-        field_name = str(
+        field_id_raw = item.get("field_id") or item.get("id") or ""
+        field_id = str(field_id_raw) if field_id_raw else ""
+
+        label_value = (
             item.get("label")
             or item.get("field_name")
             or item.get("name")
-            or "Unresolved field"
         )
+        if label_value:
+            field_name = str(label_value)
+        elif field_id:
+            field_name = field_id
+        else:
+            field_name = "(no label)"
+
+        # Finisher deferred questions don't carry a recommended value;
+        # leave empty so the UI doesn't show a misleading "answer".
         ai_answer = str(
             item.get("recommended_value")
             or item.get("suggested_value")
             or item.get("value")
-            or "Manual response required"
+            or ""
         )
         reasoning = str(
             item.get("reason")
             or item.get("hint")
-            or "Generated from captured form context."
+            or ""
         )
 
         confidence_raw = str(item.get("confidence") or "medium").lower()
@@ -114,6 +130,7 @@ def _parse_unresolved_fields(raw_json: str | None) -> list[dict[str, str]]:
 
         normalized_items.append(
             {
+                "field_id": field_id,
                 "field_name": field_name,
                 "ai_answer": ai_answer,
                 "reasoning": reasoning,
@@ -122,6 +139,44 @@ def _parse_unresolved_fields(raw_json: str | None) -> list[dict[str, str]]:
         )
 
     return normalized_items
+
+
+def _parse_user_answers(raw_json: str | None) -> list[dict[str, str]]:
+    """Decode the reviewer's saved answers for prefilling the textareas.
+
+    Purpose:
+        The human-review page lets reviewers type values for the finisher's
+        Tier-3 deferred questions. We persist those answers in
+        ``apply_handoffs.user_answers_json`` so they survive a page refresh.
+    Args:
+        raw_json: Serialized ``[{"field_id", "answer"}]`` JSON from the
+            ``user_answers_json`` column. Empty / malformed payloads
+            degrade to an empty list.
+    Output:
+        Returns a list of ``{"field_id", "answer"}`` string-keyed dicts.
+    """
+
+    if not raw_json:
+        return []
+
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    answers: list[dict[str, str]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        field_id = str(item.get("field_id") or "")
+        if not field_id:
+            continue
+        answer_text = str(item.get("answer") or "")
+        answers.append({"field_id": field_id, "answer": answer_text})
+    return answers
 
 
 def _build_pipeline_steps(

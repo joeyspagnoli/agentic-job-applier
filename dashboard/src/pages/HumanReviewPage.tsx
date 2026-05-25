@@ -5,10 +5,15 @@
  */
 
 import type { ChangeEvent, JSX } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toHumanReviewModel, toHumanReviewRow } from "@/lib/api/adapters";
-import { completeHumanReview, dismissHumanReview, fetchHumanReviewQueue } from "@/lib/api/client";
+import {
+  completeHumanReview,
+  dismissHumanReview,
+  fetchHumanReviewQueue,
+  saveHumanReviewAnswers,
+} from "@/lib/api/client";
 import {
   COLOR_ON_SURFACE,
   COLOR_OUTLINE_VARIANT,
@@ -278,6 +283,9 @@ export function HumanReviewPage(): JSX.Element {
                 onDismiss={() => {
                   dismissMutation.mutate(row.id);
                 }}
+                onAnswersSaved={async () => {
+                  await queryClient.invalidateQueries({ queryKey: ["human-review"] });
+                }}
               />
             ))}
 
@@ -353,10 +361,15 @@ interface ReviewRowProps {
     readonly job_posting_url: string;
     readonly resume_file_name: string;
     readonly unresolved_fields: readonly {
+      readonly field_id: string;
       readonly field_name: string;
       readonly ai_answer: string;
       readonly reasoning: string;
       readonly answer_confidence: string;
+    }[];
+    readonly user_answers: readonly {
+      readonly field_id: string;
+      readonly answer: string;
     }[];
   };
   /** Whether details panel is expanded. */
@@ -371,6 +384,8 @@ interface ReviewRowProps {
   readonly onComplete: () => void;
   /** Dismiss callback. */
   readonly onDismiss: () => void;
+  /** Invoked after answers are successfully persisted (e.g. invalidate queries). */
+  readonly onAnswersSaved: () => Promise<void> | void;
 }
 
 /**
@@ -387,9 +402,48 @@ function ReviewRow({
   onToggle,
   onComplete,
   onDismiss,
+  onAnswersSaved,
 }: ReviewRowProps): JSX.Element {
   const unresolvedCount = row.unresolved_fields.length;
   const isPending = row.status === "PENDING_REVIEW";
+
+  const initialAnswers = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const entry of row.user_answers) {
+      map[entry.field_id] = entry.answer;
+    }
+    return map;
+  }, [row.user_answers]);
+
+  const [answerDraft, setAnswerDraft] = useState<Record<string, string>>(initialAnswers);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Re-seed the draft whenever the persisted answers change (e.g. after a
+  // successful save invalidates the query and the row payload refreshes).
+  useEffect(() => {
+    setAnswerDraft(initialAnswers);
+  }, [initialAnswers]);
+
+  const saveAnswersMutation = useMutation({
+    mutationFn: async () => {
+      const payload = row.unresolved_fields
+        .filter((field) => field.field_id !== "")
+        .map((field) => ({
+          field_id: field.field_id,
+          answer: answerDraft[field.field_id] ?? "",
+        }));
+      return saveHumanReviewAnswers(row.id, payload);
+    },
+    onSuccess: async () => {
+      setSaveError(null);
+      await onAnswersSaved();
+    },
+    onError: (error: Error) => {
+      setSaveError(error.message || "Failed to save answers.");
+    },
+  });
+
+  const hasMissingFieldIds = row.unresolved_fields.some((field) => field.field_id === "");
 
   return (
     <>
@@ -447,44 +501,111 @@ function ReviewRow({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[11px] uppercase tracking-widest font-bold text-outline">
-                    AI Recommended Answers
+                    Deferred Questions
                   </p>
                   <span className="text-xs font-semibold text-outline">
-                    {unresolvedCount} unresolved field{unresolvedCount === 1 ? "" : "s"}
+                    {unresolvedCount} question{unresolvedCount === 1 ? "" : "s"}
                   </span>
                 </div>
 
                 {unresolvedCount === 0 ? (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-                    No unresolved fields remain for this handoff.
+                    No deferred questions remain for this handoff.
                   </div>
                 ) : (
-                  <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
-                    {row.unresolved_fields.map((field) => (
-                      <div
-                        key={field.field_name}
-                        className="rounded-xl border border-outline-variant bg-white p-4 space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <p className="text-xs font-bold uppercase tracking-wider text-outline">
-                            {field.field_name}
-                          </p>
-                          <span
-                            className={`px-2 py-0.5 rounded text-xs font-semibold ${confidenceClass(field.answer_confidence)}`}
-                          >
-                            {field.answer_confidence}
-                          </span>
+                  <div className="max-h-96 space-y-3 overflow-y-auto pr-1">
+                    {row.unresolved_fields.map((field, index) => {
+                      const inputKey =
+                        field.field_id !== ""
+                          ? field.field_id
+                          : `__no_field_id_${index}`;
+                      const isAnswerable = field.field_id !== "";
+                      return (
+                        <div
+                          key={inputKey}
+                          className="rounded-xl border border-outline-variant bg-white p-3 space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p
+                              className="text-sm font-semibold text-on-surface"
+                              title={field.reasoning || undefined}
+                            >
+                              {field.field_name}
+                            </p>
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-semibold ${confidenceClass(field.answer_confidence)}`}
+                            >
+                              {field.answer_confidence}
+                            </span>
+                          </div>
+                          {field.reasoning && (
+                            <p className="text-xs italic text-on-surface-variant">
+                              {field.reasoning}
+                            </p>
+                          )}
+                          {field.ai_answer && (
+                            <p className="text-xs text-on-surface-variant">
+                              <span className="font-semibold">Suggested:</span>{" "}
+                              {field.ai_answer}
+                            </p>
+                          )}
+                          <textarea
+                            aria-label={`Answer for ${field.field_name}`}
+                            className="w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm leading-5 resize-y min-h-[3.5rem] focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-container disabled:cursor-not-allowed"
+                            style={{ borderColor: `${COLOR_OUTLINE_VARIANT}66` }}
+                            placeholder={
+                              isAnswerable
+                                ? "Type your answer..."
+                                : "No field_id captured — cannot persist an answer."
+                            }
+                            value={answerDraft[field.field_id] ?? ""}
+                            onChange={(event) => {
+                              if (!isAnswerable) return;
+                              const value = event.target.value;
+                              setAnswerDraft((previous) => ({
+                                ...previous,
+                                [field.field_id]: value,
+                              }));
+                            }}
+                            disabled={!isAnswerable || !isPending}
+                            rows={2}
+                          />
                         </div>
-                        <p className="text-sm font-semibold text-on-surface">{field.ai_answer}</p>
-                        <p className="text-xs italic text-on-surface-variant">{field.reasoning}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+                )}
+
+                {hasMissingFieldIds && (
+                  <p className="text-xs text-warning">
+                    Some legacy entries lack a field_id and cannot be persisted.
+                  </p>
+                )}
+
+                {saveError && (
+                  <p className="text-xs text-rose-700">{saveError}</p>
                 )}
               </div>
             </div>
 
-            <div className="mt-6 border-t border-outline-variant pt-4 flex justify-end gap-3">
+            <div className="mt-6 border-t border-outline-variant pt-4 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-full border border-outline-variant px-5 py-2 text-sm font-semibold text-on-surface-variant disabled:opacity-50"
+                style={{ borderColor: `${COLOR_OUTLINE_VARIANT}99` }}
+                onClick={() => {
+                  saveAnswersMutation.mutate();
+                }}
+                disabled={
+                  !isPending ||
+                  unresolvedCount === 0 ||
+                  saveAnswersMutation.isPending ||
+                  pendingComplete ||
+                  pendingDismiss
+                }
+              >
+                {saveAnswersMutation.isPending ? "Saving..." : "Save answers"}
+              </button>
               <button
                 type="button"
                 className="rounded-full border border-outline-variant px-5 py-2 text-sm font-semibold text-on-surface-variant disabled:opacity-50"

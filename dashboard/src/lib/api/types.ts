@@ -210,10 +210,17 @@ export interface JobsResponseDto {
 
 /** One unresolved field recommendation row in review queue. */
 export interface UnresolvedFieldDto {
+  readonly field_id: string;
   readonly field_name: string;
   readonly ai_answer: string;
   readonly reasoning: string;
   readonly answer_confidence: string;
+}
+
+/** One reviewer-supplied answer persisted alongside a handoff. */
+export interface UserAnswerDto {
+  readonly field_id: string;
+  readonly answer: string;
 }
 
 /** One row in human-review queue endpoint response. */
@@ -228,6 +235,7 @@ export interface HumanReviewItemDto {
   readonly job_posting_url: string;
   readonly resume_file_name: string;
   readonly unresolved_fields: readonly UnresolvedFieldDto[];
+  readonly user_answers: readonly UserAnswerDto[];
 }
 
 /** Paginated human-review endpoint response. */
