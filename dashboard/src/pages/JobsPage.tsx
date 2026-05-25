@@ -618,6 +618,14 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     applyMutation.mutate();
   }, [applyMutation]);
 
+  const handleRequestTailorChoice = useCallback(() => {
+    // Open the NotTailoredModal so the user picks between "tailor then
+    // apply" and "skip tailoring". Routing the button directly to the
+    // tailor enqueue is what caused the 409 Bug #1 regression.
+    setApplyErrorMessage(null);
+    setIsNotTailoredModalOpen(true);
+  }, []);
+
   const handleTailorThenApply = useCallback(() => {
     setIsNotTailoredModalOpen(false);
     setApplyErrorMessage(null);
@@ -674,7 +682,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             tailorRun={null}
             applyRun={applyRun}
             onApply={handleApply}
-            onTailorThenApply={handleTailorThenApply}
+            onRequestTailorChoice={handleRequestTailorChoice}
           />
           {applyErrorMessage !== null ? (
             <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
@@ -702,7 +710,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             tailorRun={tailorRun}
             applyRun={applyRun}
             onApply={handleApply}
-            onTailorThenApply={handleTailorThenApply}
+            onRequestTailorChoice={handleRequestTailorChoice}
           />
         </div>
         <NotTailoredModal
@@ -751,7 +759,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             tailorRun={tailorRun}
             applyRun={applyRun}
             onApply={handleApply}
-            onTailorThenApply={handleTailorThenApply}
+            onRequestTailorChoice={handleRequestTailorChoice}
           />
           {applyErrorMessage !== null ? (
             <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
@@ -805,7 +813,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             tailorRun={tailorRun}
             applyRun={applyRun}
             onApply={handleApply}
-            onTailorThenApply={handleTailorThenApply}
+            onRequestTailorChoice={handleRequestTailorChoice}
           />
           {applyErrorMessage !== null ? (
             <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>
@@ -858,7 +866,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
           tailorRun={tailorRun}
           applyRun={applyRun}
           onApply={handleApply}
-          onTailorThenApply={handleTailorThenApply}
+          onRequestTailorChoice={handleRequestTailorChoice}
         />
         {applyErrorMessage !== null ? (
           <p className="text-xs mt-1" style={{ color: "#b91c1c" }}>{applyErrorMessage}</p>

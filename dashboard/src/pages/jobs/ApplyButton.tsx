@@ -44,20 +44,35 @@ export interface ApplyButtonProps {
   /** Current apply run for this job, or null if none has been created. */
   readonly applyRun: ApplyRunDto | null;
   /**
-   * Callback fired when the user chooses to apply without tailoring.
+   * Callback fired when the user is ready to enqueue the apply.
    *
    * @remarks
+   * Used directly in two paths:
+   *  1. The idle button click when a tailored resume already exists
+   *     (`tailorRun.status === "SUCCESS"`, regardless of whether the
+   *     reviewer picked the tailored or the base variant).
+   *  2. The "Apply failed — retry" branch.
+   *
    * Caller should POST `/api/jobs/{jobHash}/apply` and then invalidate
-   * the jobs query to refresh this row.
+   * the jobs query to refresh this row. **Must never trigger a tailor
+   * enqueue** — that path goes through
+   * {@link ApplyButtonProps.onRequestTailorChoice} and the
+   * NotTailoredModal.
    */
   readonly onApply: () => void;
   /**
-   * Callback fired when the user chooses to tailor first, then apply.
+   * Callback fired when the user clicks Apply on a job that has no
+   * SUCCESSful tailor run yet.
    *
    * @remarks
-   * Caller should POST tailor, poll until SUCCESS, then POST apply.
+   * The caller should open the {@link NotTailoredModal} so the user
+   * can choose between "Yes, tailor my resume" (which posts tailor →
+   * polls → posts apply) and "No, skip tailoring" (which posts apply
+   * with the base resume). This indirection prevents the regression
+   * where clicking Apply on an already-tailored job re-POSTs `/tailor`
+   * and gets back a 409.
    */
-  readonly onTailorThenApply: () => void;
+  readonly onRequestTailorChoice: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +125,7 @@ export function ApplyButton({
   tailorRun,
   applyRun,
   onApply,
-  onTailorThenApply,
+  onRequestTailorChoice,
 }: ApplyButtonProps): JSX.Element {
   // State 2 — tailor is running; apply cannot proceed yet.
   if (isTailorInProgress(tailorRun)) {
@@ -166,12 +181,19 @@ export function ApplyButton({
   }
 
   // State 1 — idle; no apply run of any kind.
+  // Route by tailor state:
+  //   - tailor SUCCESS (tailored OR base picked by reviewer) → POST /apply
+  //     directly. Re-POSTing /tailor here is the bug that returns 409.
+  //   - otherwise → open the NotTailoredModal so the user picks between
+  //     "tailor then apply" and "skip tailoring and apply with the base".
+  const tailorAlreadyDone =
+    tailorRun !== null && tailorRun.status === "SUCCESS";
   return (
     <button
       type="button"
       className={CLASS_ACTION_BUTTON}
       style={{ backgroundColor: COLOR_PRIMARY }}
-      onClick={onTailorThenApply}
+      onClick={tailorAlreadyDone ? onApply : onRequestTailorChoice}
     >
       Apply
     </button>

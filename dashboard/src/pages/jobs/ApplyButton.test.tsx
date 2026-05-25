@@ -63,7 +63,7 @@ function renderButton(overrides: Partial<ApplyButtonProps> = {}): void {
     tailorRun: null,
     applyRun: null,
     onApply: vi.fn(),
-    onTailorThenApply: vi.fn(),
+    onRequestTailorChoice: vi.fn(),
     ...overrides,
   };
   render(<ApplyButton {...props} />);
@@ -81,14 +81,59 @@ describe("ApplyButton", () => {
       expect(screen.getByRole("button", { name: "Apply" })).toBeInTheDocument();
     });
 
-    it("fires onTailorThenApply when clicked in idle state", async () => {
-      const onTailorThenApply = vi.fn();
+    it("fires onRequestTailorChoice when no tailor run exists (opens modal)", async () => {
+      const onRequestTailorChoice = vi.fn();
+      const onApply = vi.fn();
 
-      renderButton({ tailorRun: null, applyRun: null, onTailorThenApply });
+      renderButton({
+        tailorRun: null,
+        applyRun: null,
+        onRequestTailorChoice,
+        onApply,
+      });
 
       await userEvent.click(screen.getByRole("button", { name: "Apply" }));
 
-      expect(onTailorThenApply).toHaveBeenCalledOnce();
+      expect(onRequestTailorChoice).toHaveBeenCalledOnce();
+      expect(onApply).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Bug 1 regression — tailor SUCCESS must POST /apply, never /tailor", () => {
+    it("fires onApply (NOT onRequestTailorChoice) when tailor SUCCESS picked TAILORED", async () => {
+      const onApply = vi.fn();
+      const onRequestTailorChoice = vi.fn();
+
+      renderButton({
+        tailorRun: makeTailorRun({ status: "SUCCESS", verdict: "TAILORED" }),
+        applyRun: null,
+        onApply,
+        onRequestTailorChoice,
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+      expect(onApply).toHaveBeenCalledOnce();
+      expect(onRequestTailorChoice).not.toHaveBeenCalled();
+    });
+
+    it("fires onApply when tailor SUCCESS picked BASE (reviewer chose base variant)", async () => {
+      // The reviewer chose the base resume but the tailor run still landed
+      // SUCCESS. The Apply button must enqueue /apply, not re-tailor.
+      const onApply = vi.fn();
+      const onRequestTailorChoice = vi.fn();
+
+      renderButton({
+        tailorRun: makeTailorRun({ status: "SUCCESS", verdict: "BASE" }),
+        applyRun: null,
+        onApply,
+        onRequestTailorChoice,
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+      expect(onApply).toHaveBeenCalledOnce();
+      expect(onRequestTailorChoice).not.toHaveBeenCalled();
     });
   });
 
