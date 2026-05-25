@@ -115,11 +115,20 @@ async function advanceWizardToFinishStep(user: ReturnType<typeof userEvent.setup
 
   await user.click(screen.getByRole("button", { name: "Continue" }));
 
-  // Steps 3-6 are all skippable from this point.
+  // Steps 3-5 (Resume, Filters, Provider) are all skippable.
   for (let stepIndex = 0; stepIndex < 3; stepIndex += 1) {
     const skipButton = await screen.findByRole("button", { name: "Skip" });
     await user.click(skipButton);
   }
+
+  // Step 6 (Apply Preferences) gates Continue until eligibility answers
+  // are non-"unknown". Pick the unambiguous defaults so the helper can
+  // advance to the watchlist step the test cares about.
+  const workAuthSelect = await screen.findByLabelText(/Authorized to work in the U\.S\./);
+  await user.selectOptions(workAuthSelect, "yes");
+  const sponsorshipSelect = await screen.findByLabelText(/Requires sponsorship/);
+  await user.selectOptions(sponsorshipSelect, "no");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 afterEach(() => {

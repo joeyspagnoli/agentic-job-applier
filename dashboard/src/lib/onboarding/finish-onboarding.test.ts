@@ -18,6 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { defaultApplyPrefsDraft } from "@/lib/onboarding/defaults";
 import { finishOnboarding, type FinishOnboardingArgs } from "@/lib/onboarding/finish-onboarding";
 import type {
   FiltersDraft,
@@ -123,6 +124,7 @@ function buildArgs(overrides: { provider?: ProviderDraft } = {}): BuiltArgs {
     roles: emptyRoles(),
     filters: emptyFilters(),
     provider: overrides.provider ?? emptyProvider(),
+    applyPrefs: defaultApplyPrefsDraft(),
     watchlist: emptyWatchlist(),
     fetchSources: fetchSources as unknown as FinishOnboardingArgs["fetchSources"],
     updateSources: updateSources as unknown as FinishOnboardingArgs["updateSources"],
