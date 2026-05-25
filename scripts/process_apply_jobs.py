@@ -660,6 +660,7 @@ async def _process_apply_row(
             artifact_dir=artifact_dir,
             dry_run=dry_run,
             finisher_context=finisher_context,
+            apply_run_id=run_id,
         )
     except Exception as exc:
         logger.exception(

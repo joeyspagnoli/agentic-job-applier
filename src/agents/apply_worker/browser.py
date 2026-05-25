@@ -173,12 +173,27 @@ def _cdp_localhost_host_header(cdp_url: str) -> dict[str, str]:
         header override (Chrome's port-less form is non-standard).
     """
 
+    from ipaddress import ip_address  # noqa: PLC0415
     from urllib.parse import urlparse  # noqa: PLC0415 — local-scope import keeps the module init small
 
     parsed = urlparse(cdp_url)
     port = parsed.port
     if port is None:
         return {}
+    hostname = (parsed.hostname or "").strip().lower()
+    # Skip the override when the URL host is already something Chrome
+    # accepts (localhost or any IP literal). Overriding to ``localhost``
+    # in those cases causes Chrome's /json/version to echo back
+    # ``ws://localhost:PORT/...`` as the WebSocket URL, which then
+    # resolves to the container's own loopback instead of the host —
+    # breaking Playwright's connect_over_cdp with ECONNREFUSED ::1.
+    if hostname in {"localhost", "::1"}:
+        return {}
+    try:
+        ip_address(hostname)
+        return {}
+    except ValueError:
+        pass
     return {"Host": f"localhost:{port}"}
 
 
@@ -213,6 +228,7 @@ async def apply_to_job(
     artifact_dir: Path,
     dry_run: bool = True,
     finisher_context: FinisherContext | None = None,
+    apply_run_id: int | None = None,
 ) -> ApplyRunResult:
     """Execute one browser-based job application attempt.
 
@@ -234,6 +250,10 @@ async def apply_to_job(
         finisher_context: Optional finisher inputs (company, role,
             paths). When ``None`` the worker skips the finisher and
             keeps the legacy "fill + NEEDS_REVIEW" behavior.
+        apply_run_id: ``apply_runs.id`` for this run. Forwarded to the
+            finisher so it can persist a ``cost_events`` row tagged
+            ``stage=APPLY, phase=finisher``. ``None`` is the standalone
+            / smoke-test path.
 
     Returns:
         An ApplyRunResult with success status, diagnostics, captured
@@ -250,9 +270,10 @@ async def apply_to_job(
 
     async with async_playwright() as pw:
         try:
+            cdp_headers = _cdp_localhost_host_header(cdp_url) or None
             browser = await pw.chromium.connect_over_cdp(
                 cdp_url,
-                headers=_cdp_localhost_host_header(cdp_url),
+                headers=cdp_headers,
             )
         except Exception as exc:
             logger.error("Failed to connect to Chrome at {}: {}", cdp_url, exc)
@@ -284,6 +305,7 @@ async def apply_to_job(
                 unresolved_path=unresolved_path,
                 dry_run=dry_run,
                 finisher_context=finisher_context,
+                apply_run_id=apply_run_id,
             )
             return result
 
@@ -326,6 +348,7 @@ async def _run_application_flow(
     unresolved_path: Path,
     dry_run: bool,
     finisher_context: FinisherContext | None,
+    apply_run_id: int | None = None,
 ) -> ApplyRunResult:
     """Execute the sequential application flow steps.
 
@@ -342,6 +365,8 @@ async def _run_application_flow(
         dry_run: Whether to skip the submit step.
         finisher_context: Per-run finisher inputs; ``None`` skips the
             finisher and keeps the legacy NEEDS_REVIEW path.
+        apply_run_id: ``apply_runs.id`` for this run, forwarded to the
+            finisher for cost-event attribution.
 
     Returns:
         An ApplyRunResult with full diagnostics.
@@ -541,6 +566,7 @@ async def _run_application_flow(
                 ),
                 defer_rules=deps.defer_rules,
                 cache=deps.answer_cache,
+                apply_run_id=apply_run_id,
             )
             logger.info(
                 "Finisher returned outcome={} turns={} cost=${:.4f} "

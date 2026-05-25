@@ -36,6 +36,7 @@ from src.agents.apply_finisher.schemas import (
     FinisherResult,
     SupportedAts,
 )
+from src.providers.types import CompletionResponse, CostBreakdown, TokenUsage
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from playwright.async_api import Page
@@ -57,9 +58,13 @@ _TOOL_CALL_LIMIT: int = 100
 _SOFT_COST_CAP_USD: float = 0.20
 
 # Form-root selectors per ATS. Greenhouse renders the application
-# under ``#application_form``; Ashby renders one form on the page.
+# under ``#application-form`` on job-boards.greenhouse.io (the current
+# React UI). The legacy ``boards.greenhouse.io`` used ``#application_form``
+# (underscore) — both are accepted via a comma-joined selector so the
+# finisher works against either host without an ATS sub-dispatch.
+# Ashby renders one form on the page.
 _FORM_ROOT_BY_ATS: Mapping[SupportedAts, str] = {
-    "greenhouse": "#application_form",
+    "greenhouse": "#application-form, #application_form",
     "ashby": "form",
 }
 
@@ -94,13 +99,91 @@ def _build_initial_prompt(
     )
 
 
+def _token_usage_from_run_usage(usage: RunUsage) -> TokenUsage:
+    """Convert a Pydantic AI ``RunUsage`` into the canonical ``TokenUsage``.
+
+    Args:
+        usage: Cumulative usage snapshot from ``agent_run.usage``.
+    Returns:
+        Token counts in the project's standard ``TokenUsage`` shape so
+        the central cost recorder receives the same payload providers
+        emit. Reasoning tokens stay at zero because ``RunUsage`` does
+        not surface them as a separate field.
+    """
+
+    return TokenUsage(
+        prompt_tokens=max(int(usage.input_tokens or 0), 0),
+        completion_tokens=max(int(usage.output_tokens or 0), 0),
+        cached_input_tokens=max(int(usage.cache_read_tokens or 0), 0),
+    )
+
+
+def _compute_cost_breakdown(usage: TokenUsage, model: str) -> CostBreakdown:
+    """Compute the full ``CostBreakdown`` from token counts.
+
+    Mirrors ``OpenAIProvider.compute_cost`` so the recorder receives the
+    same input/output/cached split that the gate, tailor, and reviewer
+    stages emit. Uses ``litellm.cost_per_token`` which honors the
+    authoritative per-model prices registered in
+    ``src/utils/llm_pricing.py`` at app startup.
+
+    Args:
+        usage: Token counts already split into prompt / completion /
+            cached buckets.
+        model: Bare model identifier (e.g. ``"gpt-5.4-mini"``).
+    Returns:
+        Populated ``CostBreakdown`` with ``source="computed"`` on
+        success, or ``source="unknown"`` (all zeros) when pricing for
+        the model is unavailable.
+    """
+
+    try:
+        from litellm import cost_per_token
+    except ImportError:  # pragma: no cover - litellm is a pinned dep
+        return CostBreakdown(source="unknown")
+
+    billable_prompt = max(usage.prompt_tokens - usage.cached_input_tokens, 0)
+
+    try:
+        prompt_cost, completion_cost = cost_per_token(
+            model=model,
+            prompt_tokens=billable_prompt,
+            completion_tokens=usage.completion_tokens,
+        )
+    except Exception as exc:  # pragma: no cover - unknown-model fallback
+        logger.debug("cost_per_token failed for {}: {}", model, exc)
+        return CostBreakdown(source="unknown")
+
+    cached_cost = 0.0
+    if usage.cached_input_tokens > 0:
+        try:
+            cached_prompt_cost, _ = cost_per_token(
+                model=model,
+                prompt_tokens=usage.cached_input_tokens,
+                completion_tokens=0,
+            )
+            # OpenAI bills cached input at 50% of the standard prompt rate.
+            cached_cost = float(cached_prompt_cost) * 0.5
+        except Exception:  # pragma: no cover
+            cached_cost = 0.0
+
+    input_cost = float(prompt_cost)
+    output_cost = float(completion_cost)
+    return CostBreakdown(
+        input_cost_usd=input_cost,
+        output_cost_usd=output_cost,
+        cached_input_cost_usd=cached_cost,
+        total_cost_usd=input_cost + output_cost + cached_cost,
+        source="computed",
+    )
+
+
 def _accumulated_cost_usd(usage: RunUsage, model: str) -> float:
     """Compute cumulative USD cost from a ``RunUsage`` snapshot.
 
-    Uses ``litellm.cost_per_token`` which ships a bundled pricing
-    table covering the gpt-5 family. Cached tokens are billed at the
-    OpenAI 50% discount; reasoning tokens are billed at the standard
-    output rate.
+    Thin wrapper over :func:`_compute_cost_breakdown` kept for the
+    in-loop soft-cap path which only needs the total. Tests
+    monkeypatch this symbol to inject deterministic per-turn costs.
 
     Args:
         usage: Cumulative usage snapshot from ``agent_run.usage``.
@@ -110,36 +193,75 @@ def _accumulated_cost_usd(usage: RunUsage, model: str) -> float:
         pricing data is unavailable.
     """
 
-    try:
-        from litellm import cost_per_token
-    except ImportError:  # pragma: no cover - litellm is a pinned dep
-        return 0.0
+    return _compute_cost_breakdown(
+        _token_usage_from_run_usage(usage), model
+    ).total_cost_usd
 
-    cached = max(int(usage.cache_read_tokens or 0), 0)
-    billable_prompt = max(int(usage.input_tokens or 0) - cached, 0)
-    completion = max(int(usage.output_tokens or 0), 0)
+
+async def _record_finisher_cost(
+    *,
+    apply_run_id: int,
+    final_usage: RunUsage,
+    model: str,
+    finisher_outcome: FinisherOutcome,
+) -> None:
+    """Persist one ``cost_events`` row for this finisher run.
+
+    Purpose:
+        Close the cost-tracking gap that left the Monthly Budget widget
+        and ``/api/costs/by-stage`` underreporting apply spend by 100%.
+        Opens its own short-lived ``DatabaseManager`` so the runner stays
+        decoupled from whichever connection the worker holds. Best-effort:
+        cost recording is observational and must never fail an apply run.
+    Args:
+        apply_run_id: ``apply_runs.id`` for this run; serialized to the
+            ``cost_events.run_id`` column.
+        final_usage: Cumulative ``RunUsage`` from the completed (or
+            aborted) agent loop.
+        model: Bare model identifier passed to litellm.
+        finisher_outcome: Terminal outcome recorded into the cost-event
+            metadata for analytics.
+    Returns:
+        ``None`` after writing the cost event (or swallowing any error).
+    """
+
+    # Late imports keep the test path that monkeypatches the runner
+    # symbols off the import-time critical path.
+    from src.database.db_manager import DatabaseManager  # noqa: PLC0415
+    from src.utils.cost_tracking import (  # noqa: PLC0415
+        PIPELINE_STAGE_APPLY,
+        record_llm_call_cost,
+    )
+    from src.utils.paths import resolve_database_path  # noqa: PLC0415
 
     try:
-        prompt_cost, completion_cost = cost_per_token(
+        token_usage = _token_usage_from_run_usage(final_usage)
+        cost_breakdown = _compute_cost_breakdown(token_usage, model)
+        response = CompletionResponse(
+            content="",
             model=model,
-            prompt_tokens=billable_prompt,
-            completion_tokens=completion,
+            provider="openai",
+            usage=token_usage,
+            cost=cost_breakdown,
         )
-    except Exception as exc:  # pragma: no cover - unknown-model fallback
-        logger.debug("cost_per_token failed for {}: {}", model, exc)
-        return 0.0
 
-    cached_cost = 0.0
-    if cached > 0:
-        try:
-            cached_prompt_cost, _ = cost_per_token(
-                model=model, prompt_tokens=cached, completion_tokens=0
+        db_path = str(resolve_database_path())
+        async with DatabaseManager(db_path) as db:
+            await db.create_tables()
+            await record_llm_call_cost(
+                db=db,
+                stage=PIPELINE_STAGE_APPLY,
+                run_id=str(apply_run_id),
+                phase="finisher",
+                response=response,
+                extra_metadata={"finisher_outcome": finisher_outcome},
             )
-            cached_cost = float(cached_prompt_cost) * 0.5
-        except Exception:  # pragma: no cover
-            cached_cost = 0.0
-
-    return float(prompt_cost) + float(completion_cost) + cached_cost
+    except Exception as exc:
+        logger.warning(
+            "finisher cost recording failed for apply_run_id={}: {}",
+            apply_run_id,
+            exc,
+        )
 
 
 def _materialize_result(
@@ -214,6 +336,7 @@ async def run_finisher(
     job_description_excerpt: str,
     defer_rules: "DeferRules",
     cache: "AnswerCache",
+    apply_run_id: int | None = None,
 ) -> FinisherResult:
     """Drive one full finisher run end-to-end.
 
@@ -230,6 +353,11 @@ async def run_finisher(
         job_description_excerpt: Trimmed JD body (≤ 1500 tokens).
         defer_rules: Loaded defer-rule classifier.
         cache: Loaded answer cache.
+        apply_run_id: ``apply_runs.id`` for this run. When provided, the
+            runner persists a ``cost_events`` row tagged
+            ``stage=APPLY, phase=finisher`` so dashboard analytics
+            attribute finisher spend correctly. Passing ``None`` (the
+            default) is the test / standalone-script path.
     Returns:
         Populated ``FinisherResult``. ``outcome="COMPLETE"`` is the
         only state in which the gate may auto-submit.
@@ -265,6 +393,7 @@ async def run_finisher(
     turns_used: int = 0
     output_result: FinisherResult | None = None
     fallback_outcome: FinisherOutcome = "RUNTIME_ERROR"
+    final_usage: RunUsage = RunUsage()
 
     try:
         async with agent.iter(
@@ -275,6 +404,7 @@ async def run_finisher(
             async for _node in agent_run:
                 usage = agent_run.usage
                 turns_used = int(usage.requests or 0)
+                final_usage = usage
                 accumulated_cost = _accumulated_cost_usd(usage, bare_model_for_pricing)
                 if (
                     accumulated_cost > _SOFT_COST_CAP_USD
@@ -302,6 +432,14 @@ async def run_finisher(
     except Exception as exc:
         logger.exception("finisher runtime error after {} turns: {}", turns_used, exc)
         fallback_outcome = "RUNTIME_ERROR"
+
+    if apply_run_id is not None:
+        await _record_finisher_cost(
+            apply_run_id=apply_run_id,
+            final_usage=final_usage,
+            model=bare_model_for_pricing,
+            finisher_outcome=fallback_outcome,
+        )
 
     return _materialize_result(
         base=output_result,

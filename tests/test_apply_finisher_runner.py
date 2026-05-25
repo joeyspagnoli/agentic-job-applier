@@ -476,3 +476,183 @@ def test_run_finisher_usage_limit_exceeded_returns_outcome_label(
 
     assert result.outcome == "USAGE_LIMIT_HIT"
     assert result.all_required_filled is False
+
+
+# ---------------------------------------------------------------------------
+# Cost-event recording (Bug A: finisher must persist cost_events rows so the
+# Monthly Budget widget and /api/costs/by-stage attribute apply spend).
+# ---------------------------------------------------------------------------
+
+
+def test_run_finisher_records_cost_event_when_apply_run_id_is_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Passing ``apply_run_id`` triggers ``record_llm_call_cost`` with the
+    finisher stage/phase and a synthetic ``CompletionResponse`` carrying the
+    cumulative token usage. Without this row the budget widget reads $0.
+    """
+
+    def driver(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        _ = (messages, info)
+        return ModelResponse(parts=[
+            ToolCallPart(
+                tool_name="complete_apply",
+                args=_finisher_result_args(fields_filled=2),
+            )
+        ])
+
+    model = FunctionModel(driver, model_name="finisher-cost-test")
+    test_agent = _build_test_agent(model)
+    monkeypatch.setattr(
+        "src.agents.apply_finisher.runner.build_finisher_agent",
+        lambda ats: test_agent,
+    )
+
+    # Capture the call to record_llm_call_cost without touching SQLite.
+    captured_calls: list[dict[str, Any]] = []
+
+    async def _fake_record(
+        *,
+        db: Any,
+        stage: str,
+        run_id: str | None,
+        phase: str | None,
+        response: Any,
+        job_hash: str | None = None,
+        extra_metadata: Any = None,
+    ) -> None:
+        _ = db
+        captured_calls.append(
+            {
+                "stage": stage,
+                "run_id": run_id,
+                "phase": phase,
+                "response": response,
+                "job_hash": job_hash,
+                "extra_metadata": extra_metadata,
+            }
+        )
+
+    # The runner late-imports record_llm_call_cost; patch the module it
+    # pulls from so our fake is what _record_finisher_cost actually calls.
+    import src.utils.cost_tracking as _cost_tracking_module
+
+    monkeypatch.setattr(
+        _cost_tracking_module, "record_llm_call_cost", _fake_record
+    )
+
+    # Stub the DB manager so no SQLite path / migration is required.
+    class _StubDb:
+        async def __aenter__(self) -> "_StubDb":
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        async def create_tables(self) -> None:
+            return None
+
+    import src.database.db_manager as _db_module
+
+    monkeypatch.setattr(_db_module, "DatabaseManager", lambda _path: _StubDb())
+
+    # Stub the model-pricing lookup so the test does not depend on
+    # litellm's bundled price table.
+    monkeypatch.setattr(
+        "src.agents.apply_finisher.runner._compute_cost_breakdown",
+        lambda usage, model: __import__(
+            "src.providers.types", fromlist=["CostBreakdown"]
+        ).CostBreakdown(
+            input_cost_usd=0.0700,
+            output_cost_usd=0.0250,
+            cached_input_cost_usd=0.0003,
+            total_cost_usd=0.0953,
+            source="computed",
+        ),
+    )
+
+    result = asyncio.run(
+        run_finisher(
+            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            ats="greenhouse",
+            target_company="Stripe",
+            target_role="SWE",
+            profile_yaml="profile: {}\n",
+            job_description_excerpt="A JD.",
+            defer_rules=DeferRules(
+                _always_defer_patterns=(),
+                _draft_and_flag_patterns=(),
+                bypass_field_types=frozenset(),
+                never_defer_overrides=(),
+            ),
+            cache=AnswerCache(_path=__import__("pathlib").Path("/tmp/_t.yaml")),
+            apply_run_id=13,
+        )
+    )
+
+    assert result.outcome == "COMPLETE"
+    assert len(captured_calls) == 1, "expected exactly one cost_events row"
+
+    call = captured_calls[0]
+    assert call["stage"] == "APPLY"
+    assert call["phase"] == "finisher"
+    assert call["run_id"] == "13"
+    assert call["response"].cost.total_cost_usd == pytest.approx(0.0953)
+    assert call["response"].provider == "openai"
+    assert call["extra_metadata"] == {"finisher_outcome": "COMPLETE"}
+
+
+def test_run_finisher_skips_cost_recording_when_apply_run_id_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ``apply_run_id`` (standalone/test path) the runner must not
+    touch the database. A monkeypatched recorder is asserted unused.
+    """
+
+    def driver(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        _ = (messages, info)
+        return ModelResponse(parts=[
+            ToolCallPart(
+                tool_name="complete_apply",
+                args=_finisher_result_args(fields_filled=1),
+            )
+        ])
+
+    model = FunctionModel(driver, model_name="no-record")
+    test_agent = _build_test_agent(model)
+    monkeypatch.setattr(
+        "src.agents.apply_finisher.runner.build_finisher_agent",
+        lambda ats: test_agent,
+    )
+
+    call_log: list[None] = []
+
+    async def _fake_record(**_kwargs: Any) -> None:
+        call_log.append(None)
+
+    import src.utils.cost_tracking as _cost_tracking_module
+
+    monkeypatch.setattr(
+        _cost_tracking_module, "record_llm_call_cost", _fake_record
+    )
+
+    result = asyncio.run(
+        run_finisher(
+            page=FakeFinisherPage(),  # type: ignore[arg-type]
+            ats="greenhouse",
+            target_company="Stripe",
+            target_role="SWE",
+            profile_yaml="profile: {}\n",
+            job_description_excerpt="A JD.",
+            defer_rules=DeferRules(
+                _always_defer_patterns=(),
+                _draft_and_flag_patterns=(),
+                bypass_field_types=frozenset(),
+                never_defer_overrides=(),
+            ),
+            cache=AnswerCache(_path=__import__("pathlib").Path("/tmp/_t.yaml")),
+        )
+    )
+
+    assert result.outcome == "COMPLETE"
+    assert call_log == [], "no cost_events row should be written without apply_run_id"
