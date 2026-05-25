@@ -17,7 +17,12 @@ from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from src.utils.llm_pricing import register_custom_prices
 from src.utils.paths import resolve_database_path
+
+# Ensure litellm.cost_per_token() returns this codebase's authoritative
+# per-model rates regardless of the installed litellm version.
+register_custom_prices()
 
 from api.config import DASHBOARD_ASSETS_DIR
 from api.config import DASHBOARD_INDEX_FILE
