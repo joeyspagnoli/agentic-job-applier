@@ -30,8 +30,7 @@ _REQUIRED_XML_TAGS: tuple[str, ...] = (
 # prompt rewrite must follow.
 _REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "agent_browser(args)",
-    "open_combobox(field_id)",
-    "type_combobox_filter(field_id, text)",
+    "fill_combobox(field_id, target_option, exact=False)",
     "pick_option(option_text",
     "verify_combobox_filled(field_id)",
     "dispatch_async_typeahead_query(field_id, query)",
@@ -42,19 +41,31 @@ _REQUIRED_TOOL_NAMES: tuple[str, ...] = (
 )
 
 # Label-keyed semantic rows the Greenhouse fragment must teach (one
-# per question class we've seen in the wild). Keyed by a substring of
-# the label and a substring of the verified target option text so the
+# per question class the agent must fill). Keyed by a substring of the
+# label and a substring of the verified target option text so the
 # tests work on ANY Greenhouse posting, not just Cloudflare's question
 # IDs.
+#
+# Note: country, phone country code, and sponsorship are filled by
+# Simplify Copilot before the finisher runs and have been intentionally
+# REMOVED from the classifier — the agent must not touch them. The
+# tests below assert this exclusion separately.
 _GREENHOUSE_LABEL_SEMANTICS: tuple[tuple[str, str], ...] = (
-    ("country", "United States +1"),
     ("city", "candidate-location"),
     ("relocate", "I am willing to relocate"),
-    ("sponsorship", "No"),
     ("enrolled", "Yes"),
     ("degree", "Bachelor's"),
     ("start", "Need to return to school and available upon graduation"),
     ("Python", "Yes"),
+)
+
+# Things Simplify Copilot pre-fills — the classifier must NOT include
+# them, and the prompt must call them out as skip-list items. Keeps
+# the agent from re-filling fields that are already correct.
+_SIMPLIFY_FILLED_FIELDS: tuple[str, ...] = (
+    "country",
+    "phone",
+    "sponsorship",
 )
 
 
@@ -167,11 +178,52 @@ def test_async_typeahead_block_teaches_native_value_setter_route() -> None:
     assert "dispatch_async_typeahead_query" in BASE
 
 
-def test_country_phone_pair_block_uses_verified_option_text() -> None:
-    """Country/phone block references the verified `"United States +1"` label."""
+@pytest.mark.parametrize("simplify_field", _SIMPLIFY_FILLED_FIELDS)
+def test_prompt_marks_simplify_filled_fields_as_skip(
+    simplify_field: str,
+) -> None:
+    """The prompt explicitly calls out Simplify-pre-filled fields as skip-list.
 
-    assert "<country_phone_pair>" in BASE
-    assert "United States +1" in BASE
+    Country, phone, and sponsorship are filled by Simplify Copilot
+    before the finisher runs (verified live on Cloudflare 2026-05-25).
+    Touching them wastes turns and can overwrite Simplify's entry.
+    """
+
+    rendered = build_system_prompt("greenhouse")
+    assert simplify_field in rendered, (
+        f"prompt forgot to mention Simplify-filled field {simplify_field!r}"
+    )
+
+
+def test_greenhouse_classifier_omits_country_row() -> None:
+    """The classifier table must NOT include a country row.
+
+    Simplify fills country; an agent-side classifier row would invite
+    the model to re-fill and potentially overwrite. The skip-list note
+    above the table is the only mention of country in the fragment.
+    """
+
+    rendered = build_system_prompt("greenhouse")
+    # The classifier rows live under <greenhouse_field_classifier>; the
+    # skip-list note above the table is the only allowed country mention.
+    # Anything resembling a classifier row like `"country" (intl-tel-input ...)`
+    # must not appear.
+    assert "\"country\" (intl-tel-input" not in rendered
+
+
+def test_greenhouse_classifier_omits_sponsorship_row() -> None:
+    """The classifier table must NOT include a sponsorship row.
+
+    Simplify pre-fills sponsorship per profile.work_authorization; the
+    finisher must skip it. The skip-list note above the table is the
+    only mention of sponsorship in the fragment.
+    """
+
+    rendered = build_system_prompt("greenhouse")
+    # The classifier-table sponsorship row looked like this; check the
+    # leading substring rather than the whole row so re-formatting the
+    # table doesn't false-positive.
+    assert '"sponsorship" / "require ... sponsorship"' not in rendered
 
 
 def test_built_prompt_under_target_length() -> None:
