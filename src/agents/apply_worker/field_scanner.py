@@ -50,6 +50,30 @@ _FIELD_SCAN_JS = """
         return null;
     }
 
+    function getReactSelectValue(el) {
+        // React-Select hijacks the controlled input: the <input
+        // role="combobox"> always reports value="" even when an
+        // option is picked. The picked label lives in a sibling
+        // .select__single-value div inside .select-shell (Greenhouse)
+        // or [class*="select__control"] (Ashby).
+        //
+        // Returns the picked label, or null when the element is not
+        // a React-Select trigger or no option has been picked.
+        const shell = el.closest(
+            '.select-shell, [class*="select__control"], ' +
+            '[class*="Select__control"]'
+        );
+        if (!shell) return null;
+        const sv = shell.querySelector(
+            '.select__single-value, [class*="single-value"], ' +
+            '[class*="singleValue"]'
+        );
+        if (sv && sv.textContent && sv.textContent.trim()) {
+            return sv.textContent.trim();
+        }
+        return '';
+    }
+
     function getValidationError(el) {
         // Check aria-describedby for error text
         const describedBy = el.getAttribute('aria-describedby');
@@ -161,7 +185,20 @@ _FIELD_SCAN_JS = """
         );
         if (isPhantomReactSelectInput) return;
 
-        const value = el.value || '';
+        // Resolve the value with widget-specific rules:
+        // 1. React-Select: read .select__single-value, not el.value.
+        // 2. Checkbox / radio: el.value defaults to "on" and is meaningless;
+        //    the actual state is el.checked.
+        // 3. Everything else: el.value.
+        let value;
+        const reactSelectValue = getReactSelectValue(el);
+        if (reactSelectValue !== null) {
+            value = reactSelectValue;
+        } else if (el.type === 'checkbox' || el.type === 'radio') {
+            value = el.checked ? (el.value || 'on') : '';
+        } else {
+            value = el.value || '';
+        }
         const isRequired = isFieldRequired(el);
         const validationError = getValidationError(el);
         const isEmpty = value.trim() === '';
