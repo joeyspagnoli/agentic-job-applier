@@ -24,7 +24,7 @@ The browser-touching CLI plumbing lives in
 
 from __future__ import annotations
 
-import asyncio
+import json
 from typing import Any
 
 from pydantic_ai import ModelRetry, RunContext
@@ -36,17 +36,95 @@ from src.agents.apply_finisher.schemas import (
     FinisherDeps,
 )
 
-# Hard cap on react-select option-pick filter strings. 60 chars covers
-# every Greenhouse / Ashby answer label we've seen; longer suggests the
-# caller is pasting prose by mistake.
-_MAX_FILTER_LEN: int = 60
+# Wall-clock cap for the fill_combobox eval. The eval includes a 500ms
+# open-menu settle + 300ms pick-commit settle + DOM walking + scroll, so
+# 15s is generous and only trips on a genuinely wedged page.
+_FILL_COMBOBOX_TIMEOUT_SECONDS: float = 15.0
 
-# Listbox-settle delay. The React-Select listbox takes ~250-400ms to
-# mount after the trigger click; without it, the next keyboard-insert
-# goes into the body instead of the (still-empty) input. Same window
-# applies between filter typing and option click for the filtered
-# option list to settle.
-_REACT_SELECT_SETTLE_SECONDS: float = 0.45
+# The eval JS that drives a React-Select combobox end-to-end inside one
+# agent-browser subprocess. Three pieces of context every reader needs:
+#
+# 1. React-Select on Cloudflare's Greenhouse build does NOT commit a
+#    pick from a plain `click` event. Verified live 2026-05-26: every
+#    `find role option click` and every `eval target.click()` left the
+#    form blank with no .select__single-value rendered. Only the full
+#    sequence PointerEvent(pointerdown) + MouseEvent(mousedown) +
+#    PointerEvent(pointerup) + MouseEvent(mouseup) + MouseEvent(click)
+#    on the option element causes onChange to fire.
+#
+# 2. The intl-tel-input country picker pre-renders all 244 country
+#    options as hidden `[role="option"]` elements in the DOM, even when
+#    no menu is open. A global `find role option` therefore competes
+#    with 244 phantoms and either picks the wrong country or returns
+#    "no match". Scoping the option query to the field's own
+#    `.select-shell .select__menu` sidesteps the collision entirely.
+#
+# 3. Field id is interpolated as a JS string literal — `_validate_field_id`
+#    rejects anything outside `[A-Za-z0-9_-]`, so it cannot escape the
+#    literal. `target_option` is passed via JSON.stringify on the
+#    Python side (no shell quoting risk).
+_FILL_COMBOBOX_JS_TEMPLATE: str = """\
+(async () => {{
+  const FIELD_ID = '{field_id}';
+  const TARGET = {target_json};
+  const EXACT = {exact_json};
+  const EVT = {{ bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }};
+
+  const input = document.getElementById(FIELD_ID);
+  if (!input) return JSON.stringify({{ ok: false, step: 'lookup', error: 'no element with id ' + FIELD_ID }});
+
+  const control = input.closest('[class*=\"select__control\"]');
+  const shell = input.closest('.select-shell') || control?.parentElement;
+  if (!control || !shell) return JSON.stringify({{ ok: false, step: 'lookup', error: 'no React-Select control or shell' }});
+
+  try {{ control.scrollIntoView({{ block: 'center', behavior: 'instant' }}); }} catch (e) {{}}
+
+  control.dispatchEvent(new PointerEvent('pointerdown', EVT));
+  control.dispatchEvent(new MouseEvent('mousedown', EVT));
+  control.dispatchEvent(new PointerEvent('pointerup', EVT));
+  control.dispatchEvent(new MouseEvent('mouseup', EVT));
+
+  await new Promise(r => setTimeout(r, 500));
+
+  const menu = shell.querySelector('[class*=\"select__menu\"]');
+  if (!menu) return JSON.stringify({{ ok: false, step: 'open_menu', error: 'menu did not mount after click' }});
+
+  const opts = Array.from(menu.querySelectorAll('[role=\"option\"], [class*=\"select__option\"]'));
+  if (opts.length === 0) return JSON.stringify({{ ok: false, step: 'open_menu', error: 'menu rendered but contains no options' }});
+
+  const normalize = (s) => (s || '').trim().replace(/[\\u2018\\u2019]/g, \"'\");
+  const targetNorm = normalize(TARGET);
+  const target = opts.find(o => {{
+    const t = normalize(o.textContent);
+    return EXACT ? t === targetNorm : t.includes(targetNorm);
+  }});
+  if (!target) {{
+    return JSON.stringify({{
+      ok: false,
+      step: 'find_option',
+      error: 'no option matched target',
+      target: TARGET,
+      options: opts.map(o => normalize(o.textContent)),
+    }});
+  }}
+
+  try {{ target.scrollIntoView({{ block: 'center', behavior: 'instant' }}); }} catch (e) {{}}
+
+  target.dispatchEvent(new PointerEvent('pointerdown', EVT));
+  target.dispatchEvent(new MouseEvent('mousedown', EVT));
+  target.dispatchEvent(new PointerEvent('pointerup', EVT));
+  target.dispatchEvent(new MouseEvent('mouseup', EVT));
+  target.dispatchEvent(new MouseEvent('click', EVT));
+
+  await new Promise(r => setTimeout(r, 300));
+
+  const sv = shell.querySelector('.select__single-value')?.textContent?.trim() || '';
+  if (!sv) {{
+    return JSON.stringify({{ ok: false, step: 'verify', error: 'pick fired but .select__single-value is empty' }});
+  }}
+  return JSON.stringify({{ ok: true, picked: sv }});
+}})()
+"""
 
 # Verifier eval template. Reads .select__single-value text via DOM
 # traversal from the field input id. Returns the picked label or the
@@ -195,81 +273,6 @@ async def agent_browser(
     return result
 
 
-async def open_combobox(field_id: str) -> dict[str, Any]:
-    """Open a Greenhouse / Ashby React-Select combobox by field id.
-
-    Purpose:
-        Wraps the verified pattern
-        ``click '[aria-labelledby="<field_id>-label"]'`` AND blocks
-        for the React-Select listbox to mount before returning. The
-        settle delay is mandatory: without it the next tool call
-        lands on the body before the listbox finishes mounting, the
-        filter goes nowhere, and the agent burns turns retrying.
-    Args:
-        field_id: DOM id of the React-Select input (e.g.
-            ``"question_66747918"``, ``"country"``). Read from the
-            snapshot's combobox row — NOT a ``@eN`` ref.
-    Returns:
-        The full ``invoke_agent_browser_cli`` result dict.
-    Raises:
-        ModelRetry: When ``field_id`` is empty or has illegal chars.
-    """
-
-    validated = _validate_field_id(field_id)
-    selector = f"[aria-labelledby=\"{validated}-label\"]"
-    # Scroll into view first — off-screen comboboxes may swallow the
-    # click event silently in agent-browser's CDP implementation.
-    # Best-effort; ignore failures (will hard-fail at click instead).
-    await invoke_agent_browser_cli(["scrollintoview", selector])
-    result = await invoke_agent_browser_cli(["click", selector])
-    if result["ok"]:
-        await asyncio.sleep(_REACT_SELECT_SETTLE_SECONDS)
-    return result
-
-
-async def type_combobox_filter(field_id: str, text: str) -> dict[str, Any]:
-    """Type a filter string into a specific React-Select combobox input.
-
-    Purpose:
-        Greenhouse Q comboboxes expose ~245 options (240 country
-        phone codes + the real 2-6 answers). Typing 3-6 characters
-        narrows the visible list so the subsequent ``pick_option``
-        click resolves uniquely.
-
-        Targets the combobox input via its
-        ``[aria-labelledby="<field_id>-label"]`` selector and uses
-        the CLI's ``type`` action (which scopes events to the
-        selector). Previous iterations used ``keyboard inserttext``
-        which goes to the focused element — fragile because React-
-        Select's listbox mount briefly takes focus away.
-    Args:
-        field_id: DOM id of the combobox input. Must match the field
-            that was opened in the immediately-preceding
-            ``open_combobox`` call.
-        text: Filter substring. Keep short (≤60 chars enforced).
-    Returns:
-        Full CLI result dict.
-    Raises:
-        ModelRetry: When ``field_id`` is invalid, ``text`` is empty,
-            or ``text`` exceeds ``_MAX_FILTER_LEN``.
-    """
-
-    validated = _validate_field_id(field_id)
-    cleaned = (text or "").strip()
-    if not cleaned:
-        raise ModelRetry("text must be non-empty.")
-    if len(cleaned) > _MAX_FILTER_LEN:
-        raise ModelRetry(
-            f"text is {len(cleaned)} chars (max {_MAX_FILTER_LEN}); "
-            "pass a short unique prefix, not the full option label."
-        )
-    selector = f"[aria-labelledby=\"{validated}-label\"]"
-    result = await invoke_agent_browser_cli(["type", selector, cleaned])
-    if result["ok"]:
-        await asyncio.sleep(_REACT_SELECT_SETTLE_SECONDS)
-    return result
-
-
 async def pick_option(
     option_text: str, exact: bool = False
 ) -> dict[str, Any]:
@@ -332,6 +335,161 @@ async def verify_combobox_filled(field_id: str) -> str:
         stderr = (result.get("stderr") or "").strip().splitlines()[:1]
         return f"ERROR: {stderr[0] if stderr else 'eval failed'}"
     return (result.get("stdout") or "").strip() or "EMPTY"
+
+
+async def fill_combobox(
+    field_id: str,
+    target_option: str,
+    exact: bool = False,
+) -> str:
+    """Open a React-Select combobox, pick an option, and verify the commit.
+
+    Purpose:
+        One agent-browser ``eval`` invocation that drives the React-Select
+        widget end-to-end using real ``PointerEvent`` + ``MouseEvent``
+        sequences. Replaces the prior approach (open via CLI ``click`` →
+        ``find role option click``) which failed silently on Cloudflare's
+        Greenhouse build because React-Select v4 does not commit a pick
+        from a bare ``click`` event — verified live 2026-05-26 across
+        every combobox on the form.
+
+        Why eval and not the CLI's verbs:
+
+        - React-Select listens for ``mousedown`` (not ``click``) on the
+          option to commit the pick. The CLI's ``click`` and ``find role
+          option click`` only emit the ``click`` event, so picks never
+          land.
+        - The page renders ~244 hidden ``[role="option"]`` elements from
+          intl-tel-input's country picker AT ALL TIMES. A global
+          ``find role option`` competes with those phantoms and either
+          returns no match or clicks the wrong country. The eval scopes
+          option lookup to the field's own ``.select-shell .select__menu``
+          subtree, which has zero overlap with the phantom set.
+
+        The JS template is :data:`_FILL_COMBOBOX_JS_TEMPLATE`; see its
+        block comment for the full event-sequence rationale.
+    Args:
+        field_id: DOM id of the React-Select input element (e.g.
+            ``"question_66747918"``, ``"gender"``). Must NOT be an
+            agent-browser snapshot ref.
+        target_option: Visible label of the option to pick. Curly
+            U+2018 / U+2019 apostrophes are normalized to ASCII on
+            both sides of the comparison, so either spelling works.
+        exact: When True, the matched option's text must equal
+            ``target_option`` exactly after normalization. Use when one
+            option is a prefix of another (``"Yes"`` vs ``"Yes, …"``).
+    Returns:
+        The verified ``.select__single-value`` label on success, the
+        literal ``"EMPTY"`` when the verify step found no committed
+        value, or ``"ERROR: <step>: <message>"`` when a sub-step
+        failed (``<step>`` ∈ ``lookup, open_menu, find_option, verify,
+        launch, parse, eval``).
+
+        When ``<step>`` is ``find_option``, the error message includes
+        the list of options the menu actually showed so the model can
+        retry with a correct target label.
+    Raises:
+        ModelRetry: When ``field_id`` is invalid or ``target_option``
+            is empty.
+    """
+
+    validated_id = _validate_field_id(field_id)
+    cleaned_target = (target_option or "").strip()
+    if not cleaned_target:
+        raise ModelRetry("target_option must be non-empty.")
+
+    js = _FILL_COMBOBOX_JS_TEMPLATE.format(
+        field_id=validated_id,
+        target_json=json.dumps(cleaned_target),
+        exact_json="true" if exact else "false",
+    )
+    result = await invoke_agent_browser_cli(
+        ["eval", "--stdin"],
+        stdin_payload=js,
+        timeout_seconds=_FILL_COMBOBOX_TIMEOUT_SECONDS,
+    )
+    return _summarize_fill_combobox_result(result)
+
+
+def _summarize_fill_combobox_result(result: dict[str, Any]) -> str:
+    """Reduce a ``fill_combobox`` eval result to the model-facing string.
+
+    Purpose:
+        ``fill_combobox`` returns one string so the model's next-turn
+        input stays small and the contract matches
+        ``verify_combobox_filled``. This helper does the reduction
+        from the eval's JSON envelope.
+    Args:
+        result: Output of :func:`invoke_agent_browser_cli` for the
+            ``eval --stdin`` invocation. ``stdout`` is the JSON the JS
+            ``return JSON.stringify({...})`` produced.
+    Returns:
+        Verified label, ``"EMPTY"``, or ``"ERROR: <step>: <msg>"``.
+    """
+
+    if not result.get("ok") and result.get("exit_code") == -2:
+        return "ERROR: launch: agent-browser binary missing"
+
+    raw_stdout = (result.get("stdout") or "").strip()
+    if not raw_stdout:
+        stderr_line = (result.get("stderr") or "").strip().splitlines()[:1]
+        msg = stderr_line[0] if stderr_line else "no output from eval"
+        return f"ERROR: eval: {msg}"
+
+    # agent-browser's `eval` wraps the JS return value as a JSON string.
+    # Our JS returns JSON.stringify({...}), so stdout is double-encoded.
+    # First decode unwraps the outer envelope (string or object), then
+    # the second decode parses the inner JSON payload.
+    payload = raw_stdout
+    try:
+        first = json.loads(raw_stdout)
+        if isinstance(first, str):
+            payload = first
+        elif isinstance(first, dict):
+            inner = first.get("value")
+            if isinstance(inner, str):
+                payload = inner
+            else:
+                # Already-parsed dict — use it directly without the
+                # second decode below.
+                return _interpret_pick_result(first)
+    except json.JSONDecodeError:
+        pass  # Fall through; second decode will surface the error.
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        return f"ERROR: parse: eval JSON unparseable ({exc})"
+    if not isinstance(parsed, dict):
+        return "ERROR: parse: eval payload was not an object"
+    return _interpret_pick_result(parsed)
+
+
+def _interpret_pick_result(parsed: dict[str, Any]) -> str:
+    """Convert the JS-side ``{ok, step, error?, picked?, options?}`` dict.
+
+    Returned shapes from :data:`_FILL_COMBOBOX_JS_TEMPLATE`:
+
+    - ``{"ok": true, "picked": "<label>"}`` → return ``"<label>"``.
+    - ``{"ok": false, "step": "find_option", "error": "...", "options": [...]}``
+      → return ``"ERROR: find_option: <error>; menu showed: [...]"`` so the
+      model can read the actual labels and retry.
+    - ``{"ok": false, "step": "<step>", "error": "..."}`` → return
+      ``"ERROR: <step>: <error>"``.
+    """
+
+    if parsed.get("ok") is True:
+        picked = parsed.get("picked")
+        if isinstance(picked, str) and picked.strip():
+            return picked.strip()
+        return "EMPTY"
+    step = parsed.get("step") or "unknown"
+    err = parsed.get("error") or "unknown error"
+    if step == "find_option" and isinstance(parsed.get("options"), list):
+        opts = parsed["options"][:12]
+        opts_str = ", ".join(repr(o) for o in opts)
+        return f"ERROR: find_option: {err}; menu showed: [{opts_str}]"
+    return f"ERROR: {step}: {err}"
 
 
 async def dispatch_async_typeahead_query(
@@ -480,8 +638,7 @@ async def flag_for_verify(
 # as the output tool (see ``agent.py``).
 FINISHER_TOOLS: tuple[Any, ...] = (
     agent_browser,
-    open_combobox,
-    type_combobox_filter,
+    fill_combobox,
     pick_option,
     verify_combobox_filled,
     dispatch_async_typeahead_query,
@@ -496,10 +653,9 @@ __all__ = [
     "agent_browser",
     "defer",
     "dispatch_async_typeahead_query",
+    "fill_combobox",
     "flag_for_verify",
     "lookup_cached_answer",
-    "open_combobox",
     "pick_option",
-    "type_combobox_filter",
     "verify_combobox_filled",
 ]
