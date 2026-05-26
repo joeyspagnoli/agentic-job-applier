@@ -9,6 +9,7 @@ Purpose:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import cast
@@ -198,37 +199,116 @@ def _cdp_localhost_host_header(cdp_url: str) -> dict[str, str]:
     return {"Host": f"localhost:{port}"}
 
 
-async def _ensure_agent_browser_session(cdp_url: str) -> tuple[bool, str]:
-    """Bootstrap the agent-browser CDP session before the finisher runs.
+async def _ensure_agent_browser_session(
+    cdp_url: str, apply_url: str | None = None
+) -> tuple[bool, str]:
+    """Bootstrap the agent-browser CDP session and switch to the apply tab.
 
     Purpose:
         The finisher's only browser surface is the ``agent-browser``
         CLI, which talks to a persistent daemon-owned CDP session.
-        Calling ``agent-browser connect <CDP_URL>`` once attaches the
-        daemon to the same host Chrome Playwright is using; subsequent
-        agent tool calls reuse that session without further setup. We
-        run this from the worker (not the finisher) so a deploy with a
-        missing binary or unreachable Chrome surfaces as an early
-        worker-side diagnostic, not a wasted agent request budget.
+        Calling ``agent-browser connect <CDP_URL>`` attaches the
+        daemon to the host Chrome Playwright is using; subsequent
+        agent tool calls reuse that session. BUT ``connect`` attaches
+        to whatever tab is currently active in Chrome — typically the
+        dashboard tab, not the Playwright-opened apply tab. We then
+        list tabs and switch to the one matching ``apply_url`` so the
+        finisher's snapshots see the actual form.
     Args:
-        cdp_url: Same CDP endpoint Playwright connects to (defaults
-            to ``http://localhost:9222`` in the standalone path,
-            ``http://host.docker.internal:9222`` from the container).
+        cdp_url: Same CDP endpoint Playwright connects to.
+        apply_url: URL of the apply tab Playwright opened. When None,
+            no tab switch is attempted (caller doesn't know the URL).
     Returns:
-        ``(ok, message)`` — ``ok=True`` when the daemon attached;
-        ``message`` carries the failure summary when ``ok`` is False
-        so the caller can log / surface it without re-running the CLI.
+        ``(ok, message)``.
     """
 
     result = await invoke_agent_browser_cli(["connect", cdp_url])
-    if result["ok"]:
+    if not result["ok"]:
+        summary = (
+            result.get("error")
+            or result.get("stderr")
+            or f"exit_code={result.get('exit_code')}"
+        )
+        return False, f"agent-browser connect failed: {summary}"
+
+    if apply_url is None:
         return True, ""
-    summary = (
-        result.get("error")
-        or result.get("stderr")
-        or f"exit_code={result.get('exit_code')}"
+
+    # Switch to the tab matching apply_url. The dashboard tab is usually
+    # active when the worker starts; agent-browser snapshots would target
+    # IT, not the Greenhouse/Ashby form, and the finisher would see an
+    # almost-empty snapshot and give up.
+    tabs_result = await invoke_agent_browser_cli(
+        ["tab", "list"], expect_json=True
     )
-    return False, f"agent-browser connect failed: {summary}"
+    if not tabs_result["ok"]:
+        logger.warning(
+            "agent-browser tab list failed; finisher may target wrong tab: {}",
+            tabs_result.get("stderr") or tabs_result.get("error"),
+        )
+        return True, ""
+
+    # The CLI envelope is `{"success": true, "data": {"tabs": [...]},
+    # "error": null}`. Unwrap envelope → inner data → tabs list.
+    envelope = tabs_result.get("data") or {}
+    if isinstance(envelope, dict):
+        inner = envelope.get("data") if isinstance(envelope.get("data"), dict) else envelope
+        tabs_data = inner.get("tabs") or []
+    else:
+        tabs_data = envelope if isinstance(envelope, list) else []
+
+    apply_path_marker = apply_url.split("?")[0]
+    matching_tab_id: str | None = None
+    visible_tabs: list[str] = []
+    for tab in tabs_data:
+        if not isinstance(tab, dict):
+            continue
+        tab_url = str(tab.get("url") or "")
+        visible_tabs.append(tab_url)
+        if apply_path_marker in tab_url:
+            matching_tab_id = str(
+                tab.get("tabId") or tab.get("id") or tab.get("label") or ""
+            )
+            break
+
+    if not matching_tab_id:
+        # Playwright-opened pages don't always show in `agent-browser tab list`
+        # (the daemon enumerates real Chrome tabs, not CDP pages). Open the
+        # apply URL as a fresh tab in agent-browser; Greenhouse will redirect
+        # us to the form, and Simplify autofill won't re-run on a fresh tab,
+        # but the form will already be partially filled from the Playwright
+        # tab's session (same Chrome, same cookies, same logged-in profile).
+        logger.info(
+            "No existing tab matches apply_url={!r} (visible tabs: {}); "
+            "opening apply URL in agent-browser to host the finisher session.",
+            apply_url, visible_tabs,
+        )
+        open_result = await invoke_agent_browser_cli(["open", apply_url])
+        if not open_result["ok"]:
+            logger.warning(
+                "agent-browser open failed: {}",
+                open_result.get("stderr") or open_result.get("error"),
+            )
+            return True, ""
+        # Wait for the page to settle so the first snapshot returns the form.
+        await invoke_agent_browser_cli(["wait", "--load", "networkidle"])
+        return True, ""
+
+    switch_result = await invoke_agent_browser_cli(["tab", matching_tab_id])
+    if not switch_result["ok"]:
+        logger.warning(
+            "agent-browser tab switch to {} failed: {}",
+            matching_tab_id,
+            switch_result.get("stderr") or switch_result.get("error"),
+        )
+        return True, ""
+
+    logger.info(
+        "agent-browser session bootstrapped and switched to tab {} for {!r}",
+        matching_tab_id,
+        apply_url,
+    )
+    return True, ""
 
 
 async def check_chrome_reachable(cdp_url: str = DEFAULT_CDP_URL) -> bool:
@@ -523,12 +603,57 @@ async def _run_application_flow(
             autofill_click_status,
             job_hash,
         )
-        # Fixed sleep instead of wait_for_load_state("networkidle"): the
-        # latter can hang indefinitely on pages with chatty extensions, and
-        # the click may navigate the tab anyway.
-        import asyncio
 
-        await asyncio.sleep(8)
+        # Poll the form's filled-field count until it stops changing
+        # (Simplify is done) or 30s elapses (safety cap). Replaces the
+        # prior fixed 8s/20s sleep — verified 2026-05-26 to under- and
+        # over-shoot on real applies.
+        settle_start = asyncio.get_event_loop().time()
+        simplify_filled_count = await _wait_for_simplify_to_settle(
+            playwright_page,
+            max_wait_seconds=30.0,
+            stability_window_seconds=2.0,
+            poll_interval_seconds=0.5,
+        )
+        settle_elapsed = asyncio.get_event_loop().time() - settle_start
+        logger.info(
+            "Simplify settled with {} filled fields after {:.1f}s for "
+            "job_hash={}",
+            simplify_filled_count,
+            settle_elapsed,
+            job_hash,
+        )
+
+        # Simplify uploads ITS OWN cached resume into the form's file
+        # input, clobbering the tailored PDF we uploaded at step 4. Re-
+        # upload the tailored PDF now so the user's per-job tailoring
+        # wins. Greenhouse's file input replaces on re-upload; no need
+        # to clear first.
+        try:
+            reupload_ok = await upload_resume(playwright_page, resume_pdf_path)
+            if reupload_ok:
+                logger.info(
+                    "Tailored resume re-uploaded after Simplify settle "
+                    "for job_hash={}",
+                    job_hash,
+                )
+                resume_uploaded = True
+            else:
+                logger.warning(
+                    "Tailored resume re-upload returned False after "
+                    "Simplify settle for job_hash={} (initial upload "
+                    "stands: {})",
+                    job_hash,
+                    resume_uploaded,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Tailored resume re-upload failed for job_hash={}: {} "
+                "(initial upload stands: {})",
+                job_hash,
+                exc,
+                resume_uploaded,
+            )
     else:
         logger.warning(
             "Simplify extension NOT detected for job_hash={}", job_hash,
@@ -598,6 +723,7 @@ async def _run_application_flow(
             # this session — the daemon owns the lifetime.
             session_ok, session_msg = await _ensure_agent_browser_session(
                 cdp_url,
+                apply_url=playwright_page.url,
             )
             if not session_ok:
                 logger.error(
@@ -740,6 +866,85 @@ async def _run_application_flow(
         finisher_diagnostics=diagnostics,
         deferred_questions=deferred_payload,
     )
+
+
+# JS run every poll tick by ``_wait_for_simplify_to_settle``. Counts every
+# externally-observable "this field has been touched by autofill" signal:
+# textbox / textarea values that aren't blank, React-Select shells that
+# committed a single-value pick, and any checked checkbox. Returning a
+# single integer lets the Python poller compare against the prior tick
+# without parsing structured data each round.
+_SIMPLIFY_FILLED_COUNT_JS: str = (
+    "() => {"
+    "const inputs = Array.from(document.querySelectorAll('input, textarea'))"
+    ".filter(i => (i.value || '').trim()).length;"
+    "const selects = Array.from(document.querySelectorAll('.select-shell'))"
+    ".filter(s => (s.querySelector('.select__single-value')?.textContent || '').trim()).length;"
+    "const checked = document.querySelectorAll('input[type=\"checkbox\"]:checked').length;"
+    "return inputs + selects + checked;"
+    "}"
+)
+
+
+async def _wait_for_simplify_to_settle(
+    page: Page,
+    *,
+    max_wait_seconds: float = 30.0,
+    stability_window_seconds: float = 2.0,
+    poll_interval_seconds: float = 0.5,
+) -> int:
+    """Poll the form until Simplify Copilot's autofill activity stabilizes.
+
+    Purpose:
+        Simplify Copilot's autofill walks fields incrementally; a fixed
+        sleep either over-waits on fast networks or captures the form
+        mid-autofill on slow ones (verified live 2026-05-26: an 8s
+        wait caught the Cloudflare form with only phone + country
+        dial-code filled, while Simplify ultimately fills 13+ fields
+        when given enough time). Polling the actual filled-count and
+        returning as soon as it stops changing for a stability window
+        gives "as fast as possible, as patient as needed".
+    Args:
+        page: Playwright page sitting on the apply form.
+        max_wait_seconds: Hard ceiling regardless of stability. The
+            poll returns the last observed count when this expires.
+        stability_window_seconds: How long the count must stay
+            unchanged before declaring Simplify done.
+        poll_interval_seconds: Tick cadence.
+    Returns:
+        The final filled-field count Simplify produced. ``0`` means
+        Simplify never filled anything (the extension is missing,
+        broken, or never logged in for this profile).
+    """
+
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + max_wait_seconds
+    last_count = -1
+    stable_since: float | None = None
+
+    while loop.time() < deadline:
+        try:
+            count = int(await page.evaluate(_SIMPLIFY_FILLED_COUNT_JS))
+        except Exception as exc:  # noqa: BLE001
+            # Page is mid-navigation or eval threw — treat as "no data
+            # this tick" and keep polling. Don't let a transient eval
+            # failure abort the whole wait.
+            logger.debug("Simplify settle poll eval failed: {}", exc)
+            await asyncio.sleep(poll_interval_seconds)
+            continue
+
+        now = loop.time()
+        if count == last_count:
+            if stable_since is None:
+                stable_since = now
+            elif now - stable_since >= stability_window_seconds:
+                return count
+        else:
+            last_count = count
+            stable_since = None
+        await asyncio.sleep(poll_interval_seconds)
+
+    return max(last_count, 0)
 
 
 async def _trigger_simplify_autofill(page: Page) -> str:
