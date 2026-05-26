@@ -1,8 +1,8 @@
 """Tests for ``migrate_cost_schema`` — idempotence + backfill defaults.
 
-The migration owns the issue #59 column additions on ``cost_events``
+The migration adds per-LLM-call columns to ``cost_events``
 (provider / model / token counts / phase / cost_source). Existing rows
-should backfill to the canonical ``'unknown'`` sentinel.
+backfill to the canonical ``'unknown'`` sentinel.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import pytest
 from src.database.db_manager import DatabaseManager
 
 
-_PRE_59_COST_EVENTS_DDL = """
+_LEGACY_COST_EVENTS_DDL = """
 CREATE TABLE cost_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     stage TEXT NOT NULL,
@@ -40,13 +40,13 @@ async def _column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_migrate_adds_new_cost_columns_to_pre_59_db(tmp_path: Path) -> None:
-    """Pre-#59 ``cost_events`` schemas pick up every new column."""
+    """Legacy ``cost_events`` schemas pick up every new column."""
 
-    db_path = tmp_path / "pre59_cost.db"
+    db_path = tmp_path / "legacy_cost.db"
 
     async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
-        await conn.executescript(_PRE_59_COST_EVENTS_DDL)
+        await conn.executescript(_LEGACY_COST_EVENTS_DDL)
         await conn.execute(
             "INSERT INTO cost_events (stage, cost_usd) VALUES ('TAILOR', 0.05)"
         )
@@ -113,7 +113,7 @@ async def test_migrate_cost_schema_preserves_existing_rows(tmp_path: Path) -> No
 
     async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
-        await conn.executescript(_PRE_59_COST_EVENTS_DDL)
+        await conn.executescript(_LEGACY_COST_EVENTS_DDL)
         await conn.execute(
             "INSERT INTO cost_events (stage, cost_usd, run_id) "
             "VALUES ('GATE', 0.01, 'run-A'), ('REVIEW', 0.02, 'run-B')"

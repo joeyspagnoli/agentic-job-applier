@@ -153,8 +153,11 @@ def test_post_with_apply_after_persists_column(
             await db.create_tables()
             row = await db.get_tailor_run(run_id)
             assert row is not None
-            value = row["apply_after_completion"]
-            return int(value) if value is not None else 0  # type: ignore[arg-type]
+            raw_value = row["apply_after_completion"]
+            if raw_value is None:
+                return 0
+            converted: int = int(raw_value)  # type: ignore[call-overload]
+            return converted
 
     assert asyncio.run(_read_flag()) == 1
 
@@ -178,8 +181,11 @@ def test_post_without_apply_after_defaults_to_zero(
             await db.create_tables()
             row = await db.get_tailor_run(run_id)
             assert row is not None
-            value = row["apply_after_completion"]
-            return int(value) if value is not None else 0  # type: ignore[arg-type]
+            raw_value = row["apply_after_completion"]
+            if raw_value is None:
+                return 0
+            converted: int = int(raw_value)  # type: ignore[call-overload]
+            return converted
 
     assert asyncio.run(_read_flag()) == 0
 
@@ -495,7 +501,7 @@ def test_delete_returns_404_when_already_deleted(
 
 
 # ---------------------------------------------------------------------------
-# POST /api/tailor-runs/{id}/retry — atomic delete + re-enqueue (issue #56).
+# POST /api/tailor-runs/{id}/retry — atomic delete + re-enqueue.
 # ---------------------------------------------------------------------------
 
 

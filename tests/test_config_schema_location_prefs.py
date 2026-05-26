@@ -32,7 +32,7 @@ def test_location_prefs_accepts_yes_no_open_to_discussion() -> None:
     """The three accepted literal values round-trip without coercion."""
 
     for value in ("yes", "no", "open_to_discussion"):
-        prefs = LocationPrefs(willing_to_relocate=value)  # type: ignore[arg-type]
+        prefs = LocationPrefs(willing_to_relocate=value)
         assert prefs.willing_to_relocate == value
 
 

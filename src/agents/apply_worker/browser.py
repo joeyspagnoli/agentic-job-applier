@@ -4,7 +4,7 @@ Purpose:
     Connect to a running Chrome instance over CDP, navigate to a job
     application page, trigger Simplify Copilot autofill, upload the
     tailored resume, run the Pydantic AI long-tail finisher, and
-    decide whether to auto-submit per the issue-#59 binary gate.
+    decide whether to auto-submit per the binary submit gate.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -252,7 +252,8 @@ async def _ensure_agent_browser_session(
     # "error": null}`. Unwrap envelope → inner data → tabs list.
     envelope = tabs_result.get("data") or {}
     if isinstance(envelope, dict):
-        inner = envelope.get("data") if isinstance(envelope.get("data"), dict) else envelope
+        nested = envelope.get("data")
+        inner: dict[str, Any] = nested if isinstance(nested, dict) else envelope
         tabs_data = inner.get("tabs") or []
     else:
         tabs_data = envelope if isinstance(envelope, list) else []

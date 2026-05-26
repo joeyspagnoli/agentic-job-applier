@@ -16,8 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-
-import pytest
+from typing import Any, cast
 
 from src.agents.resume_tailor.pipeline import (
     PLAN_JSON_BASENAME,
@@ -79,13 +78,15 @@ def test_build_planner_artifact_payload_returns_rationale_first_shape() -> None:
 
     assert payload["model"] == "openai/gpt-5.4"
     assert isinstance(payload["saved_at"], str) and payload["saved_at"]
-    assert payload["rewrite_plan"].startswith("Targeting bullets")
+    rewrite_plan = cast(str, payload["rewrite_plan"])
+    assert rewrite_plan.startswith("Targeting bullets")
     assert payload["bullets_applied"] == 1
     assert payload["bullets_dropped"] == [
         {"id": "b_unknown", "rationale": "Manifest did not surface this bullet."}
     ]
-    assert [bullet["id"] for bullet in payload["bullets"]] == ["b1", "b2"]
-    assert payload["bullets"][0]["rationale"].startswith("Tighten verb")
+    bullets = cast(list[dict[str, Any]], payload["bullets"])
+    assert [bullet["id"] for bullet in bullets] == ["b1", "b2"]
+    assert cast(str, bullets[0]["rationale"]).startswith("Tighten verb")
     assert payload["kept_unchanged"] == [
         {"id": "b3", "reason": "Outside the section the JD emphasizes."}
     ]
@@ -113,7 +114,7 @@ def test_write_planner_artifact_persists_parseable_json(tmp_path: Path) -> None:
 def test_record_tailor_success_persists_plan_json_path(tmp_path: Path) -> None:
     """The database column is populated when the helper passes a path."""
 
-    async def _run() -> tuple[str | None, dict]:
+    async def _run() -> tuple[str | None, dict[str, Any]]:
         db_path = tmp_path / "jobs.db"
         async with DatabaseManager(str(db_path)) as db:
             await db.create_tables()
@@ -142,10 +143,12 @@ def test_record_tailor_success_persists_plan_json_path(tmp_path: Path) -> None:
             )
 
             row_final = await db.get_tailor_run(run_id)
-            return (
-                row_final["plan_json_path"] if row_final else None,
-                row_final or {},
+            if row_final is None:
+                return None, {}
+            plan_path_val = cast(
+                "str | None", row_final.get("plan_json_path")
             )
+            return plan_path_val, cast(dict[str, Any], row_final)
 
     plan_path, row_final = asyncio.run(_run())
     assert plan_path == "/tmp/tailored_v1.plan.json"
@@ -187,6 +190,8 @@ def test_record_tailor_success_without_plan_path_leaves_column_null(
             )
 
             row_final = await db.get_tailor_run(run_id)
-            return row_final["plan_json_path"] if row_final else None
+            if row_final is None:
+                return None
+            return cast("str | None", row_final.get("plan_json_path"))
 
     assert asyncio.run(_run()) is None

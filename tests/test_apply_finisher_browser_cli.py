@@ -100,7 +100,8 @@ def _install_fake_proc(
         return proc
 
     monkeypatch.setattr(
-        browser_cli.asyncio, "create_subprocess_exec", fake_exec
+        "src.agents.apply_finisher.browser_cli.asyncio.create_subprocess_exec",
+        fake_exec,
     )
 
 
@@ -156,7 +157,8 @@ async def test_invoke_does_not_double_append_json_flag(
         return _FakeProc(stdout=b"{}")
 
     monkeypatch.setattr(
-        browser_cli.asyncio, "create_subprocess_exec", fake_exec
+        "src.agents.apply_finisher.browser_cli.asyncio.create_subprocess_exec",
+        fake_exec,
     )
 
     await browser_cli.invoke_agent_browser_cli(

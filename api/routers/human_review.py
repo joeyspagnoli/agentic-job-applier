@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import cast
 
 from fastapi import APIRouter
 from fastapi import Body
@@ -592,7 +593,7 @@ async def relaunch_apply_from_handoff(handoff_id: int) -> dict[str, object]:
 
     return {
         "ok": True,
-        "apply_run_id": int(merged_row["_apply_run_id"]),
+        "apply_run_id": int(cast(int, merged_row["_apply_run_id"])),
         "status": str(merged_row["status"]),
         "job_hash": str(merged_row["job_hash"]),
     }
@@ -651,7 +652,7 @@ async def relaunch_apply_for_job(job_hash: str) -> dict[str, object]:
 
     return {
         "ok": True,
-        "apply_run_id": int(merged_row["_apply_run_id"]),
+        "apply_run_id": int(cast(int, merged_row["_apply_run_id"])),
         "status": str(merged_row["status"]),
         "job_hash": str(merged_row["job_hash"]),
         "handoff_id": handoff_id,
