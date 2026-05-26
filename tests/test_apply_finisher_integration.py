@@ -190,12 +190,15 @@ def _submitted_page(initial_url: str, after_click_url: str) -> FakeFinisherPage:
     """Build a page whose submit-button click mutates the URL after firing."""
 
     page = FakeFinisherPage(url=initial_url)
-    submit_selector = "#application_form button[type='submit']"
     real_locator = page.locator
 
     def new_locator(selector: str) -> Any:
         loc = real_locator(selector)
-        if selector == submit_selector:
+        # Production code uses a comma-joined selector
+        # ("#application-form button[type='submit'], "
+        # "#application_form button[type='submit']") so the patch is
+        # matched on substring rather than equality.
+        if "button[type='submit']" in selector:
             real_click = loc.click
 
             async def patched_click() -> None:

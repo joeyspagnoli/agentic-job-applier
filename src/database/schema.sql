@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS apply_handoffs (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deferred_questions_json TEXT,
     finisher_diagnostics_json TEXT,
+    user_answers_json TEXT,
     CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')),
     -- keep in sync with ApplyOutcome (src/agents/apply_worker/schemas.py)
     CHECK (apply_outcome IN (

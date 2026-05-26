@@ -126,20 +126,44 @@ def test_cdp_localhost_host_header_returns_empty_for_port_less_url() -> None:
 @pytest.mark.asyncio
 async def test_check_chrome_reachable_overrides_host_header(
     strict_host_server: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Probe succeeds when the URL hostname differs from the Host header.
 
     Purpose:
         Lock the Bug 3 regression — before the fix this returned False
         because the probe sent ``Host: host.docker.internal:9222`` and
-        the stub (mirroring Chrome 148+) replied with 500.
+        the stub (mirroring Chrome 148+) replied with 500. The helper
+        intentionally skips the override for IP literals (Chrome echoes
+        back ``ws://localhost:PORT`` which then breaks Playwright's
+        connect_over_cdp on the container loopback), so we resolve a
+        synthetic hostname to 127.0.0.1 to exercise the override path.
     """
 
+    import socket  # noqa: PLC0415 — local-only test patch
+
     port, _allowed_host = strict_host_server
-    # Use an IP-literal hostname in the URL. The stub only accepts
-    # ``Host: localhost:<port>``; the override must force that value
-    # for the probe to land 200.
-    cdp_url = f"http://127.0.0.1:{port}"
+    fake_hostname = "chrome-cdp.test"
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _patched_getaddrinfo(
+        host: object,
+        port_arg: object,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        # anyio encodes the hostname to bytes before calling the
+        # backend, so match on both str and bytes forms.
+        normalized = (
+            host.decode("ascii") if isinstance(host, (bytes, bytearray)) else host
+        )
+        if normalized == fake_hostname:
+            return real_getaddrinfo("127.0.0.1", port_arg, *args, **kwargs)  # type: ignore[arg-type]
+        return real_getaddrinfo(host, port_arg, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _patched_getaddrinfo)
+
+    cdp_url = f"http://{fake_hostname}:{port}"
 
     reachable = await check_chrome_reachable(cdp_url)
 
