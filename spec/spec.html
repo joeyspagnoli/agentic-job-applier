@@ -1,0 +1,1362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agentic Job Applier — Specification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/styles/atom-one-light.min.css" />
+<style>
+  :root {
+    --bg: #fefefe;
+    --bg-soft: #f7f7f8;
+    --bg-code: #f4f4f6;
+    --fg: #1a1a1a;
+    --fg-soft: #555;
+    --fg-muted: #888;
+    --accent: #2b59c3;
+    --accent-soft: #e8eff8;
+    --border: #e3e3e6;
+    --border-strong: #c4c4c8;
+    --warn: #b34c00;
+    --green: #2a7a2a;
+    --max-w: 1200px;
+    --toc-w: 280px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618;
+      --bg-soft: #1d1d20;
+      --bg-code: #222226;
+      --fg: #e8e8ea;
+      --fg-soft: #b8b8bd;
+      --fg-muted: #888892;
+      --accent: #6fa3ff;
+      --accent-soft: #1d2a44;
+      --border: #2c2c30;
+      --border-strong: #44444a;
+      --warn: #d68b4e;
+      --green: #5fc26b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 15.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 32px 24px 96px;
+    display: grid;
+    grid-template-columns: var(--toc-w) 1fr;
+    gap: 48px;
+  }
+  @media (max-width: 1024px) {
+    .layout { grid-template-columns: 1fr; gap: 24px; }
+    .toc { position: static !important; max-height: none !important; }
+  }
+  .toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    padding-right: 12px;
+    border-right: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .toc h3 {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    margin: 0 0 8px;
+  }
+  .toc ol { list-style: none; padding: 0; margin: 0 0 16px; }
+  .toc ol ol { padding-left: 14px; margin-top: 4px; font-size: 12.5px; }
+  .toc li { margin: 3px 0; }
+  .toc a {
+    color: var(--fg-soft);
+    text-decoration: none;
+    display: block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+  }
+  .toc a:hover { background: var(--bg-soft); color: var(--fg); }
+  .toc a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+  .doc h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+  }
+  .doc .subtitle {
+    color: var(--fg-soft);
+    font-size: 17px;
+    margin: 0 0 32px;
+    line-height: 1.6;
+  }
+  .doc h2 {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 56px 0 16px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  .doc h2:first-of-type { border-top: none; padding-top: 0; }
+  .doc h3 { font-size: 18.5px; font-weight: 600; margin: 32px 0 12px; }
+  .doc h4 { font-size: 15.5px; font-weight: 600; margin: 22px 0 8px; color: var(--fg-soft); text-transform: uppercase; letter-spacing: 0.03em; }
+  .doc p { margin: 0 0 14px; }
+  .doc ul, .doc ol { padding-left: 22px; margin: 0 0 14px; }
+  .doc li { margin: 4px 0; }
+  .doc code {
+    font-family: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.88em;
+    background: var(--bg-code);
+    padding: 1.5px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .doc pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 16px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .doc pre code { background: transparent; border: none; padding: 0; font-size: inherit; }
+  .doc a { color: var(--accent); text-decoration: none; }
+  .doc a:hover { text-decoration: underline; }
+  .doc strong { font-weight: 600; }
+  .doc table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 18px;
+    font-size: 14px;
+    background: var(--bg);
+    overflow: hidden;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .doc table th, .doc table td {
+    padding: 9px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .doc table th {
+    background: var(--bg-soft);
+    font-weight: 600;
+    color: var(--fg);
+    font-size: 13px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  .doc table tr:last-child td { border-bottom: none; }
+  .doc table code { font-size: 12.5px; }
+  .doc blockquote {
+    margin: 0 0 16px;
+    padding: 10px 16px;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    color: var(--fg-soft);
+    border-radius: 0 6px 6px 0;
+  }
+  .doc hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 32px 0;
+  }
+  .mermaid {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 0 0 20px;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .doc .anchor {
+    visibility: hidden;
+    margin-left: 6px;
+    font-weight: 400;
+    color: var(--fg-muted);
+    text-decoration: none;
+  }
+  .doc h2:hover .anchor,
+  .doc h3:hover .anchor,
+  .doc h4:hover .anchor { visibility: visible; }
+  .badge {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid currentColor;
+    line-height: 1.4;
+  }
+  .footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+  /* highlight.js dark mode override */
+  @media (prefers-color-scheme: dark) {
+    .hljs { background: var(--bg-code); color: var(--fg); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="toc" id="toc">
+    <h3>Contents</h3>
+    <ol id="toc-list"></ol>
+    <h3>Companion docs</h3>
+    <ol>
+      <li><a href="index.md">index.md</a></li>
+      <li><a href="codebase_info.md">codebase_info.md</a></li>
+      <li><a href="architecture.md">architecture.md</a></li>
+      <li><a href="components.md">components.md</a></li>
+      <li><a href="data_models.md">data_models.md</a></li>
+      <li><a href="interfaces.md">interfaces.md</a></li>
+      <li><a href="workflows.md">workflows.md</a></li>
+      <li><a href="dependencies.md">dependencies.md</a></li>
+      <li><a href="review_notes.md">review_notes.md</a></li>
+      <li><a href="what-is-this.md">what-is-this.md</a></li>
+    </ol>
+  </aside>
+
+  <main class="doc" id="doc"></main>
+</div>
+
+<script type="text/markdown" id="md-source">
+# Agentic Job Applier — Specification
+
+<p class="subtitle">A self-hosted application that crawls 14+ job sources on a 30-minute interval, qualifies new postings with an LLM gate, generates job-specific LaTeX resumes via a deterministic tailor + review pipeline, and drives the user's host Chrome over CDP to fill (and conditionally submit) the application — all under a binary gate that refuses to auto-submit anything the user hasn't implicitly approved.</p>
+
+This is the complete spec as one read. The companion files under `spec/` are AI-agent-friendly focused docs; start at `spec/index.md` if you need to load context selectively.
+
+---
+
+## 1. Codebase profile
+
+### Stack
+
+- **Backend:** Python 3.11+, FastAPI 0.123.10, Uvicorn 0.40.0
+- **Database:** SQLite via aiosqlite 0.22.1, WAL journal mode
+- **LLM SDK:** openai 2.38.0, instructor 1.15.1, pydantic-ai-slim 1.102.0, litellm 1.82.1
+- **LaTeX:** tectonic (multi-arch musl binary vendored under `deploy/tectonic/`)
+- **Browser:** playwright 1.60.0 + agent-browser Rust CDP CLI (vendored under `deploy/agent-browser/`)
+- **Frontend:** Node.js 22+, React 19, Vite 8, TypeScript 5.9, TanStack Query 5.90, Tailwind 4.2, Monaco editor
+
+Dependency pinning is strict `==` only.
+
+### Repository layout
+
+```mermaid
+graph TD
+  ROOT[repo root] --> SRC[src]
+  ROOT --> API[api]
+  ROOT --> DASH[dashboard]
+  ROOT --> SCRIPTS[scripts]
+  ROOT --> TESTS[tests]
+  ROOT --> CONFIG[config]
+  ROOT --> DEPLOY[deploy]
+  ROOT --> DOCS[docs]
+  ROOT --> DATA[data]
+  ROOT --> LOGS[logs]
+
+  SRC --> FETCHERS[src/fetchers]
+  SRC --> ORCH[src/orchestrator]
+  SRC --> AGENTS[src/agents]
+  SRC --> DB[src/database]
+  SRC --> MODELS[src/models]
+  SRC --> PROVIDERS[src/providers]
+  SRC --> FILTERS[src/filters]
+  SRC --> CONFIGPKG[src/config]
+  SRC --> UTILS[src/utils]
+
+  API --> ROUTERS[api/routers]
+  API --> SERVICES[api/services]
+  API --> SCHEMAS[api/schemas]
+
+  AGENTS --> RTA[root_apply_decider — gate]
+  AGENTS --> RT[resume_tailor — tailor+review pipeline]
+  AGENTS --> AW[apply_worker — browser orchestrator]
+  AGENTS --> AF[apply_finisher — Pydantic-AI form filler]
+```
+
+The boundary is clean: `src/agents/` owns LLM and browser work, `src/database/` owns persistence, `api/` translates HTTP into database operations and background tasks, `dashboard/` is a pure HTTP-API consumer.
+
+### Subsystem map
+
+| Subsystem | What it does | Key code |
+|---|---|---|
+| Discovery / fetchers | Crawl 14+ sources, normalize to `JobPosting`, dedup, pre-filter, insert | `main.py`, `src/fetchers/*.py`, `src/orchestrator/discovery.py` |
+| Gate (decider agent) | LLM-driven NEW → QUALIFIED \| FILTERED via `gpt-5-mini` | `scripts/process_new_jobs.py`, `src/agents/root_apply_decider/` |
+| Tailor + review | Locator → tailor LLM → patcher → tectonic → reviewer → 3-way pick | `scripts/process_qualified_jobs.py`, `src/agents/resume_tailor/` |
+| Apply worker | Claim review row, CDP-drive Chrome, trigger Simplify, optionally invoke finisher, evaluate submit gate | `scripts/process_apply_jobs.py`, `src/agents/apply_worker/` |
+| Apply finisher | Pydantic-AI agent + 8 typed Playwright tools for Greenhouse/Ashby long-tail | `src/agents/apply_finisher/` |
+| Supervisor | Lifespan-owned `LoopSupervisor` running every worker loop in one process | `api/services/supervisor.py`, `api/services/migrations.py` |
+| HTTP API | ~60 endpoints across 16 routers | `api/main.py`, `api/routers/*.py` |
+| Dashboard | React SPA with TanStack Query polling | `dashboard/src/` |
+| Database | 9 mixins composed onto `DatabaseManager`; `BEGIN IMMEDIATE` claim-and-lease | `src/database/db_manager.py`, `src/database/_mixins/*.py` |
+| Provider abstraction | `AIProvider` protocol + `OpenAIProvider`; litellm cost computation | `src/providers/` |
+| Filters & config | Hard/soft pre-gate filters; Pydantic v2 validation; defer-rule classifier; answer cache | `src/filters/`, `src/config/`, `src/agents/apply_finisher/defer_rules.py`, `answer_cache.py` |
+| Utilities | logger, deduplicator, cost_tracking, notifications (ntfy), paths, json_types, llm_pricing | `src/utils/*.py` |
+| Deployment | Docker Compose (single service) + Linux systemd (5 units + timer) | `Dockerfile`, `docker-compose.yml`, `deploy/`, `scripts/docker/` |
+
+### State and artifact topology
+
+```mermaid
+graph LR
+  USER[User-edited YAML] -->|config/| CFGDIR[config/]
+  DASH[Dashboard wizard] -->|writes| CFGDIR
+  DASH -->|writes| ENV[.env]
+
+  RUN[Pipeline] -->|writes| DB[(data/jobs.db<br/>SQLite)]
+  RUN -->|writes| ART[data/tailored_resumes/job_hash/]
+  RUN -->|appends| AC[data/answer_cache.yaml]
+  RUN -->|logs| LOGS[logs/job_monitor.log]
+  RUN -->|writes| BASEPDF[data/base_resume/sha256.pdf]
+
+  CFGDIR --> CP[candidate_profile.yaml]
+  CFGDIR --> RESUME[resume.tex]
+  CFGDIR --> FILTERS[filters.yaml]
+  CFGDIR --> COMPANIES[companies.yaml]
+  CFGDIR --> DEFER[defer_rules.yaml]
+```
+
+Docker named volumes: `app-data` (everything under `/app/data`), `app-logs`, `tectonic-cache`. `./config:/app/config` is a host bind mount so users edit YAML directly.
+
+---
+
+## 2. Architecture
+
+Single FastAPI process with five coupled planes:
+
+1. **Discovery plane** — fetchers crawl, normalize to `JobPosting`, dedup by SHA-256 `job_hash`, persist. No LLM spend; always runs.
+2. **Agent plane** — gate (`gpt-5-mini`), tailor + reviewer (`openai/gpt-5.4` + `openai/gpt-5-mini`), apply finisher (Pydantic-AI on `openai-responses:gpt-5.4`). Each stage gated by its own `automation.<stage>_mode` ∈ `{autonomous, opt_in, both}`.
+3. **Persistence plane** — `DatabaseManager` + 9 mixins. `BEGIN IMMEDIATE` transactions and random claim tokens keep claims race-safe.
+4. **HTTP/API plane** — ~60 endpoints. User-triggered tailor uses FastAPI `BackgroundTasks`; user-triggered apply uses detached `asyncio.create_task` so the browser flow fires immediately.
+5. **Browser plane** — Playwright connects over CDP to the user's host Chrome at `host.docker.internal:9222` (Docker) or `localhost:9222` (systemd). No in-container Chromium.
+
+### Runtime topology
+
+```mermaid
+graph TB
+  USER[User Browser] -->|HTTP| API[FastAPI app]
+  API -->|static fallback| DIST[dashboard/dist/]
+  API -->|/api/*| ROUTERS[16 routers]
+  API -->|lifespan| SUP[LoopSupervisor]
+
+  SUP --> DISC[discovery loop<br/>always-on]
+  SUP --> GATE[gate loop<br/>mode-gated]
+  SUP --> TAILOR[tailor loop<br/>mode-gated]
+  SUP --> APPLY[apply loop<br/>mode-gated]
+  SUP --> WATCH[mode-watcher<br/>asyncio.Event + 30s poll]
+
+  DISC -->|JobPosting| DB[(SQLite jobs.db)]
+  GATE -->|gpt-5-mini| OAI[OpenAI API]
+  GATE -->|writes| DB
+  TAILOR -->|gpt-5.4| OAI
+  TAILOR -->|tectonic| TEX[LaTeX→PDF]
+  TAILOR -->|writes| DB
+  APPLY -->|Playwright CDP| CHROME[host Chrome:9222]
+  APPLY -->|Pydantic-AI| OAI
+  APPLY -->|writes| DB
+  CHROME -->|Simplify ext| FORM[Job application form]
+
+  ROUTERS -->|BackgroundTask| TAILOR
+  ROUTERS -->|asyncio.create_task| APPLY
+  ROUTERS --> DB
+  WATCH -->|reconcile| GATE
+  WATCH -->|reconcile| TAILOR
+  WATCH -->|reconcile| APPLY
+```
+
+### Lifespan boot
+
+```mermaid
+sequenceDiagram
+  participant Uvicorn
+  participant Lifespan
+  participant DB as DatabaseManager
+  participant Sup as LoopSupervisor
+  participant Watch as mode_watcher
+
+  Uvicorn->>Lifespan: startup hook
+  Lifespan->>Lifespan: _validate_candidate_profile_on_startup
+  Lifespan->>DB: connect + create_tables
+  DB->>DB: migrate_agent_schema, migrate_tailor_schema, migrate_review_schema,<br/>migrate_apply_schema, migrate_cost_schema, migrate_system_settings_schema
+  DB->>DB: seed_automation_defaults_from_env
+  Lifespan->>Sup: start_supervisor(db, config)
+  Sup->>Sup: _spawn discovery (always)
+  Sup->>Sup: _reconcile_gated_loops (read modes, start matching)
+  Sup->>Watch: _spawn mode_watcher
+  Watch-->>Sup: watching for notify_mode_changed + 30s poll
+  Lifespan-->>Uvicorn: yield (serve requests)
+
+  Note over Uvicorn,Watch: SIGTERM path runs finally block in reverse:<br/>stop_supervisor cancels tasks, awaits CancelledError on each, then db.close
+```
+
+### Background-task topology
+
+```mermaid
+sequenceDiagram
+  participant Dash as Dashboard
+  participant Tailor as POST /tailor
+  participant Apply as POST /apply
+  participant DB
+  participant BG as BackgroundTask
+  participant Loop as worker loop
+  participant Det as detached task
+
+  Dash->>Tailor: { apply_after: true }
+  Tailor->>DB: validate mode != AUTONOMOUS, check budget,<br/>INSERT PENDING tailor_runs with apply_after_completion=true
+  Tailor-->>Dash: 202 { run_id, status: PENDING }
+  Tailor->>BG: add_task(_run_pipeline_background)
+  BG->>DB: open own DatabaseManager
+  BG->>BG: run_tailor_review_pipeline
+  alt apply_after = true and success
+    BG->>DB: enqueue_apply_run_for_job
+  end
+
+  Dash->>Apply: { resume_mode: "base" }
+  Apply->>DB: compile_base_resume_pdf (content-hash cached)
+  Apply->>DB: enqueue_apply_run_with_base_resume<br/>(synthesizes tailor + review SUCCESS rows, verdict=BASE)
+  Apply->>Det: asyncio.create_task(_spawn_user_apply_task)
+  Apply-->>Dash: 200 { run_id, status }
+  Det->>DB: open own DatabaseManager
+  Det->>Det: _process_apply_row — full browser flow
+
+  Note over Loop: Autonomous loop polling PENDING rows<br/>races for the same job — per-job single-slot constraint resolves it
+```
+
+### Concurrency model
+
+- **Atomic claim-and-lease.** Every stage SELECT-then-INSERTs a PENDING row inside `BEGIN IMMEDIATE`, with a random claim token. Workers present the same token to write completion; mismatch → `ClaimOwnershipError`, logged and dropped.
+- **Lease expiry.** Every cycle calls `mark_stale_*_runs_failed(lease_seconds)` to flip orphan PENDING rows older than the lease to FAILED. Defaults: agent 900s, tailor 7200s, review 7200s, apply 1800s.
+- **Soft-delete frees the slot.** `tailor_runs.deleted_at` and `apply_runs.deleted_at` exclude rows from claim queries; the row stays for audit.
+- **Per-job single-slot.** Any non-deleted PENDING/RUNNING tailor or apply row for a `job_hash` blocks new inserts; the router returns 409 `RUN_ALREADY_EXISTS` or `APPLY_RUN_IN_FLIGHT`.
+
+### Known constraints
+
+1. **Multi-provider BYOK is partial.** Gate uses the `AIProvider` protocol; tailor + reviewer + finisher hardcode OpenAI. Provider settings API rejects everything but OpenAI.
+2. **Apply finisher is locked to Greenhouse + Ashby.** Other ATSes skip the finisher and land `NEEDS_REVIEW` with `finisher_outcome=SKIPPED`.
+3. **React-Select v4 picks require a manual PointerEvent sequence.** Bare clicks don't commit.
+4. **The dashboard `dist/` is image-baked.** Live UI updates need `docker cp dashboard/dist/. agentic-job-applier-app-1:/app/dashboard/dist/`.
+5. **Single-writer SQLite.** Acceptable for single-user local; horizontal scale needs PostgreSQL.
+6. **Tectonic CTAN cache fragility.** First user tailor without prewarm pays 30–60s package fetch.
+7. **Chrome 148+ host check.** Container connections to `host.docker.internal:9222` need `Host: localhost:<port>` override.
+8. **Legacy `*_yaml_path` columns** on `tailor_runs` and `review_runs` written as `""` but unused post-Phase-3.
+
+---
+
+## 3. Components
+
+(High level — see `spec/components.md` for the full table per layer.)
+
+### Entry points
+
+- `main.py:run_discovery_loop` — async entry the supervisor calls; CLI `python main.py` for local one-shot.
+- `api/main.py` — FastAPI app + lifespan + router registration + static fallback + error handler.
+- `scripts/process_new_jobs.py`, `process_qualified_jobs.py`, `process_apply_jobs.py` — dual-mode worker scripts (standalone CLI + importable function the supervisor calls). The dual mode is what lets Docker (one process) and systemd (separate units) share the same code.
+
+### Supervisor
+
+- `api/services/supervisor.py:LoopSupervisor` — four asyncio tasks (discovery + gate + tailor + apply) plus a mode-watcher. Crash recovery via exponential restart-with-backoff (5s → 300s cap). `notify_mode_changed()` reconciles gated loops within ~1.5s.
+- `api/services/migrations.py:_lifespan` — startup validates candidate profile, runs all mixin migrations, starts the supervisor. Shutdown stops the supervisor cleanly.
+
+### Discovery
+
+- `src/orchestrator/discovery.py:run_job_discovery` — one cycle: load YAML, filter watchlist by user domain, build family tasks, gather with exception isolation, roll up.
+- `src/orchestrator/_family_tasks.py:build_family_tasks` — per-family coroutine factory. Late-binds fetcher classes via `main.<Fetcher>` for monkeypatch-friendly tests.
+- `src/orchestrator/insert_pipeline.py:insert_with_filters` — per-job filter routing → insert with the right status.
+- `src/orchestrator/domains.py` — two-level domain taxonomy. Untagged companies always pass (catch-all prevents silent data loss).
+- `src/fetchers/` — 14+ fetchers + `ats_scanner` (zero-token detection) + `base_fetcher` + `fuzzy_dedup` (not wired into the main path) + `liveness_checker` (not invoked currently).
+
+### Agents
+
+**Gate (`src/agents/root_apply_decider/`)**
+- `unified_runtime.py:run_gate_with_provider`, `prompts.py` (system prompt + `build_gate_payload` + `load_candidate_context` with `@lru_cache(maxsize=1)`), `schemas.py` (`ApplyDecision`, `GateRunResult`).
+
+**Tailor + reviewer (`src/agents/resume_tailor/`)**
+- `pipeline.py:run_tailor_review_pipeline` — the whole pipeline in one async function (~900 lines).
+- `validator.py:validate_resume_tex` — enforces `docs/resume-tex-contract.md`.
+- `locator.py:build_bullet_manifest` — pure function, byte offsets point at body bytes only.
+- `patcher.py:apply_patches` — dumb byte splicer, descending-byte-start order, atomic temp-file write.
+- `compiler.py` — tectonic default, latexmk fallback, 240s timeout.
+- `base_compile.py:compile_base_resume_pdf` — SHA-256-cached compile for `resume_mode='base'` apply path.
+- `llm.py:call_tailor` / `call_trim` / `call_reviewer` — Instructor-wrapped OpenAI calls.
+- `db_verdict.py` — `ReviewerVerdict` (lowercase, LLM) → DB verdict (uppercase) mapping; CHECK constraint generated from this module.
+
+**Apply worker (`src/agents/apply_worker/`)**
+- `browser.py:apply_to_job` + `_cdp_localhost_host_header` + `check_chrome_reachable` + `_wait_for_simplify_to_settle`.
+- `finisher_integration.py:evaluate_submit_gate` + `try_submit_and_classify` + `safe_mode_from_env`.
+- `field_scanner.py:scan_unresolved_fields` — reads `.select__single-value` for React-Select and `el.checked` for checkboxes.
+- `ats_detection.py` — URL pattern → DOM marker fallback; `supported_finisher_ats` returns `"greenhouse"` / `"ashby"` / None.
+
+**Apply finisher (`src/agents/apply_finisher/`)**
+- `agent.py` — `FINISHER_MODEL_NAME = "openai-responses:gpt-5.4"`, `openai_reasoning_effort="medium"`, `parallel_tool_calls=False`, `openai_previous_response_id="auto"`, `openai_prompt_cache_key="apply_finisher_v4"`.
+- `prompts.py` — BASE + Greenhouse fragment + Ashby fragment.
+- `tools.py` — 8 typed Playwright tools: `agent_browser`, `fill_combobox` (PointerEvent sequence), `pick_option`, `verify_combobox_filled`, `dispatch_async_typeahead_query`, `lookup_cached_answer`, `defer`, `flag_for_verify`.
+- `defer_rules.py:DeferRules.classify` — Tier 3 (sponsor/salary) → Tier 2 (why-us essays) → Tier 1.
+- `answer_cache.py` — two-pass fuzzy lookup (per-company beats anonymized at equal scores); atomic temp-file write.
+- `runner.py:run_finisher` — agent loop with `UsageLimits(50 req, 250 tool calls)`, $0.20/run soft cost cap.
+
+### Database mixins
+
+| Mixin | Tables |
+|---|---|
+| `jobs` | `job_postings` |
+| `agent_gate` | `job_postings.agent_*` columns |
+| `tailor` | `tailor_runs` |
+| `review` | `review_runs` |
+| `apply` | `apply_runs`, `apply_handoffs` |
+| `costs` | `cost_events`, `budget_settings`, `app_settings` |
+| `system_settings` | `system_settings` |
+| `telemetry` | `crawl_history`, `daily_stats` |
+| `failure_resets` | (operator helpers, no dedicated table) |
+
+### Dashboard
+
+`App.tsx` routes between `/onboarding` and the authenticated shell. Pages: Dashboard, Jobs (with state-machine ApplyButton + NotTailoredModal), TailoredResumes, HumanReview, Failures, CostTracking, Settings, OnboardingPage. `lib/api/client.ts` is the typed HTTP layer. `lib/onboarding/finish-onboarding.ts` orchestrates the 7 finish-time API calls.
+
+### Provider abstraction
+
+`factory.py:build_provider` returns only `OpenAIProvider`. `compute_cost()` uses `litellm.cost_per_token` with `OPENAI_CACHED_INPUT_DISCOUNT = 0.5`. Tailor + reviewer + finisher skip the abstraction and directly instantiate `OpenAI()` + `instructor.from_openai(...)`.
+
+### Filters & config
+
+`src/filters/job_filter.py:JobFilter` — hard filters first, then soft filters. **Positive keywords use `any()` semantics** (tests pin this). `src/config/schema.py` — Pydantic v2 validation of `candidate_profile.yaml`; tri-state literals, bounded floats, `extra='allow'`, legacy-boolean coercion.
+
+### Utilities
+
+`logger.py`, `deduplicator.py`, `cost_tracking.py`, `notifications.py` (ntfy), `paths.py`, `json_types.py`, `llm_pricing.py` (idempotent litellm overlay at startup).
+
+---
+
+## 4. Data models
+
+### `JobPosting`
+
+The single Pydantic model that gets persisted.
+
+Validators:
+- `normalize_job_type(mode="before")` — maps raw employment-type strings to the Literal `{"Full-time", "Part-time", "Contract", "Internship"}`.
+- `detect_remote(mode="after")` — fills `is_remote` from location keywords only when None.
+
+`model_config = ConfigDict(extra="ignore")` so unknown fetcher keys silently drop. `to_db_dict()` is the only safe path to a DB row (handles `json.dumps(raw_data)`).
+
+### `job_hash`
+
+SHA-256 hex digest over normalized `(source, company, title, location, posted_date, canonical_url, sha256(description), sha256(requirements))`. UTM / `gh_src` / `gh_jid` stripped before hashing.
+
+```mermaid
+flowchart LR
+  RAW[Raw fetcher payload] --> NORM[normalize + canonicalize_url]
+  NORM --> H1[sha256 description]
+  NORM --> H2[sha256 requirements]
+  NORM --> ID[identity tuple]
+  H1 --> JOIN[join with pipe]
+  H2 --> JOIN
+  ID --> JOIN
+  JOIN --> SHA[sha256 hex] --> HASH[job_hash]
+```
+
+### Schema
+
+```mermaid
+erDiagram
+  job_postings ||--o{ tailor_runs : "job_hash"
+  job_postings ||--o{ review_runs : "job_hash"
+  job_postings ||--o{ apply_runs : "job_hash"
+  job_postings ||--o{ cost_events : "job_hash"
+  tailor_runs ||--o{ review_runs : "tailor_run_id"
+  review_runs ||--o{ apply_runs : "review_run_id"
+  apply_runs ||--|| apply_handoffs : "apply_run_id (UNIQUE)"
+
+  job_postings {
+    text job_hash UK
+    text status "NEW|FILTERED|QUALIFIED|APPLIED|REJECTED"
+    text agent_claim_token
+    timestamp agent_next_retry_at
+  }
+  tailor_runs {
+    text status "PENDING|RUNNING|SUCCESS|FAILED"
+    text claim_token
+    text artifact_tex_path
+    text artifact_pdf_path
+    text plan_json_path
+    bool apply_after_completion
+    timestamp deleted_at
+  }
+  review_runs {
+    text status "PENDING|SUCCESS|FAILED"
+    text verdict "PASS|TAILORED|BASE|FAIL|NO_IMPROVEMENT|PAGE_FIT_FAILED"
+    text selected_pdf_path
+    text fallback_base_pdf_path
+  }
+  apply_runs {
+    text status "PENDING|SUCCESS|FAILED"
+    text outcome "NEEDS_REVIEW|SUBMITTED|FAILED_*"
+    text resume_source "TAILORED|BASE"
+    real confidence_score
+    text unresolved_fields_json
+    timestamp deleted_at
+  }
+  apply_handoffs {
+    int apply_run_id FK "UNIQUE"
+    text handoff_status "PENDING_REVIEW|APPROVED|REJECTED"
+    text deferred_questions_json
+    text finisher_diagnostics_json
+    text user_answers_json
+  }
+  cost_events {
+    text stage "GATE|TAILOR|REVIEW|APPLY|DISCOVERY"
+    real cost_usd
+    text provider
+    text model
+    int prompt_tokens
+    int cached_input_tokens
+    text phase
+    text cost_source "provider|computed|internal|unknown"
+  }
+```
+
+No hard foreign-key constraints — application code enforces referential integrity.
+
+### State machines
+
+**Job posting**
+```mermaid
+stateDiagram-v2
+  [*] --> NEW: fetcher insert
+  NEW --> QUALIFIED: gate APPLY
+  NEW --> FILTERED: gate SKIP or soft-filter
+  NEW --> NEW: transient failure
+  QUALIFIED --> APPLIED: handoff APPROVED<br/>or autonomous SUBMITTED
+  QUALIFIED --> REJECTED: handoff REJECTED
+  APPLIED --> [*]
+  REJECTED --> [*]
+  FILTERED --> [*]
+```
+
+**Apply run**
+```mermaid
+stateDiagram-v2
+  [*] --> PENDING: claim or user enqueue
+  PENDING --> SUCCESS: record_apply_success
+  PENDING --> FAILED: record_apply_failure
+  SUCCESS --> handoff: record_apply_handoff<br/>(only on outcome=NEEDS_REVIEW)
+  FAILED --> PENDING: claim retry within max_retries
+  PENDING --> deleted_at: soft delete
+  handoff --> [*]
+  SUCCESS --> [*]: outcome=SUBMITTED
+```
+
+**Apply handoff**
+```mermaid
+stateDiagram-v2
+  [*] --> PENDING_REVIEW: record_apply_handoff
+  PENDING_REVIEW --> APPROVED: transition (job=APPLIED)
+  PENDING_REVIEW --> REJECTED: transition (job=REJECTED)
+  PENDING_REVIEW --> PENDING_REVIEW: save_handoff_user_answers
+  PENDING_REVIEW --> relaunched: relaunch-apply
+  APPROVED --> [*]
+  REJECTED --> [*]
+  relaunched --> [*]
+```
+
+### Claim-and-lease invariants
+
+| Stage | Token width | Default lease | Env override |
+|---|---|---|---|
+| Agent | 12 bytes hex | 900s | `AGENT_CLAIM_LEASE_SECONDS` |
+| Tailor | 32 bytes hex | 7200s | `TAILOR_CLAIM_LEASE_SECONDS` |
+| Review | 32 bytes hex | 7200s | `REVIEW_CLAIM_LEASE_SECONDS` |
+| Apply | 32 bytes hex | 1800s | `APPLY_CLAIM_LEASE_SECONDS` |
+
+### Migrations
+
+No Alembic. Each mixin owns its own migration method using `PRAGMA table_info` + ALTER TABLE for missing columns. CHECK-constraint widening uses standard SQLite table-rebuild. Stale-row recovery runs every cycle.
+
+---
+
+## 5. Interfaces
+
+### HTTP API
+
+~60 endpoints across 16 routers. Errors follow `{ok: false, code, message, details}`. Success bodies wrap payload in `{ok: true, ...}`.
+
+**Health & lifecycle:** `GET /api/health`, `GET /api/system/health`, `POST /api/system/{stop,restart,fetch-jobs}`.
+
+**Status:** `GET /api/status/{autonomous-readiness,chrome}`, `GET/POST /api/settings/autonomous-mode`.
+
+**Jobs:** `GET /api/jobs?...`, `GET /api/jobs/{hash}/resume`, `POST /api/jobs/import`.
+
+**Tailor runs:** `POST /api/jobs/{hash}/tailor { apply_after }` (202 + BackgroundTask), `GET/DELETE /api/tailor-runs/{id}`, `GET /api/tailor-runs/{id}/plan`, `POST /api/tailor-runs/{id}/retry`.
+
+**Apply runs:** `POST /api/jobs/{hash}/apply { resume_mode }` (200 + detached `asyncio.create_task`), `GET/DELETE /api/apply-runs/{id}`.
+
+**Human review:** `GET /api/human-review?...`, `POST /api/human-review/{id}/{complete,dismiss}`, `POST /api/human-review/{id}/answers` (writes user_answers_json + appends data/answer_cache.yaml), `POST /api/human-review/{id}/relaunch-apply`, `POST /api/human-review/by-job/{hash}/relaunch-apply`.
+
+**Failures:** `GET /api/failures?...`, `POST /api/failures/{id}/retry`.
+
+**Dashboard & costs:** `GET /api/dashboard/{stats,discovery-trend}`, `GET /api/costs/{stats,daily-trend,by-stage}`.
+
+**Settings:** profile / resume / api-keys / budget / filters / sources / provider / files / onboarding-status / automation.
+
+### Stable error codes
+
+| Code | Status | Where |
+|---|---|---|
+| `INVALID_YAML`, `MISSING_API_KEY`, `UNSUPPORTED_PROVIDER` | 400 | settings + provider |
+| `JOB_NOT_FOUND`, `TAILOR_RUN_NOT_FOUND`, `APPLY_RUN_NOT_FOUND` | 404 | lookups |
+| `MODE_AUTONOMOUS` | 409 | manual tailor while autonomous |
+| `RUN_ALREADY_EXISTS` / `APPLY_RUN_IN_FLIGHT` | 409 | per-job single-slot |
+| `BUDGET_EXCEEDED` | 409 | monthly budget hit |
+| `AUTONOMOUS_REQUIREMENTS_NOT_MET` | 409 | toggle ON missing requirements |
+| `HANDOFF_ALREADY_RESOLVED` | 409 | action on non-PENDING_REVIEW |
+| `ENDPOINT_REMOVED` | 410 | deprecated resume PUT/POST |
+| `NO_REVIEW_RUN`, `INVALID_RESUME_TEX`, `BASE_COMPILE_FAILED` | 422 | unprocessable entity |
+| `ADZUNA_*` | 401 / 502 | Adzuna probe |
+
+### CLI scripts
+
+Each supports `--once`, `--loop`, `--limit N` and is importable.
+
+- `python main.py` — one discovery cycle
+- `python -m scripts.process_new_jobs` — gate worker
+- `python -m scripts.process_qualified_jobs` — tailor + review worker
+- `python -m scripts.process_apply_jobs` — apply worker (preflights Chrome reachability)
+
+Operator helpers: `scripts/run_pipeline_once.py`, `scripts/status.py`, `scripts/query_jobs.py`, `scripts/migrate_yaml_to_tex.py`, `scripts/build_greenhouse_slug_table.py`, `scripts/docker/{start,stop,restart}_stack.sh`.
+
+### YAML configs
+
+- `config/candidate_profile.yaml` — mandatory. Validated by `src/config/schema.py:CandidateProfile`.
+- `config/filters.yaml` — optional. Hard + soft filters.
+- `config/companies.yaml` — mandatory for discovery. Watchlist by ATS + per-board enabled flags + curated GitHub repos + watched career pages.
+- `config/defer_rules.yaml` — Tier-3 always-defer regexes + Tier-2 draft-and-flag regexes + bypass field types + never-defer overrides.
+- `config/resume.tex` — mandatory for tailor / autonomous. Validated against `docs/resume-tex-contract.md`.
+- `data/answer_cache.yaml` — machine-mutable, schema_version 1.
+
+### Artifact paths
+
+```
+data/
+├── jobs.db
+├── tailored_resumes/<job_hash>/
+│   ├── base/{base.tex, base.pdf, base.log}
+│   ├── tailored_v1/{*.tex, *.pdf, *.log, *.plan.json}
+│   └── tailored_v2/{*.tex, *.pdf, *.log}
+├── base_resume/<sha256>.pdf
+├── apply_runs/<id>/{screenshot_pre_submit.png, dom_snapshot.html}
+└── answer_cache.yaml
+
+logs/job_monitor.log
+
+config/
+├── candidate_profile.yaml
+├── resume.tex
+├── filters.yaml
+├── companies.yaml
+├── defer_rules.yaml
+└── backups/<name>_YYYYMMDD_HHMMSS.yaml
+```
+
+### External-process interfaces
+
+- **Tectonic** — `tectonic -X compile --outdir <dir> <file>.tex`. `XDG_CACHE_HOME=/tectonic-cache`.
+- **agent-browser** — Rust CDP CLI subprocess; per-process lock backstop.
+- **Host Chrome CDP** — `host.docker.internal:9222` (Docker) or `localhost:9222` (systemd); `Host: localhost:<port>` override.
+- **Simplify Copilot v2.4.x** — detected via shadow-root + labeled autofill button; resume re-uploaded after autofill.
+- **ntfy.sh** — fire-and-forget POST; failed POST never raises.
+
+---
+
+## 6. Workflows
+
+### Discovery cycle
+
+```mermaid
+flowchart TD
+  TICK[main.run_discovery_loop tick] --> CFG[Load YAML config]
+  CFG --> DOM[Resolve user domains<br/>filter watchlist]
+  DOM --> SETUP[Open DatabaseManager<br/>build Deduplicator]
+  SETUP --> FAM[Build family tasks]
+  FAM --> GATHER[asyncio.gather<br/>return_exceptions=True]
+
+  subgraph FamilyTask
+    FETCH[fetcher.fetch_jobs] --> NORM[normalize to JobPosting]
+    NORM --> TPF[filter_by_title_patterns]
+    TPF --> DEDUP[Deduplicator.filter_new_jobs]
+    DEDUP --> INS[insert_with_filters]
+    INS -->|REJECT| DROP[skip]
+    INS -->|REJECT_FILTERED| INSF[status=FILTERED]
+    INS -->|ACCEPT_QUALIFIED| INSQ[status=QUALIFIED]
+    INS -->|ACCEPT_NEW| INSN[default status=NEW]
+  end
+
+  GATHER --> ROLL[Accumulate totals]
+  ROLL --> STATS[update_daily_stats]
+  STATS --> LOG[log_cycle_summary]
+  LOG --> SLEEP[asyncio.sleep interval_minutes * 60]
+  SLEEP --> TICK
+```
+
+### Gate decision
+
+```mermaid
+sequenceDiagram
+  participant Loop as gate loop
+  participant DB
+  participant Gate as run_gate_with_provider
+  participant OAI as OpenAI API
+
+  Loop->>DB: _is_gate_mode_active + check_budget_before_claim
+  Loop->>DB: get_jobs_pending_agent_processing(limit=25)
+  DB-->>Loop: list[job_row]
+  loop each job
+    Loop->>Gate: run_gate_with_provider(job)
+    Gate->>OAI: openai/gpt-5-mini chat completion (temp=0.1, max_tokens=1024)
+    OAI-->>Gate: CompletionResponse
+    Gate-->>Loop: GateRunOutcome(APPLY|SKIP)
+    Loop->>DB: record_agent_decision (status=QUALIFIED or FILTERED)
+    Loop->>DB: record_llm_call_cost (stage=GATE)
+  end
+```
+
+Backoff is exponential ×3 (300s → 900s → 2700s) capped at `AGENT_MAX_RETRIES=3`. Terminal failure sets `agent_failed_at`; operator clears from the failures page.
+
+### Tailor + review pipeline
+
+```mermaid
+sequenceDiagram
+  participant Loop as tailor loop
+  participant DB
+  participant Pipeline as run_tailor_review_pipeline
+  participant Tailor as call_tailor
+  participant Patcher
+  participant Comp as compiler
+  participant Reviewer as call_reviewer
+
+  Loop->>DB: mark_stale_tailor_runs_failed(lease=7200)
+  Loop->>DB: claim_next_tailor_job
+  Loop->>Pipeline: run_tailor_review_pipeline
+  Pipeline->>DB: mark_tailor_running
+  Pipeline->>Pipeline: load + validate config/resume.tex
+  Pipeline->>Comp: compile base.pdf
+  Pipeline->>Tailor: call_tailor (job + manifest + profile)
+  Tailor-->>Pipeline: TailorOutput
+
+  alt no patches
+    Pipeline->>DB: insert_pipeline_review_run(verdict=NO_IMPROVEMENT)
+  else patches exist
+    Pipeline->>Patcher: apply patches (descending byte_start)
+    Pipeline->>Comp: compile tailored_v1.pdf
+    alt v1 > 1 page
+      Pipeline->>Tailor: call_trim
+      Pipeline->>Patcher: apply trim patches
+      Pipeline->>Comp: recompile v1
+      alt still > 1 page
+        Pipeline->>DB: insert_pipeline_review_run(verdict=PAGE_FIT_FAILED)
+      end
+    end
+    Pipeline->>Reviewer: call_reviewer (base vs v1)
+    alt verdict = base_better
+      Pipeline->>Tailor: call_tailor (retry with feedback)
+      Pipeline->>Patcher: apply to base → v2
+      Pipeline->>Comp: compile v2
+      alt v2 ≤ 1 page
+        Pipeline->>Reviewer: call_reviewer (base vs v1 vs v2)
+      end
+    end
+    Pipeline->>Pipeline: _select_final_variant
+    Pipeline->>DB: insert_pipeline_review_run + record_tailor_success
+  end
+```
+
+Key invariants: compile-once / patch-many; reviewer sees full `.tex` source; factuality is a veto axis; trim is one-shot; retry produces v2 only on `base_better`.
+
+### Apply lifecycle
+
+```mermaid
+flowchart TD
+  TICK[apply loop tick] --> MODE{mode in autonomous|both?}
+  MODE -->|opt_in| SLEEP[sleep]
+  MODE -->|yes| CHROME{check_chrome_reachable<br/>Host: localhost:port}
+  CHROME -->|false| SLEEP
+  CHROME -->|true| CLAIM[BEGIN IMMEDIATE<br/>claim review SUCCESS rows<br/>insert PENDING apply_runs]
+  CLAIM -->|none| SLEEP
+  CLAIM -->|got one| GO[apply_to_job]
+
+  GO --> CDP[Playwright connect_over_cdp]
+  CDP --> NAV[goto source_url]
+  NAV --> DETECT[poll Simplify shadow-root<br/>500ms / 45s]
+
+  DETECT --> UP1[upload tailored resume]
+  UP1 --> CLICK[click Simplify autofill]
+  CLICK --> SETTLE[_wait_for_simplify_to_settle<br/>stable 2s or 30s max]
+  SETTLE --> UP2[re-upload tailored resume]
+
+  UP2 --> SCAN[scan_unresolved_fields<br/>reads .select__single-value<br/>and checkbox.checked]
+  SCAN --> CONF[compute confidence checks]
+
+  CONF --> ATS{supported_finisher_ats?}
+  ATS -->|no| OUT_NR[outcome=NEEDS_REVIEW<br/>finisher_outcome=SKIPPED]
+  ATS -->|yes| FIN[run_finisher]
+
+  FIN --> GATE[evaluate_submit_gate]
+  GATE -->|true| SUBMIT[try_submit_and_classify<br/>click submit, wait 5s]
+  GATE -->|false| OUT_NR
+
+  SUBMIT -->|URL changed| OUT_S[outcome=SUBMITTED]
+  SUBMIT -->|toasts| OUT_NR2[outcome=NEEDS_REVIEW<br/>submit_errors]
+  SUBMIT -->|no toasts| OUT_F[outcome=FAILED_OTHER]
+
+  OUT_NR --> PERSIST[record_apply_success]
+  OUT_NR2 --> PERSIST
+  OUT_S --> PERSIST
+  OUT_F --> PERSIST_FAIL[record_apply_failure]
+
+  PERSIST --> HANDOFF{outcome==NEEDS_REVIEW?}
+  HANDOFF -->|yes| RECH[record_apply_handoff]
+  HANDOFF -->|no| LOG[log + record cost]
+```
+
+### Submit gate decision
+
+```mermaid
+flowchart TD
+  START[evaluate_submit_gate] --> SM{safe_mode?}
+  SM -->|true| F1[False: safe_mode]
+  SM -->|false| DR{dry_run?}
+  DR -->|true| F2[False: dry_run]
+  DR -->|false| OC{outcome != COMPLETE OR not all_required_filled?}
+  OC -->|true| F3[False: finisher_incomplete]
+  OC -->|false| T3{has_tier3_deferred?}
+  T3 -->|true| F4[False: tier3_deferred]
+  T3 -->|false| T2{has_tier2_pending?}
+  T2 -->|false| TRUE[True: auto_submit]
+  T2 -->|true| CONF{all drafts.confidence >= threshold?}
+  CONF -->|no| F5[False: tier2_pending]
+  CONF -->|yes| TRUE
+```
+
+`tier2_confidence_threshold` defaults to 1.0 (require perfect confidence). Lowered in `candidate_profile.yaml:apply_prefs.application_defaults.tier2_confidence_threshold`.
+
+### Apply finisher loop
+
+```mermaid
+sequenceDiagram
+  participant Worker
+  participant Runner as finisher.runner
+  participant Agent as Pydantic-AI Agent
+  participant CLI as agent-browser
+  participant OAI as OpenAI Responses API
+
+  Worker->>Runner: run_finisher(apply_url, ats, profile, defer_rules, cache, apply_run_id)
+  Runner->>Agent: agent.iter (UsageLimits 50 req, 250 tool calls)
+
+  loop until COMPLETE or limits hit
+    Agent->>OAI: tool-call request<br/>(previous_response_id chained, prompt cache key, reasoning=medium)
+    OAI-->>Agent: next tool call
+    alt fill_combobox
+      Agent->>CLI: PointerEvent sequence on control + option + verify
+    else other tool
+      Agent->>CLI: scoped command (pick_option, verify, dispatch_async, agent_browser)
+    end
+  end
+
+  Agent-->>Runner: outcome (COMPLETE | AGENT_GAVE_UP | USAGE_LIMIT_HIT | RUNTIME_ERROR)
+  Runner->>OAI: record_llm_call_cost (stage=APPLY, phase=finisher)
+  Runner-->>Worker: FinisherResult
+```
+
+Token discipline: `openai_previous_response_id="auto"` (server-side context chaining), `openai_prompt_cache_key` (cached prompt prefix), `parallel_tool_calls=False` (prevents stale-DOM mistakes).
+
+### Human review
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant UI as HumanReviewPage
+  participant API as /api/human-review
+  participant DB
+  participant Det as detached apply task
+
+  User->>UI: open /human-review
+  UI->>API: GET /
+  API->>DB: get_apply_handoffs(status=PENDING_REVIEW)
+  API-->>UI: list
+
+  User->>UI: expand row, see deferred questions + screenshot
+  alt save answers
+    UI->>API: POST /{id}/answers
+    API->>DB: save_handoff_user_answers + append data/answer_cache.yaml
+  end
+
+  alt approve
+    UI->>API: POST /{id}/complete
+    API->>DB: transition (job=APPLIED)
+  else dismiss
+    UI->>API: POST /{id}/dismiss
+    API->>DB: transition (job=REJECTED)
+  else relaunch
+    UI->>API: POST /{id}/relaunch-apply
+    API->>DB: insert new PENDING apply_runs + flip handoff
+    API->>Det: asyncio.create_task
+  end
+```
+
+### Onboarding wizard
+
+```mermaid
+stateDiagram-v2
+  [*] --> S0: Step 0 — About You
+  S0 --> S1: Next (name + email required)
+  S1 --> S2: Step 1 — Education
+  S2 --> S3: Step 2 — Target Roles
+  S3 --> S4: Step 3 — Resume (.tex upload)
+  S4 --> S5: Step 4 — Filters
+  S5 --> S6: Step 5 — AI Provider
+  S6 --> S7: Step 6 — Apply Prefs
+  S7 --> FIN: Step 7 — Watchlist → Finish
+  FIN --> ORDER[finishOnboarding<br/>7 API calls in strict order]
+  ORDER --> NAV[navigate to /]
+  NAV --> [*]
+```
+
+All wizard state is React `useState` — reload = restart. The final `await refetchOnboardingStatus` before `navigate("/")` is load-bearing.
+
+---
+
+## 7. Dependencies
+
+### Python
+
+Strict `==` pinning. Highlights: fastapi 0.123.10, uvicorn 0.40.0, aiosqlite 0.22.1, openai 2.38.0, instructor 1.15.1, pydantic-ai-slim 1.102.0, litellm 1.82.1, playwright 1.60.0, pydantic 2.12.5, loguru 0.7.3, python-jobspy 1.1.82, curl-cffi 0.15.0, rapidfuzz 3.13.0, pyyaml 6.0.3.
+
+`anthropic`, `google-genai`, `google-adk`, `cryptography` declared but currently unused at runtime — reserved for future work.
+
+Dev: pytest 9.0.2, pytest-asyncio 1.3.0, hypothesis 6.135.4, mutmut 2.5.1 (scoped to `src/fetchers/linkedin_fetcher.py`), mypy 1.19.1 (strict on `api/`, `src/`, `scripts/`, `tests/`).
+
+### Node
+
+react 19, react-router-dom 7, @tanstack/react-query 5.90, @base-ui-components/react 1.3, tailwindcss 4.2, recharts 3.8, @monaco-editor/react 4.7, vite 8, typescript 5.9, vitest 4.1.
+
+### Host binaries
+
+- **tectonic** — vendored multi-arch tarballs at `deploy/tectonic/tectonic-{amd64,arm64}.tar.gz`, refreshed via `deploy/tectonic/fetch.sh`. CTAN cache survives in `tectonic-cache` Docker volume.
+- **agent-browser** — vendored Rust CDP CLI at `deploy/agent-browser/agent-browser-{amd64,arm64}`. glibc 2.36+ required.
+- **Host Chrome** — user-started with `--remote-debugging-port=9222`. Not in-container.
+- **Simplify Copilot v2.4.x** — browser extension on host Chrome.
+
+### Topology
+
+```mermaid
+graph TB
+  subgraph Host[Host machine]
+    HCHROME[Chrome --remote-debugging-port=9222]
+    SIMPLIFY[Simplify Copilot v2.4.x extension]
+    HCHROME --> SIMPLIFY
+    USER[User browser → localhost:8000]
+  end
+
+  subgraph Container[Docker container]
+    API[FastAPI + dashboard dist/]
+    SUP[LoopSupervisor]
+    PYDEPS[Python deps via uv]
+    TECT[tectonic /usr/local/bin/tectonic]
+    AGENTBR[agent-browser /usr/local/bin/agent-browser]
+    PLAYWRIGHT[playwright Python SDK]
+  end
+
+  subgraph Volumes
+    APPDATA[app-data → /app/data]
+    APPLOGS[app-logs → /app/logs]
+    TECTCACHE[tectonic-cache → /tectonic-cache]
+    CFGBIND[./config → /app/config]
+  end
+
+  USER -->|HTTP :8000| API
+  API --> SUP
+  SUP --> PYDEPS
+  PYDEPS --> PLAYWRIGHT
+  PLAYWRIGHT -->|CDP via host.docker.internal:9222<br/>Host: localhost:9222| HCHROME
+  PYDEPS --> TECT
+  PYDEPS --> AGENTBR
+  API --> APPDATA
+  API --> APPLOGS
+  TECT --> TECTCACHE
+  API --> CFGBIND
+```
+
+### Deployment paths
+
+**Docker** — `docker compose up -d`. Single service, two-stage build (`dashboard-build` → `app`), multi-arch via BuildKit `TARGETARCH`. Volumes: `app-data`, `app-logs`, `tectonic-cache` (named) + `./config:/app/config` (bind). Healthcheck on `/api/health`. Operator wrappers in `scripts/docker/`.
+
+**Linux systemd** — six unit files under `deploy/`: discovery timer + service, agent/tailor/apply worker services, apply-chrome service, templated alert service. Hardening defaults (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome=true`, explicit `ReadWritePaths`). Memory/CPU/Tasks caps. All log to journald.
+
+---
+
+## 8. Review notes
+
+### Consistency check
+
+- `README.md` lists multi-provider support; reality is OpenAI-only.
+- `AGENTS.md` doesn't enumerate finisher tools or Tier-1/2/3 semantics.
+- Docker compose is single-service; older docs referencing profiles are stale.
+- Provider abstraction is half-implemented — tailor + reviewer skip it.
+- Legacy `*_yaml_path` columns are written as `""` but still in schema.
+
+### Architectural risks
+
+1. Apply-finisher form variability across companies on the same ATS.
+2. React-Select / agent-browser version fragility.
+3. Image-baked dashboard — live UI updates need `docker cp` or rebuild.
+4. Docker Desktop vpnkit gateway IP — security posture worth surfacing.
+5. LaTeX compile silent failures on CTAN-fetch timeouts.
+6. Single-writer SQLite under load.
+
+### Operational risks
+
+- Host Chrome major drift — document tested range; warn on out-of-range.
+- Simplify Copilot drift — v2.4.x hardcoded.
+- Network-dependent fetchers — silent zero-result fetchers don't trigger failure paths.
+- curl-cffi quirks — log version at startup.
+
+### Security
+
+- Auto-submit gate is conservative by default (`tier2_confidence_threshold=1.0`).
+- `SAFE_MODE=true` is the global kill switch.
+- Finisher scope enforced at runtime, not at the router.
+- API keys plaintext in `.env` (single-user local model).
+- Resume download endpoint unauthenticated (single-user local).
+
+### Top risks ranked (impact × probability)
+
+1. Greenhouse form variability (high × medium)
+2. Finisher model availability / price drift (high × medium)
+3. Simplify Copilot version drift (medium × medium)
+4. React-Select / agent-browser version interaction (medium × medium)
+5. CTAN cache stale / LaTeX silent failures (medium × low)
+
+### Recommended follow-up order
+
+**Tier 1 — finish in-flight work:** land the `resume_mode=base` + `apply_after` + `NotTailoredModal` flow on main with contract tests; refresh README; add `SAFE_MODE` to `.env.example`.
+
+**Tier 2 — close the test gap:** add missing dashboard test suites; end-to-end integration test for `apply_after=true` through the BackgroundTask + detached task chain; CTAN-timeout integration test for `base_compile.py`.
+
+**Tier 3 — operational hardening:** dry-run smoke against 5+ real Greenhouse organizations; document Chrome and Simplify version expectations; tighten apply-router unsupported-ATS handling.
+
+**Tier 4 — future scope:** multi-provider BYOK across tailor + reviewer + finisher; drop legacy `*_yaml_path` columns; local-dev mode that proxies the dashboard via Vite.
+
+---
+
+## 9. What this is and why
+
+### The one-line pitch
+
+Crawl job boards, decide which are worth pursuing, write a tailored resume per posting, drive the user's real Chrome to fill the application form — all on the user's own machine, all under a binary gate that refuses to auto-submit anything the user hasn't implicitly approved.
+
+### Why the design landed where it did
+
+- **The submit click is the riskiest action.** A bug in an auto-applier is visible to every company the user might want to work for. So: strict binary gate, conservative defaults, human-review queue with screenshots/DOM snapshots, `SAFE_MODE` as a global kill switch.
+- **Forms vary.** Autonomous apply is locked to Greenhouse and Ashby; everything else lands `NEEDS_REVIEW` for human review.
+- **The interesting judgment is per-posting.** Per-user context (profile, preferences, hard filters, education status, work auth, salary expectations) feeds the gate, tailor, and finisher from the same canonical YAML.
+- **Single FastAPI process.** Earlier separate-container designs made deployment painful and the toggle slow. Collapsing into one process with a `LoopSupervisor` that reads modes every cycle is much better operationally.
+- **Host Chrome over CDP.** In-container Chromium would add ~400MB, lose the user's Simplify extension, and route through Docker Desktop's vpnkit NAT which trips rate-limiters.
+- **`.tex` source-of-truth.** YAML-derived resumes lost template heterogeneity and broke on duplicate bullet bodies. Byte-offset patches into the user's actual LaTeX are robust.
+- **Pydantic-AI agent with 8 narrow tools.** Driving a form is a sequence of dozens of small interactions, each mutating state the next reads — a single big plan is stale by the second click.
+
+### Lessons baked into the code
+
+- Random claim tokens + lease expiry — crashes leak slots forever otherwise.
+- Soft-deletes that free the per-job slot — "delete and retry" can't re-enqueue immediately otherwise.
+- Resume re-upload after Simplify autofill — Simplify clobbers the file input.
+- `scan_unresolved_fields` reads `.select__single-value` — `el.value` doesn't reflect React-Select picks.
+- PointerEvent sequence on React-Select picks — React listens for `mousedown`, not `click`.
+- `Host: localhost:<port>` override on CDP — Chrome 148+ rejects mismatched Host headers.
+- `asyncio.gather(..., return_exceptions=True)` on discovery — one stuck Workday tenant otherwise blocks every other family.
+- `previous_response_id="auto"` on the finisher — resending full message history every turn blows the TPM ceiling within ~5 turns.
+
+Each has a corresponding test pinning the behavior; test names are a good entry point.
+
+### What's broken by design
+
+- Multi-provider BYOK isn't really there. OpenAI only.
+- Finisher only fires on Greenhouse and Ashby.
+- Dashboard `dist/` is image-baked.
+- API keys live plaintext in `.env`.
+- Apply runs failing twice land terminally failed; the operator decides whether to requeue.
+
+These are deliberate tradeoffs for the single-user local model. `review_notes.md` ranks them with prioritized follow-ups.
+</script>
+
+<div class="footer">
+  Companion docs in this directory: <a href="index.md">index.md</a>, <a href="codebase_info.md">codebase_info.md</a>, <a href="architecture.md">architecture.md</a>, <a href="components.md">components.md</a>, <a href="data_models.md">data_models.md</a>, <a href="interfaces.md">interfaces.md</a>, <a href="workflows.md">workflows.md</a>, <a href="dependencies.md">dependencies.md</a>, <a href="review_notes.md">review_notes.md</a>, <a href="what-is-this.md">what-is-this.md</a>.
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/highlight.min.js"></script>
+
+<script>
+  // Intercept ```mermaid blocks at the tokenizer level so the body bytes
+  // (including <br/>, ampersands, brackets) reach mermaid verbatim, without
+  // going through marked's HTML-escaping code renderer.
+  const mermaidExtension = {
+    name: 'mermaid',
+    level: 'block',
+    start(src) {
+      const m = src.match(/^```mermaid\b/m);
+      return m ? m.index : undefined;
+    },
+    tokenizer(src) {
+      const rule = /^```mermaid\s*\n([\s\S]+?)\n```/;
+      const match = rule.exec(src);
+      if (match) {
+        return {
+          type: 'mermaid',
+          raw: match[0],
+          text: match[1],
+        };
+      }
+    },
+    renderer(token) {
+      return '<div class="mermaid">' + token.text + '</div>\n';
+    },
+  };
+
+  marked.use({ extensions: [mermaidExtension] });
+
+  // Heading renderer adds stable ids + a hover anchor link.
+  const renderer = new marked.Renderer();
+  const slug = (s) => s
+    .toLowerCase()
+    .replace(/<[^>]+>/g, '')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const slugCounts = {};
+  renderer.heading = function (text, level) {
+    let id = slug(text);
+    if (slugCounts[id]) { slugCounts[id] += 1; id += '-' + slugCounts[id]; } else { slugCounts[id] = 1; }
+    return '<h' + level + ' id="' + id + '">' + text +
+      ' <a class="anchor" href="#' + id + '" aria-hidden="true">#</a></h' + level + '>';
+  };
+
+  marked.setOptions({ renderer, gfm: true, breaks: false });
+
+  const md = document.getElementById('md-source').textContent;
+  const docEl = document.getElementById('doc');
+  docEl.innerHTML = marked.parse(md);
+
+  // Highlight any non-mermaid code blocks.
+  document.querySelectorAll('pre code').forEach((block) => {
+    try { hljs.highlightElement(block); } catch (e) { /* ignore */ }
+  });
+
+  // Mermaid theme follows prefers-color-scheme.
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: isDark ? 'dark' : 'default',
+    securityLevel: 'loose',
+    flowchart: { curve: 'basis', useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    er: { useMaxWidth: true },
+    state: { useMaxWidth: true },
+    class: { useMaxWidth: true },
+  });
+
+  // Render each diagram individually so one syntax error doesn't kill the rest.
+  Promise.all(
+    Array.from(document.querySelectorAll('.mermaid')).map((el, i) => {
+      const src = el.textContent;
+      return mermaid
+        .render('mermaid-svg-' + i, src)
+        .then(({ svg, bindFunctions }) => {
+          el.innerHTML = svg;
+          if (bindFunctions) bindFunctions(el);
+        })
+        .catch((err) => {
+          el.innerHTML = '<pre style="text-align:left;white-space:pre-wrap;color:var(--warn);font-size:12px;">' +
+            'mermaid render failed: ' + (err && err.message ? err.message : err) + '\n\n' +
+            src.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) +
+            '</pre>';
+        });
+    })
+  );
+
+  // Build TOC from h2s (and their h3 children)
+  const tocList = document.getElementById('toc-list');
+  const h2s = docEl.querySelectorAll('h2');
+  h2s.forEach((h2) => {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = '#' + h2.id;
+    a.textContent = h2.textContent.replace('#', '').trim();
+    li.appendChild(a);
+
+    // attach h3s under this h2 (until the next h2)
+    let next = h2.nextElementSibling;
+    const subOl = document.createElement('ol');
+    while (next && next.tagName !== 'H2') {
+      if (next.tagName === 'H3') {
+        const subLi = document.createElement('li');
+        const subA = document.createElement('a');
+        subA.href = '#' + next.id;
+        subA.textContent = next.textContent.replace('#', '').trim();
+        subLi.appendChild(subA);
+        subOl.appendChild(subLi);
+      }
+      next = next.nextElementSibling;
+    }
+    if (subOl.children.length) li.appendChild(subOl);
+    tocList.appendChild(li);
+  });
+
+  // Active-section highlighting in TOC via IntersectionObserver
+  const tocLinks = Array.from(document.querySelectorAll('#toc a[href^="#"]'));
+  const linkByHash = new Map(tocLinks.map((a) => [a.getAttribute('href'), a]));
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      const link = linkByHash.get('#' + entry.target.id);
+      if (!link) return;
+      if (entry.isIntersecting) {
+        tocLinks.forEach((l) => l.classList.remove('active'));
+        link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-30% 0px -65% 0px' });
+  document.querySelectorAll('#doc h2, #doc h3').forEach((h) => observer.observe(h));
+</script>
+
+</body>
+</html>
