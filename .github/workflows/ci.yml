@@ -2,12 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths-ignore:
       - "**/*.md"
+  # PRs always run CI so branch protection's required checks resolve even
+  # for documentation-only changes. paths-ignore on PR triggers leaves
+  # required checks pending forever and blocks the merge.
   pull_request:
-    paths-ignore:
-      - "**/*.md"
 
 permissions:
   contents: read
