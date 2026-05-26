@@ -13,7 +13,7 @@ Backs the dashboard `[Apply]` button. Exposes:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Body
 from loguru import logger
@@ -146,7 +146,7 @@ def _serialize_apply_run_row(row: dict[str, Any]) -> dict[str, Any]:
 @router.post("/jobs/{job_hash}/apply", status_code=200)
 async def enqueue_apply_run(
     job_hash: str,
-    body: Optional[EnqueueApplyRunBody] = Body(default=None),
+    body: Annotated[Optional[EnqueueApplyRunBody], Body()] = None,
 ) -> dict[str, object]:
     """Enqueue a user-triggered browser-apply run.
 

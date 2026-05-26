@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body
 from loguru import logger
@@ -220,7 +220,7 @@ def _serialize_tailor_run_row(row: dict[str, Any]) -> dict[str, Any]:
 async def enqueue_tailor_run(
     job_hash: str,
     background_tasks: BackgroundTasks,
-    body: Optional[EnqueueTailorRunBody] = Body(default=None),
+    body: Annotated[Optional[EnqueueTailorRunBody], Body()] = None,
 ) -> dict[str, object]:
     """Enqueue a user-triggered tailor pipeline run.
 
