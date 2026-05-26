@@ -941,6 +941,161 @@ class ApplyMixin(_BaseMixin):
         merged["_apply_claim_token"] = str(inserted_row["claim_token"])
         return merged
 
+    async def enqueue_apply_run_with_base_resume(
+        self,
+        *,
+        job_hash: str,
+        base_pdf_path: str,
+    ) -> dict[str, Any]:
+        """Atomically enqueue an apply run that ships the base resume only.
+
+        Purpose:
+            Back the ``POST /api/jobs/{hash}/apply`` "skip tailoring"
+            path. When the user clicks "Apply anyways" on a job without
+            a SUCCESS review, the apply pipeline still needs a real
+            ``apply_runs`` row tied to a real ``review_runs`` row tied to
+            a real ``tailor_runs`` row — those NOT NULL FK relationships
+            are load-bearing for the worker's claim path
+            (:meth:`claim_next_apply_job`) and serialization
+            (``api/routers/apply_runs.py:_serialize_apply_run_row``).
+            We satisfy them by synthesizing a minimal tailor row
+            (``status='SUCCESS'``, ``error='skipped_by_user'``, no
+            artifacts) and a minimal review row (``status='SUCCESS'``,
+            ``verdict='BASE'``, ``fallback_base_pdf_path=<pdf>``). The
+            worker's ``_resolve_resume_path`` already handles
+            ``verdict='BASE'`` by uploading ``fallback_base_pdf_path``
+            with ``resume_source='BASE'``, so no worker changes are
+            required.
+        Args:
+            self: The database manager performing the inserts.
+            job_hash: Stable deduplication hash of the target job.
+            base_pdf_path: Filesystem path to a compiled base-resume PDF
+                produced by
+                :func:`src.agents.resume_tailor.base_compile.compile_base_resume_pdf`.
+        Output:
+            Returns a merged dict in the same shape as
+            :meth:`enqueue_apply_run_for_job` so the router and
+            ``_spawn_user_apply_task`` need no special-case handling.
+        Raises:
+            ApplyRunInFlightError: When a non-deleted PENDING apply run
+                for this job hash already exists.
+        """
+
+        await self._ensure_tailor_schema_ready()
+        await self._ensure_review_schema_ready()
+        await self._ensure_apply_schema_ready()
+        conn = self._require_conn()
+        claim_token = os.urandom(32).hex()
+
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+
+            inflight_cursor = await conn.execute(
+                """
+                SELECT id, status FROM apply_runs
+                WHERE job_hash = ?
+                  AND deleted_at IS NULL
+                  AND status = 'PENDING'
+                LIMIT 1
+                """,
+                (job_hash,),
+            )
+            inflight_row = await inflight_cursor.fetchone()
+            if inflight_row is not None:
+                await conn.rollback()
+                raise ApplyRunInFlightError(
+                    run_id=int(inflight_row["id"]),
+                    status=str(inflight_row["status"]),
+                )
+
+            job_cursor = await conn.execute(
+                """
+                SELECT
+                    jp.job_hash AS job_hash,
+                    jp.source_url AS source_url,
+                    jp.title AS title,
+                    jp.company AS company,
+                    jp.description AS description
+                FROM job_postings jp
+                WHERE jp.job_hash = ?
+                LIMIT 1
+                """,
+                (job_hash,),
+            )
+            job_row = await job_cursor.fetchone()
+            if job_row is None:
+                await conn.rollback()
+                raise NoReviewRunError(
+                    f"No job_postings row found for job_hash={job_hash!r}"
+                )
+
+            tailor_insert_cursor = await conn.execute(
+                """
+                INSERT INTO tailor_runs (
+                    job_hash, status, error, completed_at, claim_token
+                )
+                VALUES (?, 'SUCCESS', 'skipped_by_user', CURRENT_TIMESTAMP, NULL)
+                RETURNING id
+                """,
+                (job_hash,),
+            )
+            tailor_row = await tailor_insert_cursor.fetchone()
+            if tailor_row is None:
+                raise RuntimeError("INSERT INTO tailor_runs returned no row")
+            tailor_run_id = int(tailor_row["id"])
+
+            review_insert_cursor = await conn.execute(
+                """
+                INSERT INTO review_runs (
+                    job_hash,
+                    tailor_run_id,
+                    status,
+                    verdict,
+                    fallback_base_pdf_path,
+                    completed_at,
+                    claim_token
+                )
+                VALUES (?, ?, 'SUCCESS', 'BASE', ?, CURRENT_TIMESTAMP, NULL)
+                RETURNING id
+                """,
+                (job_hash, tailor_run_id, base_pdf_path),
+            )
+            review_row = await review_insert_cursor.fetchone()
+            if review_row is None:
+                raise RuntimeError("INSERT INTO review_runs returned no row")
+            review_run_id = int(review_row["id"])
+
+            apply_insert_cursor = await conn.execute(
+                """
+                INSERT INTO apply_runs (job_hash, review_run_id, status, claim_token)
+                VALUES (?, ?, 'PENDING', ?)
+                RETURNING id, status, claim_token
+                """,
+                (job_hash, review_run_id, claim_token),
+            )
+            inserted_row = await apply_insert_cursor.fetchone()
+            await conn.commit()
+        except (ApplyRunInFlightError, NoReviewRunError):
+            raise
+        except Exception:
+            await conn.rollback()
+            raise
+
+        if inserted_row is None:
+            raise RuntimeError("INSERT INTO apply_runs returned no row")
+
+        merged: dict[str, Any] = dict(job_row)
+        merged["review_run_id"] = review_run_id
+        merged["review_verdict"] = "BASE"
+        merged["selected_pdf_path"] = None
+        merged["selected_yaml_path"] = None
+        merged["fallback_base_pdf_path"] = base_pdf_path
+        merged["id"] = int(inserted_row["id"])
+        merged["status"] = str(inserted_row["status"])
+        merged["_apply_run_id"] = int(inserted_row["id"])
+        merged["_apply_claim_token"] = str(inserted_row["claim_token"])
+        return merged
+
     async def get_apply_run(self, run_id: int) -> Optional[JSONObject]:
         """Fetch one apply_runs row by primary key.
 

@@ -2,11 +2,16 @@
 /**
  * @packageDocumentation
  *
- * Regression guard for Bug 1 — the Apply button on a row with a
- * SUCCESSful tailor run must POST `/api/jobs/{hash}/apply` and NEVER
- * re-POST `/tailor` (which would return 409 because the tailor run
- * already exists). Smoke-tested 2026-05-25; this test locks the
- * behavior so the bug cannot reappear from a future refactor.
+ * Regression guards for the NotTailoredModal flows shipped in the
+ * post-#59 apply-UX fix:
+ *
+ *   1. "No, skip tailoring" → POST /apply with `{ resumeMode: "base" }`,
+ *      no follow-up POST /tailor.
+ *   2. "Yes, tailor my resume" → POST /tailor with `{ applyAfter: true }`,
+ *      no client-side chained POST /apply (the backend does it).
+ *   3. A 409 `RUN_ALREADY_EXISTS` from the standalone "Tailor resume"
+ *      button is swallowed silently so the user does not see a red
+ *      error banner under a button that already had its job done.
  */
 
 import "@testing-library/jest-dom/vitest";
@@ -34,9 +39,6 @@ vi.mock("@/lib/api/client", () => ({
   retryTailorRun: vi.fn(),
   postApplyRun: vi.fn(),
   getTailoredResumeUrl: vi.fn().mockReturnValue("about:blank"),
-  // ApplyRunConflictError class must remain a named export so JobsPage
-  // can do `error instanceof ApplyRunConflictError`. We define a
-  // minimal subclass here that satisfies that check.
   ApplyRunConflictError: class extends Error {
     public readonly runId: number;
     public readonly status: string;
@@ -57,7 +59,7 @@ import {
 } from "@/lib/api/client";
 import { JobsPage } from "@/pages/JobsPage";
 
-const TEST_JOB_HASH = "abc123regressionhash";
+const TEST_JOB_HASH = "abc123modalflowhash";
 
 function buildTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -82,7 +84,7 @@ function renderJobsPage(): void {
   render(<Wrapper />);
 }
 
-function buildJobItem(tailorRun: TailorRunSummaryDto): JobsItemDto {
+function buildJobItem(tailorRun: TailorRunSummaryDto | null): JobsItemDto {
   return {
     id: 1,
     job_hash: TEST_JOB_HASH,
@@ -103,14 +105,14 @@ function buildJobItem(tailorRun: TailorRunSummaryDto): JobsItemDto {
   };
 }
 
-function buildJobsResponse(tailorRun: TailorRunSummaryDto): JobsResponseDto {
+function buildJobsResponseWithoutTailor(): JobsResponseDto {
   return {
     ok: true,
     page: 1,
     page_size: 25,
     total_items: 1,
     total_pages: 1,
-    items: [buildJobItem(tailorRun)],
+    items: [buildJobItem(null)],
   };
 }
 
@@ -146,18 +148,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Bug 1 regression — ApplyButton must POST /apply, never re-POST /tailor", () => {
-  it("posts /apply (not /tailor) when tailor SUCCESS picked TAILORED", async () => {
-    vi.mocked(fetchJobs).mockResolvedValue(
-      buildJobsResponse({
-        id: 42,
-        status: "SUCCESS",
-        verdict: "TAILORED",
-        page_count: 1,
-        error: null,
-        pdf_url: "about:blank",
-      }),
-    );
+describe("NotTailoredModal flows", () => {
+  it("posts /apply with resumeMode=base when user clicks 'No, skip tailoring'", async () => {
+    vi.mocked(fetchJobs).mockResolvedValue(buildJobsResponseWithoutTailor());
 
     renderJobsPage();
     const user = userEvent.setup();
@@ -168,64 +161,21 @@ describe("Bug 1 regression — ApplyButton must POST /apply, never re-POST /tail
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     await user.click(applyButton);
 
-    await waitFor(() => {
-      expect(vi.mocked(postApplyRun)).toHaveBeenCalledWith(TEST_JOB_HASH, undefined);
+    const skipButton = await screen.findByRole("button", {
+      name: /No, skip tailoring/i,
     });
-    // The whole point of this regression — the tailor enqueue must NOT fire.
-    expect(vi.mocked(enqueueTailorRun)).not.toHaveBeenCalled();
-  });
-
-  it("posts /apply (not /tailor) when tailor SUCCESS picked BASE", async () => {
-    // Reviewer picked the base resume; tailor_run.status is still SUCCESS.
-    // This is the exact case that wasted a smoke-test cycle on 2026-05-25
-    // because the old button routed through the tailor enqueue.
-    vi.mocked(fetchJobs).mockResolvedValue(
-      buildJobsResponse({
-        id: 43,
-        status: "SUCCESS",
-        verdict: "BASE",
-        page_count: 1,
-        error: null,
-        pdf_url: "about:blank",
-      }),
-    );
-
-    renderJobsPage();
-    const user = userEvent.setup();
-
-    const row = await screen.findByText("TestCo");
-    await user.click(row);
-
-    const applyButton = await screen.findByRole("button", { name: "Apply" });
-    await user.click(applyButton);
+    await user.click(skipButton);
 
     await waitFor(() => {
-      expect(vi.mocked(postApplyRun)).toHaveBeenCalledWith(TEST_JOB_HASH, undefined);
+      expect(vi.mocked(postApplyRun)).toHaveBeenCalledWith(TEST_JOB_HASH, {
+        resumeMode: "base",
+      });
     });
     expect(vi.mocked(enqueueTailorRun)).not.toHaveBeenCalled();
   });
 
-  it("opens the NotTailoredModal (no network calls yet) when no tailor exists", async () => {
-    vi.mocked(fetchJobs).mockResolvedValue({
-      ok: true,
-      page: 1,
-      page_size: 25,
-      total_items: 1,
-      total_pages: 1,
-      items: [
-        {
-          ...buildJobItem({
-            id: 0,
-            status: "SUCCESS",
-            verdict: "TAILORED",
-            page_count: 1,
-            error: null,
-            pdf_url: null,
-          }),
-          tailor_run: null,
-        },
-      ],
-    });
+  it("posts /tailor with applyAfter=true when user clicks 'Yes, tailor my resume'", async () => {
+    vi.mocked(fetchJobs).mockResolvedValue(buildJobsResponseWithoutTailor());
 
     renderJobsPage();
     const user = userEvent.setup();
@@ -236,10 +186,45 @@ describe("Bug 1 regression — ApplyButton must POST /apply, never re-POST /tail
     const applyButton = await screen.findByRole("button", { name: "Apply" });
     await user.click(applyButton);
 
-    // Modal renders its primary CTA — verify it's now visible. Neither
-    // API call should have fired on the click (the modal is the gate).
-    await screen.findByRole("button", { name: /Yes, tailor/i });
+    const tailorButton = await screen.findByRole("button", {
+      name: /Yes, tailor my resume/i,
+    });
+    await user.click(tailorButton);
+
+    await waitFor(() => {
+      expect(vi.mocked(enqueueTailorRun)).toHaveBeenCalledWith(TEST_JOB_HASH, {
+        applyAfter: true,
+      });
+    });
+    // The whole point: the dashboard does NOT chain a /apply call —
+    // the backend BackgroundTask enqueues apply itself after success.
     expect(vi.mocked(postApplyRun)).not.toHaveBeenCalled();
-    expect(vi.mocked(enqueueTailorRun)).not.toHaveBeenCalled();
+  });
+
+  it("swallows RUN_ALREADY_EXISTS from the standalone Tailor button", async () => {
+    vi.mocked(fetchJobs).mockResolvedValue(buildJobsResponseWithoutTailor());
+    const error = Object.assign(new Error("already exists"), {
+      code: "RUN_ALREADY_EXISTS",
+      details: {},
+    });
+    vi.mocked(enqueueTailorRun).mockRejectedValueOnce(error);
+
+    renderJobsPage();
+    const user = userEvent.setup();
+
+    const row = await screen.findByText("TestCo");
+    await user.click(row);
+
+    const standaloneTailorButton = await screen.findByRole("button", {
+      name: /Tailor resume/i,
+    });
+    await user.click(standaloneTailorButton);
+
+    await waitFor(() => {
+      expect(vi.mocked(enqueueTailorRun)).toHaveBeenCalled();
+    });
+
+    // No red error banner: the rejected text should not be rendered.
+    expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument();
   });
 });

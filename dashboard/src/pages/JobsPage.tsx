@@ -562,9 +562,24 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
   const isAutonomous = automation?.tailor_mode === "autonomous";
 
   const enqueueMutation = useMutation({
-    mutationFn: () => enqueueTailorRun(row.jobHash),
+    mutationFn: (opts?: { applyAfter?: boolean }) =>
+      enqueueTailorRun(row.jobHash, opts),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (error: unknown) => {
+      // RUN_ALREADY_EXISTS races with the jobs refetch — the row is
+      // already authoritative, so silently re-fetch instead of showing
+      // a red error banner under the "Tailor resume" button.
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code: unknown }).code === "RUN_ALREADY_EXISTS"
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        return;
+      }
     },
   });
 
@@ -589,7 +604,8 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
   const [applyErrorMessage, setApplyErrorMessage] = useState<string | null>(null);
 
   const applyMutation = useMutation({
-    mutationFn: () => postApplyRun(row.jobHash),
+    mutationFn: (opts?: { resumeMode?: "tailored" | "base" }) =>
+      postApplyRun(row.jobHash, opts),
     onSuccess: (data) => {
       // Seed local apply state so the button transitions immediately.
       setApplyRun({
@@ -646,10 +662,20 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
     relaunchMutation.mutate();
   }, [relaunchMutation]);
 
-  const handleApply = useCallback(() => {
+  const handleApplyTailored = useCallback(() => {
+    // Apply button on a SUCCESS tailor — backend uses the existing
+    // review run, no body needed.
     setIsNotTailoredModalOpen(false);
     setApplyErrorMessage(null);
-    applyMutation.mutate();
+    applyMutation.mutate(undefined);
+  }, [applyMutation]);
+
+  const handleApplyBase = useCallback(() => {
+    // "No, skip tailoring" from the NotTailoredModal — backend
+    // synthesizes a tailor+review chain and ships the base PDF.
+    setIsNotTailoredModalOpen(false);
+    setApplyErrorMessage(null);
+    applyMutation.mutate({ resumeMode: "base" });
   }, [applyMutation]);
 
   const handleRequestTailorChoice = useCallback(() => {
@@ -661,21 +687,30 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
   }, []);
 
   const handleTailorThenApply = useCallback(() => {
+    // "Yes, tailor my resume" from the NotTailoredModal — the backend
+    // persists the auto-apply intent on the tailor row and enqueues
+    // the apply automatically when the pipeline finishes. No
+    // client-side mutation chaining.
     setIsNotTailoredModalOpen(false);
     setApplyErrorMessage(null);
-    // First tailor, then immediately enqueue the apply run after success.
-    enqueueMutation.mutate(undefined, {
-      onSuccess: () => {
-        applyMutation.mutate();
-      },
-    });
-  }, [enqueueMutation, applyMutation]);
+    enqueueMutation.mutate({ applyAfter: true });
+  }, [enqueueMutation]);
 
   const tailorRun = row.tailorRun;
   const baseDownloadUrl = getTailoredResumeUrl(row.jobHash);
-  const errorMessage = enqueueMutation.error
-    ? (enqueueMutation.error as Error).message
-    : null;
+  // RUN_ALREADY_EXISTS is racy with the jobs refetch — the row state
+  // catches up and hides the button anyway, so don't render a red
+  // banner under a button whose underlying action already succeeded.
+  const rawEnqueueError = enqueueMutation.error;
+  const errorMessage =
+    rawEnqueueError !== null &&
+    !(
+      typeof rawEnqueueError === "object" &&
+      "code" in rawEnqueueError &&
+      (rawEnqueueError as { code: unknown }).code === "RUN_ALREADY_EXISTS"
+    )
+      ? (rawEnqueueError as Error).message
+      : null;
   const deleteErrorMessage = deleteMutation.error
     ? (deleteMutation.error as Error).message
     : null;
@@ -699,7 +734,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
               style={{ backgroundColor: COLOR_PRIMARY }}
               onClick={(e) => {
                 e.stopPropagation();
-                enqueueMutation.mutate();
+                enqueueMutation.mutate(undefined);
               }}
               disabled={enqueueMutation.isPending}
             >
@@ -715,7 +750,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             jobHash={row.jobHash}
             tailorRun={null}
             applyRun={applyRun}
-            onApply={handleApply}
+            onApply={handleApplyTailored}
             onRequestTailorChoice={handleRequestTailorChoice}
             onRelaunch={handleRelaunch}
             pendingRelaunch={relaunchMutation.isPending}
@@ -727,7 +762,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         <NotTailoredModal
           open={isNotTailoredModalOpen}
           onClose={() => setIsNotTailoredModalOpen(false)}
-          onApply={handleApply}
+          onApply={handleApplyBase}
           onTailorThenApply={handleTailorThenApply}
         />
       </>
@@ -745,7 +780,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             jobHash={row.jobHash}
             tailorRun={tailorRun}
             applyRun={applyRun}
-            onApply={handleApply}
+            onApply={handleApplyTailored}
             onRequestTailorChoice={handleRequestTailorChoice}
             onRelaunch={handleRelaunch}
             pendingRelaunch={relaunchMutation.isPending}
@@ -754,7 +789,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         <NotTailoredModal
           open={isNotTailoredModalOpen}
           onClose={() => setIsNotTailoredModalOpen(false)}
-          onApply={handleApply}
+          onApply={handleApplyBase}
           onTailorThenApply={handleTailorThenApply}
         />
       </>
@@ -796,7 +831,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             jobHash={row.jobHash}
             tailorRun={tailorRun}
             applyRun={applyRun}
-            onApply={handleApply}
+            onApply={handleApplyTailored}
             onRequestTailorChoice={handleRequestTailorChoice}
             onRelaunch={handleRelaunch}
             pendingRelaunch={relaunchMutation.isPending}
@@ -808,7 +843,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         <NotTailoredModal
           open={isNotTailoredModalOpen}
           onClose={() => setIsNotTailoredModalOpen(false)}
-          onApply={handleApply}
+          onApply={handleApplyBase}
           onTailorThenApply={handleTailorThenApply}
         />
       </>
@@ -853,7 +888,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
             jobHash={row.jobHash}
             tailorRun={tailorRun}
             applyRun={applyRun}
-            onApply={handleApply}
+            onApply={handleApplyTailored}
             onRequestTailorChoice={handleRequestTailorChoice}
             onRelaunch={handleRelaunch}
             pendingRelaunch={relaunchMutation.isPending}
@@ -865,7 +900,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
         <NotTailoredModal
           open={isNotTailoredModalOpen}
           onClose={() => setIsNotTailoredModalOpen(false)}
-          onApply={handleApply}
+          onApply={handleApplyBase}
           onTailorThenApply={handleTailorThenApply}
         />
       </>
@@ -908,7 +943,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
           jobHash={row.jobHash}
           tailorRun={tailorRun}
           applyRun={applyRun}
-          onApply={handleApply}
+          onApply={handleApplyTailored}
           onRequestTailorChoice={handleRequestTailorChoice}
             onRelaunch={handleRelaunch}
             pendingRelaunch={relaunchMutation.isPending}
@@ -920,7 +955,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
       <NotTailoredModal
         open={isNotTailoredModalOpen}
         onClose={() => setIsNotTailoredModalOpen(false)}
-        onApply={handleApply}
+        onApply={handleApplyBase}
         onTailorThenApply={handleTailorThenApply}
       />
     </>

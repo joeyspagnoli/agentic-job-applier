@@ -61,6 +61,7 @@ class TailorMixin(_BaseMixin):
                 completed_at TIMESTAMP,
                 claim_token TEXT,
                 deleted_at TIMESTAMP,
+                apply_after_completion INTEGER NOT NULL DEFAULT 0,
                 CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED'))
             );
             CREATE INDEX IF NOT EXISTS idx_tailor_runs_job_hash
@@ -93,6 +94,15 @@ class TailorMixin(_BaseMixin):
             # its path here so the dashboard can surface "Why these edits".
             await conn.execute(
                 "ALTER TABLE tailor_runs ADD COLUMN plan_json_path TEXT"
+            )
+        if "apply_after_completion" not in column_names:
+            # Post-#59 follow-up (2026-05-25): when the user clicks
+            # "Yes, tailor my resume" from the NotTailoredModal, the
+            # backend persists the auto-apply intent here so it survives
+            # process restarts between the POST and the pipeline finish.
+            await conn.execute(
+                "ALTER TABLE tailor_runs ADD COLUMN "
+                "apply_after_completion INTEGER NOT NULL DEFAULT 0"
             )
 
         # Widen the status CHECK to include 'RUNNING' on legacy databases via
@@ -130,8 +140,23 @@ class TailorMixin(_BaseMixin):
         if "'RUNNING'" in existing_sql:
             return
 
+        # Pull the existing column set so the rebuild copies forward any
+        # columns added by earlier ALTERs (``plan_json_path``,
+        # ``apply_after_completion``, etc.) without losing data.
+        existing_cols_cursor = await conn.execute("PRAGMA table_info(tailor_runs)")
+        existing_cols_rows = await existing_cols_cursor.fetchall()
+        existing_cols = {str(col_row["name"]) for col_row in existing_cols_rows}
+        plan_json_path_copy_value = (
+            "plan_json_path" if "plan_json_path" in existing_cols else "NULL"
+        )
+        apply_after_copy_value = (
+            "apply_after_completion"
+            if "apply_after_completion" in existing_cols
+            else "0"
+        )
+
         await conn.executescript(
-            """
+            f"""
             CREATE TABLE tailor_runs__new (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_hash TEXT NOT NULL,
@@ -146,17 +171,21 @@ class TailorMixin(_BaseMixin):
                 completed_at TIMESTAMP,
                 claim_token TEXT,
                 deleted_at TIMESTAMP,
+                plan_json_path TEXT,
+                apply_after_completion INTEGER NOT NULL DEFAULT 0,
                 CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED'))
             );
             INSERT INTO tailor_runs__new (
                 id, job_hash, status, artifact_yaml_path, artifact_tex_path,
                 artifact_pdf_path, page_count, error, next_retry_at,
-                started_at, completed_at, claim_token, deleted_at
+                started_at, completed_at, claim_token, deleted_at,
+                plan_json_path, apply_after_completion
             )
             SELECT
                 id, job_hash, status, artifact_yaml_path, artifact_tex_path,
                 artifact_pdf_path, page_count, error, next_retry_at,
-                started_at, completed_at, claim_token, deleted_at
+                started_at, completed_at, claim_token, deleted_at,
+                {plan_json_path_copy_value}, {apply_after_copy_value}
             FROM tailor_runs;
             DROP TABLE tailor_runs;
             ALTER TABLE tailor_runs__new RENAME TO tailor_runs;
@@ -463,6 +492,7 @@ class TailorMixin(_BaseMixin):
         self,
         *,
         job_hash: str,
+        apply_after_completion: bool = False,
     ) -> Optional[TailorRunClaim]:
         """Create a PENDING tailor_runs row for an opt-in user request.
 
@@ -474,6 +504,10 @@ class TailorMixin(_BaseMixin):
         Args:
             self: The database manager performing the insert.
             job_hash: Stable deduplication hash of the target job.
+            apply_after_completion: When `True`, persist the auto-apply
+                intent on the row. The router's BackgroundTask reads
+                this flag after the pipeline finishes to decide whether
+                to enqueue an apply run automatically.
         Output:
             Returns `{id, claim_token}` on success, or `None` when a
             non-deleted active (PENDING/RUNNING/SUCCESS) run already
@@ -502,11 +536,13 @@ class TailorMixin(_BaseMixin):
 
             insert_cursor = await conn.execute(
                 """
-                INSERT INTO tailor_runs (job_hash, status, claim_token)
-                VALUES (?, 'PENDING', ?)
+                INSERT INTO tailor_runs (
+                    job_hash, status, claim_token, apply_after_completion
+                )
+                VALUES (?, 'PENDING', ?, ?)
                 RETURNING id, claim_token
                 """,
-                (job_hash, claim_token),
+                (job_hash, claim_token, 1 if apply_after_completion else 0),
             )
             row = await insert_cursor.fetchone()
             await conn.commit()

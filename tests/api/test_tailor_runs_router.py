@@ -131,6 +131,220 @@ def test_post_returns_409_when_mode_autonomous(
     assert response.json()["code"] == "MODE_AUTONOMOUS"
 
 
+def test_post_with_apply_after_persists_column(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """Body `{apply_after: true}` writes `apply_after_completion = 1`."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+
+    response = client.post(
+        f"/api/jobs/{VALID_HASH}/tailor",
+        json={"apply_after": True},
+    )
+
+    assert response.status_code == 202
+    run_id = response.json()["tailor_run_id"]
+
+    async def _read_flag() -> int:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            row = await db.get_tailor_run(run_id)
+            assert row is not None
+            value = row["apply_after_completion"]
+            return int(value) if value is not None else 0  # type: ignore[arg-type]
+
+    assert asyncio.run(_read_flag()) == 1
+
+
+def test_post_without_apply_after_defaults_to_zero(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """Omitted body keeps `apply_after_completion = 0`."""
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+
+    response = client.post(f"/api/jobs/{VALID_HASH}/tailor")
+
+    assert response.status_code == 202
+    run_id = response.json()["tailor_run_id"]
+
+    async def _read_flag() -> int:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            row = await db.get_tailor_run(run_id)
+            assert row is not None
+            value = row["apply_after_completion"]
+            return int(value) if value is not None else 0  # type: ignore[arg-type]
+
+    assert asyncio.run(_read_flag()) == 0
+
+
+def test_pipeline_completion_with_apply_after_enqueues_apply_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_run_pipeline_background` with apply_after=True enqueues apply on success.
+
+    Bypasses the HTTP fixture entirely (which noops the BackgroundTask)
+    so the real `_run_pipeline_background` path is exercised end-to-end.
+    """
+
+    from types import SimpleNamespace
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    monkeypatch.setattr(api_main, "resolve_database_path", lambda: db_path)
+
+    async def _stub_pipeline(
+        *,
+        db: object,
+        tailor_run_id: int,
+        job_hash: str,
+        base_resume_tex_path: object,
+        candidate_profile_yaml_path: object,
+        output_dir: object,
+    ) -> object:
+        async with DatabaseManager(str(db_path)) as inner_db:
+            await inner_db.create_tables()
+            inner_conn = inner_db._require_conn()
+            await inner_conn.execute(
+                "UPDATE tailor_runs SET status='SUCCESS', "
+                "completed_at=CURRENT_TIMESTAMP WHERE id = ?",
+                (tailor_run_id,),
+            )
+            review_cursor = await inner_conn.execute(
+                "INSERT INTO review_runs ("
+                "job_hash, tailor_run_id, status, verdict, "
+                "fallback_base_pdf_path, completed_at) "
+                "VALUES (?, ?, 'SUCCESS', 'BASE', '/tmp/fake.pdf', "
+                "CURRENT_TIMESTAMP) RETURNING id",
+                (job_hash, tailor_run_id),
+            )
+            review_row = await review_cursor.fetchone()
+            await inner_conn.commit()
+            assert review_row is not None
+        return SimpleNamespace(success=True, review_run_id=int(review_row["id"]))
+
+    spawned_calls: list[dict[str, object]] = []
+
+    async def _capture_spawn(**kwargs: object) -> None:
+        spawned_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        tailor_runs_router, "run_tailor_review_pipeline", _stub_pipeline
+    )
+    monkeypatch.setattr(
+        "api.routers.apply_runs._spawn_user_apply_task", _capture_spawn
+    )
+
+    async def _seed_tailor_row() -> int:
+        async with DatabaseManager(str(db_path)) as inner_db:
+            await inner_db.create_tables()
+            claim = await inner_db.insert_user_triggered_tailor_run(
+                job_hash=VALID_HASH, apply_after_completion=True
+            )
+            assert claim is not None
+            return claim["id"]
+
+    tailor_run_id = asyncio.run(_seed_tailor_row())
+
+    asyncio.run(
+        tailor_runs_router._run_pipeline_background(
+            db_path=str(db_path),
+            tailor_run_id=tailor_run_id,
+            job_hash=VALID_HASH,
+            output_dir=tmp_path / "out",
+            apply_after=True,
+        )
+    )
+
+    async def _read_apply_rows() -> list[tuple[int, str]]:
+        async with DatabaseManager(str(db_path)) as inner_db:
+            await inner_db.create_tables()
+            conn = inner_db._require_conn()
+            cursor = await conn.execute(
+                "SELECT id, status FROM apply_runs WHERE job_hash = ?",
+                (VALID_HASH,),
+            )
+            rows = await cursor.fetchall()
+            return [(int(row["id"]), str(row["status"])) for row in rows]
+
+    rows = asyncio.run(_read_apply_rows())
+    assert len(rows) == 1
+    assert rows[0][1] == "PENDING"
+    assert len(spawned_calls) == 1
+
+
+def test_pipeline_failure_with_apply_after_does_not_enqueue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed pipeline result is observed and no apply row is created."""
+
+    from types import SimpleNamespace
+
+    db_path = tmp_path / "tailor_api.db"
+    _seed_qualified_job(db_path, VALID_HASH)
+    monkeypatch.setattr(api_main, "resolve_database_path", lambda: db_path)
+
+    async def _stub_failed_pipeline(**_kwargs: object) -> object:
+        return SimpleNamespace(success=False, review_run_id=None)
+
+    monkeypatch.setattr(
+        tailor_runs_router, "run_tailor_review_pipeline", _stub_failed_pipeline
+    )
+
+    spawned_calls: list[dict[str, object]] = []
+
+    async def _capture_spawn(**kwargs: object) -> None:
+        spawned_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "api.routers.apply_runs._spawn_user_apply_task", _capture_spawn
+    )
+
+    async def _seed_tailor_row() -> int:
+        async with DatabaseManager(str(db_path)) as inner_db:
+            await inner_db.create_tables()
+            claim = await inner_db.insert_user_triggered_tailor_run(
+                job_hash=VALID_HASH, apply_after_completion=True
+            )
+            assert claim is not None
+            return claim["id"]
+
+    tailor_run_id = asyncio.run(_seed_tailor_row())
+
+    asyncio.run(
+        tailor_runs_router._run_pipeline_background(
+            db_path=str(db_path),
+            tailor_run_id=tailor_run_id,
+            job_hash=VALID_HASH,
+            output_dir=tmp_path / "out",
+            apply_after=True,
+        )
+    )
+
+    async def _count_apply_rows() -> int:
+        async with DatabaseManager(str(db_path)) as inner_db:
+            await inner_db.create_tables()
+            conn = inner_db._require_conn()
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM apply_runs WHERE job_hash = ?",
+                (VALID_HASH,),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            return int(row[0])
+
+    assert asyncio.run(_count_apply_rows()) == 0
+    assert spawned_calls == []
+
+
 def test_post_returns_409_when_run_already_exists(
     client: TestClient,
     tmp_path: Path,

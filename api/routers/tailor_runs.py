@@ -16,14 +16,20 @@ pipeline's per-stage writes can outlive the HTTP response.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Body
 from loguru import logger
+from pydantic import BaseModel
 
 from src.agents.resume_tailor import run_tailor_review_pipeline
+from src.database._mixins.apply import (
+    ApplyRunInFlightError,
+    NoReviewRunError,
+)
 from src.database._mixins.system_settings import TAILOR_MODE_KEY
 from src.database.db_manager import DatabaseManager
 from src.utils.cost_tracking import PIPELINE_STAGE_TAILOR, check_budget_before_claim
@@ -41,33 +47,53 @@ router = APIRouter(prefix="/api", tags=["tailor-runs"])
 AUTONOMOUS_MODE = "autonomous"
 
 
+class EnqueueTailorRunBody(BaseModel):
+    """Optional request body for :func:`enqueue_tailor_run`.
+
+    Purpose:
+        Let the dashboard ask the backend to chain an apply run after
+        the tailor pipeline finishes successfully. Powers the
+        NotTailoredModal's "Yes, tailor my resume" button so the user
+        does not need to click Apply again once tailoring is done.
+    """
+
+    apply_after: bool = False
+
+
 async def _run_pipeline_background(
     *,
     db_path: str,
     tailor_run_id: int,
     job_hash: str,
     output_dir: Path,
+    apply_after: bool = False,
 ) -> None:
     """Execute the resume-tailor pipeline inside a FastAPI BackgroundTask.
 
     Purpose:
         Run the pipeline on the request's lifecycle without blocking the
         HTTP response. Each invocation opens its own database connection
-        because BackgroundTasks outlive request-scoped resources.
+        because BackgroundTasks outlive request-scoped resources. When
+        ``apply_after`` is `True` and the pipeline finishes successfully,
+        an apply run is enqueued automatically — the same path the user
+        would trigger by clicking Apply after a SUCCESS tailor.
     Args:
         db_path: SQLite database path.
         tailor_run_id: Primary key of the PENDING tailor_runs row.
         job_hash: Stable job identifier.
         output_dir: Per-run artifact directory.
+        apply_after: When `True`, enqueue an apply run after the
+            pipeline succeeds. Failed pipelines never trigger apply.
     Output:
         Returns `None`. Pipeline errors are caught and logged so they
         cannot escape the BackgroundTask runner.
     """
 
+    pipeline_succeeded = False
     try:
         async with DatabaseManager(db_path) as db:
             await db.create_tables()
-            await run_tailor_review_pipeline(
+            result = await run_tailor_review_pipeline(
                 db=db,
                 tailor_run_id=tailor_run_id,
                 job_hash=job_hash,
@@ -75,6 +101,7 @@ async def _run_pipeline_background(
                 candidate_profile_yaml_path=SETTINGS_PROFILE_PATH,
                 output_dir=output_dir,
             )
+            pipeline_succeeded = bool(getattr(result, "success", False))
     except Exception as exc:
         logger.exception(
             "BackgroundTask tailor pipeline failed: run_id={} job_hash={} error={}",
@@ -82,6 +109,67 @@ async def _run_pipeline_background(
             job_hash,
             exc,
         )
+        return
+
+    if not apply_after:
+        return
+    if not pipeline_succeeded:
+        logger.info(
+            "apply_after_completion=1 but tailor pipeline did not succeed; "
+            "skipping auto-apply (run_id={} job_hash={})",
+            tailor_run_id,
+            job_hash,
+        )
+        return
+
+    await _enqueue_apply_after_tailor(db_path=db_path, job_hash=job_hash)
+
+
+async def _enqueue_apply_after_tailor(*, db_path: str, job_hash: str) -> None:
+    """Enqueue + spawn an apply run after a successful auto-apply tailor.
+
+    Purpose:
+        Hide the cross-router call from ``_run_pipeline_background`` so
+        the BackgroundTask body stays focused on the pipeline outcome.
+        409s (an apply is already in flight) and 404-ish missing reviews
+        are logged and swallowed — auto-apply is best-effort by design.
+    Args:
+        db_path: SQLite database path.
+        job_hash: Stable job identifier for the just-tailored job.
+    Output:
+        Returns `None`.
+    """
+
+    # Local import keeps the cross-router edge out of module import time.
+    from api.routers.apply_runs import _spawn_user_apply_task  # noqa: PLC0415
+
+    try:
+        async with DatabaseManager(db_path) as db:
+            await db.create_tables()
+            merged_row = await db.enqueue_apply_run_for_job(job_hash=job_hash)
+    except ApplyRunInFlightError as exc:
+        logger.info(
+            "auto-apply skipped: apply already in flight (job_hash={} run_id={})",
+            job_hash,
+            exc.run_id,
+        )
+        return
+    except NoReviewRunError:
+        logger.warning(
+            "auto-apply skipped: no SUCCESS review found after tailor "
+            "(job_hash={})",
+            job_hash,
+        )
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "auto-apply enqueue failed (job_hash={}): {}", job_hash, exc
+        )
+        return
+
+    asyncio.create_task(
+        _spawn_user_apply_task(db_path=db_path, merged_row=merged_row),
+    )
 
 
 def _serialize_tailor_run_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -132,6 +220,7 @@ def _serialize_tailor_run_row(row: dict[str, Any]) -> dict[str, Any]:
 async def enqueue_tailor_run(
     job_hash: str,
     background_tasks: BackgroundTasks,
+    body: Optional[EnqueueTailorRunBody] = Body(default=None),
 ) -> dict[str, object]:
     """Enqueue a user-triggered tailor pipeline run.
 
@@ -139,10 +228,15 @@ async def enqueue_tailor_run(
         Insert a PENDING tailor_runs row and schedule the resume-tailor pipeline
         as a FastAPI BackgroundTask. Rejects with 409 when the user has
         opted out of manual runs (`autonomous` mode) or when a non-deleted
-        active row already exists for this job.
+        active row already exists for this job. When the request body
+        sets ``apply_after=true``, the auto-apply intent is persisted on
+        the new tailor row and the BackgroundTask enqueues an apply run
+        automatically on pipeline success.
     Args:
         job_hash: Stable job identifier from the URL.
         background_tasks: Injected by FastAPI; schedules the pipeline.
+        body: Optional request body. ``{apply_after: true}`` chains an
+            apply run after the tailor finishes successfully.
     Output:
         Returns `{ok, tailor_run_id, status, job_hash}` on enqueue.
     Raises:
@@ -155,6 +249,7 @@ async def enqueue_tailor_run(
 
     validated_hash = _validate_job_hash(job_hash)
     db_path = str(_main.resolve_database_path())
+    apply_after = (body or EnqueueTailorRunBody()).apply_after
 
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
@@ -192,7 +287,8 @@ async def enqueue_tailor_run(
             )
 
         claim_result = await db.insert_user_triggered_tailor_run(
-            job_hash=validated_hash
+            job_hash=validated_hash,
+            apply_after_completion=apply_after,
         )
         if claim_result is None:
             _raise_api_error(
@@ -214,6 +310,7 @@ async def enqueue_tailor_run(
         tailor_run_id=tailor_run_id,
         job_hash=validated_hash,
         output_dir=run_output_dir,
+        apply_after=apply_after,
     )
 
     return {

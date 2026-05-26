@@ -191,18 +191,42 @@ export async function fetchJobs(args: {
 }
 
 /**
+ * Options accepted by {@link enqueueTailorRun}.
+ */
+export type EnqueueTailorRunOptions = {
+  /**
+   * When `true`, ask the backend to enqueue an apply run automatically
+   * after the tailor pipeline completes successfully. Powers the
+   * "tailor then apply" path on the NotTailoredModal — the dashboard
+   * does not need to chain a second mutation client-side.
+   */
+  applyAfter?: boolean;
+};
+
+/**
  * Enqueue a user-triggered tailor run for one job.
  *
  * @param jobHash - Stable deduplication hash of the target job.
+ * @param opts - Optional behavior flags. Omitting the argument
+ *   preserves the original "tailor only" contract.
  * @returns Enqueue response with the new tailor_run_id.
  */
 export async function enqueueTailorRun(
   jobHash: string,
+  opts?: EnqueueTailorRunOptions,
 ): Promise<EnqueueTailorRunResponseDto> {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(jobHash)}/tailor`, {
+  const init: RequestInit = {
     method: "POST",
     headers: JSON_HEADERS,
-  });
+  };
+  if (opts?.applyAfter === true) {
+    init.body = JSON.stringify({ apply_after: true });
+  }
+
+  const response = await fetch(
+    `/api/jobs/${encodeURIComponent(jobHash)}/tailor`,
+    init,
+  );
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
     throw buildApiError(
@@ -1002,18 +1026,46 @@ export class ApplyRunConflictError extends Error {
 }
 
 /**
+ * Options accepted by {@link postApplyRun}.
+ */
+export type PostApplyRunOptions = {
+  /**
+   * Which resume should the apply pipeline upload?
+   *
+   * - `"tailored"` (default): require a SUCCESS review run for this job
+   *   and use the tailored PDF the reviewer selected.
+   * - `"base"`: synthesize a tailor + review chain on the backend that
+   *   uses the user's compiled base resume. Powers the "skip tailoring"
+   *   path on the NotTailoredModal.
+   */
+  resumeMode?: "tailored" | "base";
+};
+
+/**
  * Enqueue a user-triggered apply run for one job.
  *
  * @param jobHash - Stable deduplication hash of the target job.
+ * @param opts - Optional resume-mode selector. Omitting the argument or
+ *   passing `{ resumeMode: "tailored" }` sends no body and preserves
+ *   the original "must have a SUCCESS review" contract.
  * @returns Enqueue response with the new apply_run_id.
  * @throws {@link ApplyRunConflictError} When HTTP 409 — an active run already exists.
  * @throws ApiError for other non-2xx responses.
  */
-export async function postApplyRun(jobHash: string): Promise<EnqueueApplyRunResponseDto> {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(jobHash)}/apply`, {
+export async function postApplyRun(
+  jobHash: string,
+  opts?: PostApplyRunOptions,
+): Promise<EnqueueApplyRunResponseDto> {
+  const resumeMode = opts?.resumeMode;
+  const init: RequestInit = {
     method: "POST",
     headers: JSON_HEADERS,
-  });
+  };
+  if (resumeMode !== undefined) {
+    init.body = JSON.stringify({ resume_mode: resumeMode });
+  }
+
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobHash)}/apply`, init);
 
   if (response.status === 409) {
     throw new ApplyRunConflictError(jobHash);

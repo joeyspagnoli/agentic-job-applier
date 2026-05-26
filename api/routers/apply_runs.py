@@ -13,19 +13,36 @@ Backs the dashboard `[Apply]` button. Exposes:
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 from loguru import logger
+from pydantic import BaseModel
 
+from src.agents.resume_tailor.base_compile import compile_base_resume_pdf
+from src.agents.resume_tailor.compiler import ResumeCompileError
 from src.database._mixins.apply import ApplyRunInFlightError
 from src.database._mixins.apply import NoReviewRunError
 from src.database.db_manager import DatabaseManager
 
+from api.config import SETTINGS_RESUME_PATH
 from api.errors import _raise_api_error
 from api.services.tailored_resume import _validate_job_hash
 
 router = APIRouter(prefix="/api", tags=["apply-runs"])
+
+
+class EnqueueApplyRunBody(BaseModel):
+    """Optional request body for :func:`enqueue_apply_run`.
+
+    Purpose:
+        Let the dashboard opt into the "skip tailoring" path by sending
+        ``resume_mode='base'``. Missing body or
+        ``resume_mode='tailored'`` preserves the original behavior of
+        requiring a SUCCESS review run.
+    """
+
+    resume_mode: Literal["tailored", "base"] = "tailored"
 
 
 async def _spawn_user_apply_task(
@@ -127,55 +144,114 @@ def _serialize_apply_run_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.post("/jobs/{job_hash}/apply", status_code=200)
-async def enqueue_apply_run(job_hash: str) -> dict[str, object]:
+async def enqueue_apply_run(
+    job_hash: str,
+    body: Optional[EnqueueApplyRunBody] = Body(default=None),
+) -> dict[str, object]:
     """Enqueue a user-triggered browser-apply run.
 
     Purpose:
-        Insert a PENDING apply_runs row tied to the most recent SUCCESS
-        review run for the job. Rejects with 409 when a non-deleted
-        PENDING apply run already exists for this job, and with 422 when
-        no eligible review run has completed.
+        Insert a PENDING apply_runs row for the job. With the default
+        ``resume_mode='tailored'`` the row is tied to the most recent
+        SUCCESS review run; with ``resume_mode='base'`` the router
+        compiles the user's base resume on demand, synthesizes the
+        required tailor + review rows, and enqueues the apply against
+        the compiled base PDF. Rejects with 409 when a non-deleted
+        PENDING apply run already exists for this job, with 422 when
+        ``resume_mode='tailored'`` and no eligible review run has
+        completed, and with 422 when the base-resume compile fails.
     Args:
         job_hash: Stable job identifier from the URL.
+        body: Optional request body controlling the resume source. When
+            ``None``, defaults to ``resume_mode='tailored'``.
     Output:
         Returns `{run_id, status}` on enqueue.
     Raises:
         HTTPException: 400 when the job hash is malformed; 409 when a run
-            is already in flight; 422 when no review run exists yet.
+            is already in flight; 422 when no review run exists yet
+            (``tailored`` mode) or when the base resume fails to compile
+            (``base`` mode).
     """
 
     from api import main as _main  # noqa: PLC0415 — late import for monkeypatch hook
 
     validated_hash = _validate_job_hash(job_hash)
     db_path = str(_main.resolve_database_path())
+    resume_mode = (body or EnqueueApplyRunBody()).resume_mode
 
     async with DatabaseManager(db_path) as db:
         await db.create_tables()
 
-        try:
-            merged_row = await db.enqueue_apply_run_for_job(
-                job_hash=validated_hash,
-            )
-        except ApplyRunInFlightError as exc:
-            logger.info(
-                "Apply run already in flight: job_hash={} run_id={} status={}",
-                validated_hash,
-                exc.run_id,
-                exc.status,
-            )
-            _raise_api_error(
-                status_code=409,
-                code="APPLY_RUN_IN_FLIGHT",
-                message="An apply run is already in flight for this job.",
-                details={"run_id": exc.run_id, "status": exc.status},
-            )
-        except NoReviewRunError:
-            _raise_api_error(
-                status_code=422,
-                code="NO_REVIEW_RUN",
-                message="Job has no completed review yet.",
-                details={"job_hash": validated_hash},
-            )
+        if resume_mode == "base":
+            try:
+                base_pdf_path = await compile_base_resume_pdf(
+                    tex_path=SETTINGS_RESUME_PATH,
+                )
+            except FileNotFoundError as exc:
+                _raise_api_error(
+                    status_code=422,
+                    code="BASE_RESUME_MISSING",
+                    message="Base resume .tex file not found.",
+                    details={"path": str(SETTINGS_RESUME_PATH), "error": str(exc)},
+                )
+            except ResumeCompileError as exc:
+                _raise_api_error(
+                    status_code=422,
+                    code="BASE_COMPILE_FAILED",
+                    message="Failed to compile base resume PDF.",
+                    details={"compile_error": str(exc)},
+                )
+
+            try:
+                merged_row = await db.enqueue_apply_run_with_base_resume(
+                    job_hash=validated_hash,
+                    base_pdf_path=str(base_pdf_path),
+                )
+            except ApplyRunInFlightError as exc:
+                logger.info(
+                    "Apply run already in flight: job_hash={} run_id={} status={}",
+                    validated_hash,
+                    exc.run_id,
+                    exc.status,
+                )
+                _raise_api_error(
+                    status_code=409,
+                    code="APPLY_RUN_IN_FLIGHT",
+                    message="An apply run is already in flight for this job.",
+                    details={"run_id": exc.run_id, "status": exc.status},
+                )
+            except NoReviewRunError:
+                _raise_api_error(
+                    status_code=404,
+                    code="JOB_NOT_FOUND",
+                    message="Job not found for the supplied hash.",
+                    details={"job_hash": validated_hash},
+                )
+        else:
+            try:
+                merged_row = await db.enqueue_apply_run_for_job(
+                    job_hash=validated_hash,
+                )
+            except ApplyRunInFlightError as exc:
+                logger.info(
+                    "Apply run already in flight: job_hash={} run_id={} status={}",
+                    validated_hash,
+                    exc.run_id,
+                    exc.status,
+                )
+                _raise_api_error(
+                    status_code=409,
+                    code="APPLY_RUN_IN_FLIGHT",
+                    message="An apply run is already in flight for this job.",
+                    details={"run_id": exc.run_id, "status": exc.status},
+                )
+            except NoReviewRunError:
+                _raise_api_error(
+                    status_code=422,
+                    code="NO_REVIEW_RUN",
+                    message="Job has no completed review yet.",
+                    details={"job_hash": validated_hash},
+                )
 
     # Bug 4: kick the browser flow off immediately instead of waiting
     # for the autonomous poll loop to (eventually) re-claim the row.

@@ -16,6 +16,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import main as api_main
+from api.routers import apply_runs as apply_runs_router
+from src.agents.resume_tailor.compiler import ResumeCompileError
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
 
@@ -89,6 +91,30 @@ def client(
     return TestClient(api_main.app)
 
 
+@pytest.fixture()
+def stub_base_compile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Replace ``compile_base_resume_pdf`` with a deterministic stub.
+
+    Purpose:
+        Avoid invoking tectonic from unit tests. Returns the path of a
+        zero-byte stub PDF the synthesizer will store in the new
+        ``review_runs.fallback_base_pdf_path`` column.
+    """
+
+    stub_pdf = tmp_path / "base_resume_stub.pdf"
+    stub_pdf.write_bytes(b"%PDF-stub")
+
+    async def _stub_compile(**_kwargs: object) -> Path:
+        return stub_pdf
+
+    monkeypatch.setattr(
+        apply_runs_router, "compile_base_resume_pdf", _stub_compile
+    )
+    return stub_pdf
+
+
 # ---------------------------------------------------------------------------
 # POST /api/jobs/{hash}/apply
 # ---------------------------------------------------------------------------
@@ -125,15 +151,138 @@ def test_post_returns_422_when_no_review_run(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    """Job exists but has no SUCCESS review run → 422 NO_REVIEW_RUN."""
+    """Default resume_mode=tailored still requires a SUCCESS review."""
 
     db_path = tmp_path / "apply_api.db"
     _seed_job(db_path, VALID_HASH)
 
+    # Default body (omitted) keeps the original contract.
     response = client.post(f"/api/jobs/{VALID_HASH}/apply")
 
     assert response.status_code == 422
     assert response.json()["code"] == "NO_REVIEW_RUN"
+
+    # Explicit `resume_mode=tailored` is equivalent.
+    explicit_response = client.post(
+        f"/api/jobs/{VALID_HASH}/apply",
+        json={"resume_mode": "tailored"},
+    )
+    assert explicit_response.status_code == 422
+    assert explicit_response.json()["code"] == "NO_REVIEW_RUN"
+
+
+def test_post_with_resume_mode_base_returns_200_when_no_review_run(
+    client: TestClient,
+    tmp_path: Path,
+    stub_base_compile: Path,
+) -> None:
+    """`resume_mode=base` synthesizes a tailor+review chain and enqueues apply.
+
+    The skip-tailoring path that the NotTailoredModal's "Apply anyways"
+    button uses must succeed even though the job has no SUCCESS review.
+    """
+
+    db_path = tmp_path / "apply_api.db"
+    _seed_job(db_path, VALID_HASH)
+
+    response = client.post(
+        f"/api/jobs/{VALID_HASH}/apply",
+        json={"resume_mode": "base"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "PENDING"
+    assert isinstance(body["run_id"], int) and body["run_id"] > 0
+
+    async def _read_review() -> tuple[str, str]:
+        async with DatabaseManager(str(db_path)) as db:
+            await db.create_tables()
+            apply_row = await db.get_apply_run(body["run_id"])
+            assert apply_row is not None
+            conn = db._require_conn()
+            review_cursor = await conn.execute(
+                "SELECT verdict, fallback_base_pdf_path FROM review_runs "
+                "WHERE id = ?",
+                (apply_row["review_run_id"],),
+            )
+            review_row = await review_cursor.fetchone()
+            assert review_row is not None
+            return str(review_row["verdict"]), str(
+                review_row["fallback_base_pdf_path"]
+            )
+
+    verdict, pdf_path = asyncio.run(_read_review())
+    assert verdict == "BASE"
+    assert pdf_path == str(stub_base_compile)
+
+
+def test_post_with_resume_mode_base_returns_409_when_inflight(
+    client: TestClient,
+    tmp_path: Path,
+    stub_base_compile: Path,
+) -> None:
+    """Second base-mode POST while a PENDING run exists → 409."""
+
+    db_path = tmp_path / "apply_api.db"
+    _seed_job(db_path, VALID_HASH)
+
+    first = client.post(
+        f"/api/jobs/{VALID_HASH}/apply",
+        json={"resume_mode": "base"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        f"/api/jobs/{VALID_HASH}/apply",
+        json={"resume_mode": "base"},
+    )
+
+    assert second.status_code == 409
+    assert second.json()["code"] == "APPLY_RUN_IN_FLIGHT"
+
+
+def test_post_with_resume_mode_base_returns_422_on_compile_failure(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tectonic failure surfaces as 422 BASE_COMPILE_FAILED."""
+
+    db_path = tmp_path / "apply_api.db"
+    _seed_job(db_path, VALID_HASH)
+
+    async def _fail_compile(**_kwargs: object) -> Path:
+        raise ResumeCompileError("tectonic exploded")
+
+    monkeypatch.setattr(
+        apply_runs_router, "compile_base_resume_pdf", _fail_compile
+    )
+
+    response = client.post(
+        f"/api/jobs/{VALID_HASH}/apply",
+        json={"resume_mode": "base"},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "BASE_COMPILE_FAILED"
+    assert "tectonic exploded" in body["details"]["compile_error"]
+
+
+def test_post_with_resume_mode_base_returns_404_when_job_missing(
+    client: TestClient,
+    stub_base_compile: Path,
+) -> None:
+    """Base-mode against an unknown job → 404 JOB_NOT_FOUND."""
+
+    response = client.post(
+        f"/api/jobs/{VALID_HASH}/apply",
+        json={"resume_mode": "base"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "JOB_NOT_FOUND"
 
 
 def test_second_post_returns_409_apply_run_in_flight(
