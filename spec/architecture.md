@@ -10,7 +10,7 @@ Agentic Job Applier is organized as a single FastAPI process with five coupled p
 4. **HTTP/API plane** — ~60 endpoints across 16 routers serve the React dashboard and user-triggered tailor/apply. Background work runs via FastAPI `BackgroundTasks` (tailor) or detached `asyncio.create_task` (apply, so the browser flow starts immediately instead of waiting for the autonomous poll cycle) (`api/main.py:62-148`, `api/routers/apply_runs.py:48-115`).
 5. **Browser plane** — Apply worker connects Playwright over CDP to the user's **host Chrome** at `host.docker.internal:9222` (Docker) or `localhost:9222` (systemd). No in-container Chromium. Host header is forced to `localhost:<port>` to defeat Chrome 148+'s host check (`src/agents/apply_worker/browser.py:158-199,385-410`).
 
-These planes are wired by `api/main.py:_lifespan()`, which calls `_run_startup_migrations()` then `start_supervisor()`. The supervisor (`api/services/supervisor.py:LoopSupervisor`) owns four task lifecycles (discovery + gate + tailor + apply) plus a mode-watcher that reconciles state when the dashboard toggle flips.
+These planes are wired by `api/main.py:_lifespan()`, which calls `_run_startup_migrations()` then `start_supervisor()`. The supervisor (`api/services/supervisor.py:WLoopSupervisor`) owns four task lifecycles (discovery + gate + tailor + apply) plus a mode-watcher that reconciles state when the dashboard toggle flips.
 
 ## Runtime Topology
 
@@ -19,7 +19,7 @@ graph TB
   USER[User Browser] -->|HTTP| API[FastAPI app]
   API -->|static fallback| DIST[dashboard/dist/]
   API -->|/api/*| ROUTERS[16 routers]
-  API -->|lifespan| SUP[LoopSupervisor]
+  API -->|lifespan| SUP[WLoopSupervisor]
 
   SUP --> DISC[discovery loop<br/>always-on]
   SUP --> GATE[gate loop<br/>mode-gated]
@@ -57,7 +57,7 @@ sequenceDiagram
   participant Uvicorn
   participant Lifespan
   participant DB as DatabaseManager
-  participant Sup as LoopSupervisor
+  participant Sup as WLoopSupervisor
   participant Watch as mode_watcher
 
   Uvicorn->>Lifespan: startup hook
@@ -145,7 +145,7 @@ sequenceDiagram
   participant Apply as POST /apply
   participant DB
   participant BG as BackgroundTask
-  participant Loop as worker loop
+  participant WLoop as worker loop
   participant Det as detached task
 
   Dash->>Tailor: { apply_after: true }
@@ -167,7 +167,7 @@ sequenceDiagram
   Det->>DB: open own DatabaseManager
   Det->>Det: _process_apply_row() — full browser flow
 
-  Note over Loop: Autonomous loop polling PENDING rows<br/>races for same job — single-slot per_job<br/>constraint at insert time prevents duplicate
+  Note over WLoop: Autonomous loop polling PENDING rows<br/>races for same job — single-slot per_job<br/>constraint at insert time prevents duplicate
 ```
 
 ## Concurrency Model

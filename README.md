@@ -222,6 +222,8 @@ curl -sS "http://127.0.0.1:8000/api/jobs?page=1&page_size=20"
 
 ## Architecture
 
+> **Deep dive**: this section is the elevator pitch. The full architecture lives under [`spec/`](spec/) — start at [`spec/index.md`](spec/index.md) for the routing table. Each focused doc (`architecture.md`, `components.md`, `data_models.md`, `interfaces.md`, `workflows.md`, `dependencies.md`, `review_notes.md`) anchors every claim to a `path:line` citation. The consolidated read is [`spec/spec.md`](spec/spec.md) (GitHub-renderable with mermaid diagrams) or [`spec/spec.html`](spec/spec.html) (open in any browser).
+
 The pipeline is a chain of workers that move rows through a SQLite database (`data/jobs.db`).
 
 ```

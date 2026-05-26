@@ -51,44 +51,44 @@ When `automation.gate_mode ∈ {autonomous, both}`:
 
 ```mermaid
 sequenceDiagram
-  participant Loop as gate loop
+  participant WLoop as gate loop
   participant DB
   participant Gate as run_gate_with_provider
   participant Prov as OpenAIProvider
   participant OAI as OpenAI API
 
-  Loop->>DB: _is_gate_mode_active()
+  WLoop->>DB: _is_gate_mode_active()
   alt mode=opt_in
-    Note over Loop: skip cycle, sleep
+    Note over WLoop: skip cycle, sleep
   else mode in {autonomous, both}
-    Loop->>DB: check_budget_before_claim(stage=GATE)
+    WLoop->>DB: check_budget_before_claim(stage=GATE)
     alt budget exceeded
-      Note over Loop: skip cycle
+      Note over WLoop: skip cycle
     else budget ok
-      Loop->>DB: get_jobs_pending_agent_processing(limit=25)
+      WLoop->>DB: get_jobs_pending_agent_processing(limit=25)
       Note over DB: BEGIN IMMEDIATE<br/>SELECT NEW rows where:<br/>agent_processed_at IS NULL<br/>AND agent_failed_at IS NULL<br/>AND next_retry_at expired<br/>AND claim lease expired<br/>UPDATE claim_token + claimed_at<br/>RETURN claimed rows<br/>COMMIT
-      DB-->>Loop: list[job_row]
+      DB-->>WLoop: list[job_row]
       loop each job
-        Loop->>Gate: run_gate_with_provider(job)
+        WLoop->>Gate: run_gate_with_provider(job)
         Gate->>Gate: build_gate_payload<br/>(candidate context cached via lru_cache,<br/>job text wrapped in untrusted_data tags)
         Gate->>Prov: CompletionRequest(temp=0.1, max_tokens=1024)
         Prov->>OAI: openai/gpt-5-mini chat completion
         OAI-->>Prov: CompletionResponse(content, usage, cost)
         Prov-->>Gate: parsed
-        Gate-->>Loop: GateRunOutcome(result, response)
+        Gate-->>WLoop: GateRunOutcome(result, response)
 
         alt decision = APPLY
-          Loop->>DB: record_agent_decision(status='QUALIFIED', agent_result=...)
+          WLoop->>DB: record_agent_decision(status='QUALIFIED', agent_result=...)
         else decision = SKIP
-          Loop->>DB: record_agent_decision(status='FILTERED', agent_result=...)
+          WLoop->>DB: record_agent_decision(status='FILTERED', agent_result=...)
         end
-        Loop->>DB: record_llm_call_cost(stage=GATE, phase='decision')
+        WLoop->>DB: record_llm_call_cost(stage=GATE, phase='decision')
 
         alt provider exception
-          Loop->>DB: record_agent_retry(next_retry_at = now + backoff)
+          WLoop->>DB: record_agent_retry(next_retry_at = now + backoff)
           alt retry_count >= max_retries
-            Loop->>DB: mark_job_agent_terminal_failed(agent_failed_at=now)
-            Loop->>Loop: send_ntfy_notification
+            WLoop->>DB: mark_job_agent_terminal_failed(agent_failed_at=now)
+            WLoop->>WLoop: send_ntfy_notification
           end
         end
       end
@@ -113,7 +113,7 @@ When `automation.tailor_mode ∈ {autonomous, both}` (or invoked via `POST /api/
 
 ```mermaid
 sequenceDiagram
-  participant Loop as tailor loop
+  participant WLoop as tailor loop
   participant DB
   participant Pipeline as run_tailor_review_pipeline
   participant Loc as locator
@@ -122,12 +122,12 @@ sequenceDiagram
   participant Comp as compiler
   participant Reviewer as call_reviewer
 
-  Loop->>DB: mark_stale_tailor_runs_failed(lease=7200)
-  Loop->>DB: claim_next_tailor_job(max_retries=2, lease=7200)
+  WLoop->>DB: mark_stale_tailor_runs_failed(lease=7200)
+  WLoop->>DB: claim_next_tailor_job(max_retries=2, lease=7200)
   Note over DB: BEGIN IMMEDIATE<br/>find QUALIFIED job with no active SUCCESS/PENDING/RUNNING<br/>insert PENDING tailor_runs<br/>with claim_token + apply_after_completion<br/>COMMIT
-  DB-->>Loop: merged job row + tailor_run_id + claim_token
+  DB-->>WLoop: merged job row + tailor_run_id + claim_token
 
-  Loop->>Pipeline: run_tailor_review_pipeline(...)
+  WLoop->>Pipeline: run_tailor_review_pipeline(...)
   Pipeline->>DB: mark_tailor_running
   Pipeline->>Pipeline: load + validate config/resume.tex<br/>(contract check, no compile)
   Pipeline->>Comp: compile base.pdf
@@ -177,11 +177,11 @@ sequenceDiagram
     Pipeline->>DB: record_tailor_success(artifact paths, plan_json_path)
   end
 
-  Pipeline-->>Loop: TailorRunResult
+  Pipeline-->>WLoop: TailorRunResult
 
   alt apply_after_completion = true and success
-    Loop->>DB: enqueue_apply_run_for_job
-    Note over Loop: This spawns asyncio.create_task for the apply browser flow
+    WLoop->>DB: enqueue_apply_run_for_job
+    Note over WLoop: This spawns asyncio.create_task for the apply browser flow
   end
 ```
 
