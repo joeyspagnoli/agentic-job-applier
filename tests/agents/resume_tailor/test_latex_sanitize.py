@@ -167,14 +167,20 @@ def test_latex_safe_output_contains_no_bare_specials(arbitrary_text: str) -> Non
 
 
 def test_dogfood_resume_tex_bullets_are_idempotent_under_sanitize() -> None:
-    """Every bullet body in `config/resume.tex` round-trips through latex_safe.
+    """Every bullet body in the shipped resume template round-trips through latex_safe.
 
     Purpose:
-        The user's own resume should never produce sanitizer drift.
+        The shipped `config/resume.example.tex` template — and the user's own
+        `config/resume.tex` when present — must not produce sanitizer drift.
+        We prefer the user's actual resume when it exists so dogfooding catches
+        drift on real content; otherwise we exercise the template that ships
+        with the repo so CI has something to validate.
     """
 
     repo_root = Path(__file__).resolve().parents[3]
-    resume_tex_path = repo_root / "config" / "resume.tex"
+    user_resume = repo_root / "config" / "resume.tex"
+    example_resume = repo_root / "config" / "resume.example.tex"
+    resume_tex_path = user_resume if user_resume.exists() else example_resume
     tex_text = resume_tex_path.read_text(encoding="utf-8")
     manifest = build_bullet_manifest(tex_text)
 
