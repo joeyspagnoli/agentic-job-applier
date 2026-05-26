@@ -22,10 +22,11 @@ calling this entry point.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+import asyncio
+from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 FinisherOutcome = Literal[
@@ -49,8 +50,8 @@ if TYPE_CHECKING:  # pragma: no cover - type-only imports
 # both must be on the ``iter()`` call (passing to ``Agent()`` is a
 # silent no-op). Tool-call cap is set higher so a single defer doesn't
 # eat a request budget.
-_REQUEST_LIMIT: int = 25
-_TOOL_CALL_LIMIT: int = 100
+_REQUEST_LIMIT: int = 50
+_TOOL_CALL_LIMIT: int = 250
 
 # Soft cap; logged only. Sub-agent D's analysis shows the realistic
 # cost band is $0.10-$0.20/apply — aborting at $0.05 (the user's
@@ -61,6 +62,17 @@ _SOFT_COST_CAP_USD: float = 0.20
 # Pre-flight timeout for ``agent-browser get url``. The call hits the
 # already-connected daemon over a local socket; 5s is generous.
 _PREFLIGHT_TIMEOUT_SECONDS: float = 5.0
+
+# 429 retry sleep — OpenAI's rolling TPM window is 60 seconds, so 45s
+# is the smallest cooldown that's almost guaranteed to free quota even
+# when the burst that hit the cap was near the front of the window.
+_RATE_LIMIT_RETRY_SLEEP_SECONDS: float = 45.0
+
+# One retry only. The browser DOM is the source of truth; on the retry
+# pass the agent re-snapshots, sees what's already filled, and finishes
+# the rest. A second retry would suggest a structural problem we can't
+# bandage with sleeps — let it fail through to RUNTIME_ERROR.
+_RATE_LIMIT_MAX_RETRIES: int = 1
 
 
 def _build_initial_prompt(
@@ -320,6 +332,99 @@ def _materialize_result(
     )
 
 
+class _AgentLoopState:
+    """Mutable accumulator for one agent-loop pass.
+
+    Purpose:
+        ``run_finisher`` may invoke :func:`_drive_agent_loop` more than
+        once when a 429 retry fires. The state persists across attempts
+        so the synthesized ``FinisherResult`` reflects the cumulative
+        turns / cost / outcome rather than only the final pass.
+
+    Attributes:
+        turns_used: ``RunUsage.requests`` from the latest pass.
+        accumulated_cost: Total USD cost across all attempts.
+        soft_cap_logged: True once the soft cost cap warning has fired
+            so we don't repeat it on every subsequent turn.
+        output_result: The model-emitted ``FinisherResult`` when the
+            agent reached ``complete_apply``; ``None`` otherwise.
+        fallback_outcome: Outcome to stamp when ``output_result`` is
+            ``None``. Updated by the exception handlers in
+            :func:`run_finisher`.
+        final_usage: Most recent ``RunUsage`` snapshot for cost
+            recording.
+    """
+
+    def __init__(self) -> None:
+        self.turns_used: int = 0
+        self.accumulated_cost: float = 0.0
+        self.soft_cap_logged: bool = False
+        self.output_result: FinisherResult | None = None
+        self.fallback_outcome: FinisherOutcome = "RUNTIME_ERROR"
+        self.final_usage: RunUsage = RunUsage()
+
+
+async def _drive_agent_loop(
+    *,
+    agent: Any,
+    user_prompt: str,
+    deps: FinisherDeps,
+    usage_limits: UsageLimits,
+    bare_model_for_pricing: str,
+    state: _AgentLoopState,
+) -> None:
+    """Run one pass of the Pydantic AI agent loop, mutating ``state``.
+
+    Purpose:
+        Extracted from :func:`run_finisher` so the 429-retry loop can
+        re-enter ``agent.iter()`` without duplicating the per-turn
+        usage / cost bookkeeping. The function propagates exceptions
+        (``UsageLimitExceeded``, ``ModelHTTPError``, generic
+        ``Exception``) to the caller, which owns the retry decision.
+    Args:
+        agent: The configured Pydantic AI ``Agent``.
+        user_prompt: Initial user-role message that seeds the loop.
+        deps: ``FinisherDeps`` passed through to tools.
+        usage_limits: Pre-built ``UsageLimits`` (request + tool caps).
+        bare_model_for_pricing: Model id stripped of the
+            ``"openai-responses:"`` prefix for litellm.
+        state: Accumulator updated in-place. On a clean exit, the
+            terminal ``FinisherResult`` is stored in
+            ``state.output_result`` and ``state.fallback_outcome`` is
+            set to ``"COMPLETE"`` when the model called
+            ``complete_apply``.
+    """
+
+    async with agent.iter(
+        user_prompt,
+        deps=deps,
+        usage_limits=usage_limits,
+    ) as agent_run:
+        async for _node in agent_run:
+            usage = agent_run.usage
+            state.turns_used = int(usage.requests or 0)
+            state.final_usage = usage
+            state.accumulated_cost = _accumulated_cost_usd(
+                usage, bare_model_for_pricing
+            )
+            if (
+                state.accumulated_cost > _SOFT_COST_CAP_USD
+                and not state.soft_cap_logged
+            ):
+                logger.warning(
+                    "finisher soft cost cap exceeded: ${:.4f} > ${:.4f} "
+                    "(continuing — cap is log-only)",
+                    state.accumulated_cost,
+                    _SOFT_COST_CAP_USD,
+                )
+                state.soft_cap_logged = True
+
+        run_output = agent_run.result.output if agent_run.result else None
+        if isinstance(run_output, FinisherResult):
+            state.output_result = run_output
+            state.fallback_outcome = "COMPLETE"
+
+
 async def _preflight_agent_browser_session() -> tuple[bool, str]:
     """Verify the agent-browser CDP session is live before the loop starts.
 
@@ -429,50 +534,59 @@ async def run_finisher(
     # Strip "openai:" prefix for litellm; it expects the bare model name.
     bare_model_for_pricing = FINISHER_MODEL_NAME.split(":", 1)[-1]
 
-    accumulated_cost: float = 0.0
-    soft_cap_logged: bool = False
-    turns_used: int = 0
-    output_result: FinisherResult | None = None
-    fallback_outcome: FinisherOutcome = "RUNTIME_ERROR"
-    final_usage: RunUsage = RunUsage()
+    loop_state = _AgentLoopState()
 
-    try:
-        async with agent.iter(
-            user_prompt,
-            deps=deps,
-            usage_limits=usage_limits,
-        ) as agent_run:
-            async for _node in agent_run:
-                usage = agent_run.usage
-                turns_used = int(usage.requests or 0)
-                final_usage = usage
-                accumulated_cost = _accumulated_cost_usd(usage, bare_model_for_pricing)
-                if (
-                    accumulated_cost > _SOFT_COST_CAP_USD
-                    and not soft_cap_logged
-                ):
-                    logger.warning(
-                        "finisher soft cost cap exceeded: ${:.4f} > ${:.4f} "
-                        "(continuing — cap is log-only)",
-                        accumulated_cost,
-                        _SOFT_COST_CAP_USD,
-                    )
-                    soft_cap_logged = True
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            await _drive_agent_loop(
+                agent=agent,
+                user_prompt=user_prompt,
+                deps=deps,
+                usage_limits=usage_limits,
+                bare_model_for_pricing=bare_model_for_pricing,
+                state=loop_state,
+            )
+            break
+        except UsageLimitExceeded as exc:
+            logger.warning(
+                "finisher hit usage limit after {} turns: {}",
+                loop_state.turns_used,
+                exc,
+            )
+            loop_state.fallback_outcome = "USAGE_LIMIT_HIT"
+            break
+        except ModelHTTPError as exc:
+            if exc.status_code == 429 and attempt < _RATE_LIMIT_MAX_RETRIES:
+                logger.warning(
+                    "finisher hit 429 after {} turns; sleeping {}s then "
+                    "retrying once. Browser state is preserved — the retry "
+                    "pass will re-snapshot and finish remaining fields.",
+                    loop_state.turns_used,
+                    _RATE_LIMIT_RETRY_SLEEP_SECONDS,
+                )
+                await asyncio.sleep(_RATE_LIMIT_RETRY_SLEEP_SECONDS)
+                continue
+            logger.exception(
+                "finisher rate-limit error after {} turns: {}",
+                loop_state.turns_used,
+                exc,
+            )
+            loop_state.fallback_outcome = "RUNTIME_ERROR"
+            break
+        except Exception as exc:
+            logger.exception(
+                "finisher runtime error after {} turns: {}",
+                loop_state.turns_used,
+                exc,
+            )
+            loop_state.fallback_outcome = "RUNTIME_ERROR"
+            break
 
-            run_output = agent_run.result.output if agent_run.result else None
-            if isinstance(run_output, FinisherResult):
-                output_result = run_output
-                fallback_outcome = "COMPLETE"
-    except UsageLimitExceeded as exc:
-        logger.warning(
-            "finisher hit usage limit after {} turns: {}",
-            turns_used,
-            exc,
-        )
-        fallback_outcome = "USAGE_LIMIT_HIT"
-    except Exception as exc:
-        logger.exception("finisher runtime error after {} turns: {}", turns_used, exc)
-        fallback_outcome = "RUNTIME_ERROR"
+    turns_used = loop_state.turns_used
+    accumulated_cost = loop_state.accumulated_cost
+    output_result = loop_state.output_result
+    fallback_outcome = loop_state.fallback_outcome
+    final_usage = loop_state.final_usage
 
     if apply_run_id is not None:
         await _record_finisher_cost(

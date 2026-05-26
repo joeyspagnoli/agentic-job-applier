@@ -38,6 +38,14 @@ _MAX_STDERR_BYTES: int = 4_000
 _EXIT_CODE_TIMEOUT: int = -1
 _EXIT_CODE_LAUNCH_FAILURE: int = -2
 
+# Module-level lock serializing all agent-browser CLI invocations.
+# Pydantic AI fires tool_calls concurrently when the model emits multiple
+# in a single message turn; for browser interactions this is wrong —
+# clicking 6 dropdowns in parallel only opens one listbox (the others
+# fire on closed widgets and silently no-op). The lock forces strict
+# sequential execution so the agent's reasoning matches reality.
+_CLI_LOCK = asyncio.Lock()
+
 # How long to wait for a killed process to drain its pipes after we
 # fire SIGKILL on a timeout. Bounded so a wedged child can't keep us
 # blocked indefinitely.
@@ -108,6 +116,7 @@ async def invoke_agent_browser_cli(
     *,
     expect_json: bool = False,
     timeout_seconds: float = 20.0,
+    stdin_payload: str | None = None,
 ) -> dict[str, Any]:
     """Run an ``agent-browser`` CLI command and return a structured dict.
 
@@ -125,6 +134,10 @@ async def invoke_agent_browser_cli(
             and parses stdout as JSON into the ``data`` field. On parse
             failure ``ok`` becomes False and ``error`` describes why.
         timeout_seconds: Hard wall-clock cap. Defaults to 20s.
+        stdin_payload: Optional UTF-8 string piped to the subprocess'
+            stdin. Used by ``batch`` invocations that pass a JSON array
+            of commands via stdin to sidestep shell-quoting on
+            user-controlled filter strings.
     Returns:
         Dict with keys:
           - ``ok`` (bool): True iff exit_code == 0 and (when applicable)
@@ -152,12 +165,34 @@ async def invoke_agent_browser_cli(
 
     full_args = _build_args(args, expect_json)
     display = _format_display(full_args)
+
+    async with _CLI_LOCK:
+        return await _invoke_locked(
+            full_args, display, expect_json, timeout_seconds, stdin_payload
+        )
+
+
+async def _invoke_locked(
+    full_args: list[str],
+    display: str,
+    expect_json: bool,
+    timeout_seconds: float,
+    stdin_payload: str | None,
+) -> dict[str, Any]:
+    """Run the CLI subprocess inside the global serialization lock.
+
+    Split out from :func:`invoke_agent_browser_cli` so the lock-acquire is the
+    only thing the public entry point does on the happy path — keeps the lock
+    body short and the function readable.
+    """
+
     logger.debug("agent_browser exec: {}", display)
 
     try:
         proc = await asyncio.create_subprocess_exec(
             "agent-browser",
             *full_args,
+            stdin=asyncio.subprocess.PIPE if stdin_payload is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -175,9 +210,13 @@ async def invoke_agent_browser_cli(
             ),
         }
 
+    stdin_bytes = (
+        stdin_payload.encode("utf-8") if stdin_payload is not None else None
+    )
+
     try:
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds
+            proc.communicate(input=stdin_bytes), timeout=timeout_seconds
         )
     except asyncio.TimeoutError:
         proc.kill()

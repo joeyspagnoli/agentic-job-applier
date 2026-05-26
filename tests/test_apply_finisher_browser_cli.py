@@ -54,10 +54,18 @@ class _FakeProc:
         self._drain_stderr = drain_stderr
         self._first_call = True
         self.kill_calls = 0
+        self.stdin_payloads: list[bytes | None] = []
 
-    async def communicate(self) -> tuple[bytes, bytes]:
-        """Return stdout/stderr; hang forever on the first call when configured."""
+    async def communicate(
+        self, input: bytes | None = None
+    ) -> tuple[bytes, bytes]:
+        """Return stdout/stderr; hang forever on the first call when configured.
 
+        Captures the optional ``input`` kwarg so tests covering the
+        ``stdin_payload`` path can assert what was piped to stdin.
+        """
+
+        self.stdin_payloads.append(input)
         if self._first_call and self._hang:
             self._first_call = False
             await asyncio.sleep(60)
@@ -251,3 +259,35 @@ async def test_invoke_truncates_overlong_stdout(
     result = await browser_cli.invoke_agent_browser_cli(["snapshot"])
 
     assert len(result["stdout"]) == browser_cli._MAX_STDOUT_BYTES
+
+
+@pytest.mark.asyncio
+async def test_invoke_pipes_stdin_payload_when_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stdin_payload`` is encoded and passed to subprocess.communicate."""
+
+    fake = _FakeProc(stdout=b"[]")
+    _install_fake_proc(monkeypatch, fake)
+
+    payload = '[["get","url"]]'
+    result = await browser_cli.invoke_agent_browser_cli(
+        ["batch", "--json"], stdin_payload=payload
+    )
+
+    assert result["ok"] is True
+    assert fake.stdin_payloads == [payload.encode("utf-8")]
+
+
+@pytest.mark.asyncio
+async def test_invoke_omits_stdin_when_no_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ``stdin_payload`` no bytes are piped to the subprocess."""
+
+    fake = _FakeProc(stdout=b"")
+    _install_fake_proc(monkeypatch, fake)
+
+    await browser_cli.invoke_agent_browser_cli(["get", "url"])
+
+    assert fake.stdin_payloads == [None]

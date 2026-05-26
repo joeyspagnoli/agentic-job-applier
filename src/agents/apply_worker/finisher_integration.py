@@ -57,11 +57,17 @@ _SUBMIT_ERROR_SELECTORS: tuple[str, ...] = (
 _SUBMIT_URL_WAIT_TIMEOUT_MS: int = 5_000
 
 # ATS-specific submit button selectors used by ``try_submit_and_classify``.
-# Greenhouse renders a single ``button[type=submit]`` under
-# ``#application_form``. Ashby uses ``button[type=submit]`` with the
+# Greenhouse's job-boards.greenhouse.io React UI renders the form as
+# ``#application-form`` (hyphen); the legacy boards.greenhouse.io UI used
+# ``#application_form`` (underscore). Both are matched via a comma-joined
+# selector so the same code works regardless of which Greenhouse host the
+# job posting lives on. Ashby uses ``button[type=submit]`` with the
 # accessible name "Submit application".
 _SUBMIT_BUTTON_SELECTORS: dict[ATSPlatform, str] = {
-    ATSPlatform.GREENHOUSE: "#application_form button[type='submit']",
+    ATSPlatform.GREENHOUSE: (
+        "#application-form button[type='submit'], "
+        "#application_form button[type='submit']"
+    ),
     ATSPlatform.ASHBY: "form button[type='submit']",
 }
 

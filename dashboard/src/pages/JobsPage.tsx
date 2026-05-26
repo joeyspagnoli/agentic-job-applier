@@ -595,7 +595,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
       setApplyRun({
         id: data.apply_run_id,
         job_hash: data.job_hash,
-        status: data.status,
+        status: data.status as ApplyRunDto["status"],
         outcome: null,
         ats_platform: null,
         completed_at: null,
@@ -623,7 +623,7 @@ function TailoredResumeCell({ row }: TailoredResumeCellProps): JSX.Element {
       setApplyRun({
         id: data.apply_run_id,
         job_hash: data.job_hash,
-        status: data.status,
+        status: data.status as ApplyRunDto["status"],
         outcome: null,
         ats_platform: null,
         completed_at: null,
