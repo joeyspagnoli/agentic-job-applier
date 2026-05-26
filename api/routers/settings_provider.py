@@ -1,9 +1,9 @@
 """AI provider and onboarding-status settings router (OpenAI BYOK only).
 
 This release narrows the provider surface to OpenAI BYOK only. Codex device
-auth and other BYOK providers (Anthropic, Gemini, OpenRouter) are tracked for
-future support under issue #35 and are intentionally rejected at the API
-boundary so contributors get a clear error instead of partial behavior.
+auth and other BYOK providers (Anthropic, Gemini, OpenRouter) are intentionally
+rejected at the API boundary so contributors get a clear error instead of partial
+behavior. Multi-provider support is tracked at issue #35.
 """
 
 from __future__ import annotations

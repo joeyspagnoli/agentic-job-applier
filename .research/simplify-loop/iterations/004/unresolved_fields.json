@@ -1,0 +1,220 @@
+[
+  {
+    "field_id": null,
+    "label": "Full name✱",
+    "field_type": "text",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"name\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Email✱",
+    "field_type": "email",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"email\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Phone ✱",
+    "field_type": "text",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"phone\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": "location-input",
+    "label": "Current location No location found. Try entering a different locationLoading",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input#location-input",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Current company",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"org\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "LinkedIn URL",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"urls[LinkedIn]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "GitHub URL",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"urls[GitHub]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Portfolio URL",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"urls[Portfolio]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Other website",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"urls[Other]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "ALPHA",
+      "AnitaB",
+      "Black Tech Pipeline (BTP)",
+      "Blacks in Technology (BIT) / Blacks United in Leading",
+      "BuiltIn",
+      "Technology (BUILT)",
+      "Comparably",
+      "Coupa Career Site",
+      "Coupa Cares",
+      "Current Customer",
+      "Empower",
+      "Glassdoor",
+      "HBCU Connect",
+      "Illuminate",
+      "LinkedIn",
+      "National Hispanic MBA Association",
+      "National Society of Black Engineers",
+      "North Carolina A&T",
+      "Other",
+      "Professional Diversity Network",
+      "Returning Intern/Employee",
+      "Social Media",
+      "Webinar",
+      "Women Who Code",
+      "WomenHack"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field0]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field1]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field2]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field3]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Type your response",
+    "field_type": "text",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field4]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": "Type your response"
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field5]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  }
+]

@@ -1,33 +1,42 @@
 # Defer rules for the apply finisher.
 #
-# These rules classify form field labels into three tiers:
-#   Tier 3: Always defer to human — the finisher never auto-fills these.
-#   Tier 2: Draft + flag — LLM generates an answer, marked needs_review=True.
-#   Tier 1: Default — profile-direct lookup + dropdown fuzzy match.
+# Tier 3 (always_defer_labels): legally or personally consequential questions
+#   the finisher never auto-fills — the apply run lands NEEDS_REVIEW.
+# Tier 2 (draft_and_flag_labels): the finisher LLM-drafts an answer and marks
+#   it needs_review=True. The run still lands NEEDS_REVIEW unless every Tier-2
+#   draft meets the confidence threshold.
+# Tier 1: anything not matched here — filled from profile / cache / dropdown
+#   fuzzy match, fully automatic.
 #
-# All regex values are matched against the field label (case-insensitive by default
-# when using the (?i) flag). Edit this file to tune behavior without touching code.
+# Edit these regex lists to widen or narrow what the finisher is willing to
+# answer on your behalf.
 
-# Tier 3 — legally or personally consequential; never auto-fill.
+# Tier 3 — never auto-fill.
 always_defer_labels:
+  # Visa / work-authorization sponsorship.
   - regex: '(?i)sponsor|visa|authorize.*sponsor'
+  # EEO self-identification (gender, race, veteran, disability).
   - regex: '(?i)veteran|disability|ethnicity|gender|race|self.?identify'
+  # Salary / compensation expectations.
   - regex: '(?i)salary|compensation|desired pay'
+  # Start-date and notice-period commitments.
   - regex: '(?i)start date|when can you start|earliest start'
 
-# Tier 2 — draft + flag for human review (LLM generates, user verifies).
+# Tier 2 — LLM drafts, human reviews.
 draft_and_flag_labels:
   - regex: '(?i)why .{0,30}(this role|this position|us|company|interest)'
   - regex: '(?i)tell us about|describe.*experience|hardest problem'
   - regex: '(?i)cover letter'
 
-# Field types the finisher skips entirely — no labels needed.
+# Field types the finisher never touches automatically.
 bypass_field_types:
   - file
   - hidden
   - submit
   - button
 
-# Optional whitelist — labels matching these regexes are NEVER treated as Tier 3
-# even when an always_defer_labels regex would also match. Empty by default.
+# Labels that override an always_defer match. Use this to allow the finisher
+# to fill questions it would otherwise defer (e.g. if you've added a profile
+# field that covers one of the Tier-3 categories above). Case-insensitive
+# regex.
 never_defer_overrides: []

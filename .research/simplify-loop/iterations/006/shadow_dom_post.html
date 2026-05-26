@@ -1,0 +1,81 @@
+--- SHADOW#0 (size=3936) ---
+<div class="leading-normal font-sans text-black"><button type="button" class="simplify-banner w-full max-w-3xl flex items-center justify-start text-center text-md my-12 p-0 border-2 border-[#eceff5] whitespace-nowrap leading-normal rounded-2xl text-[#3f525b] bg-white overflow-hidden hover:shadow-md focus:outline-none transition ease-in-out duration-150" aria-label="Resume score banner"><span class="simplify-banner-percentage relative flex flex-col items-center justify-center h-full p-4 bg-primary-dark text-primary-white"><span class="flex flex-col items-center justify-center"><span class="inline-flex items-center justify-center overflow-visible rounded-full"><svg transform="rotate(-90)" style="width: 58px; height: 58px;"><circle class="text-[#3EC0DD]" stroke-width="6" stroke="currentColor" fill="transparent" r="26" cx="29" cy="29"></circle><circle class="text-white" stroke-width="6" stroke-dasharray="163.36281798666926" stroke-dashoffset="115.98760077053518" stroke-linecap="round" stroke="currentColor" fill="transparent" r="26" cx="29" cy="29"></circle></svg><span class="absolute text-lg text-white tracking-tight">29%</span></span></span><span role="button" tabindex="0" class="simplify-banner-x absolute top-2 left-2 w-3 h-3 flex items-center justify-center text-primary-base hover:text-white"><svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></span></span><span class="simplify-banner-text flex flex-col items-start overflow-hidden"><span class="simplify-banner-text-resume-match text-[#263137] text-xl font-bold">Resume Match</span><span class="simplify-banner-text-count-container flex flex-row items-start"><span class="simplify-banner-text-count font-bold text-primary-darkest">4 of 14 keywords</span><span class="simplify-banner-text-present"></span></span></span><span class="simplify-banner-logo relative flex-shrink-0 flex items-center ml-auto bg-gray-100"><img class="simplify-banner-logo-icon w-auto overflow-visible" alt="Simplify" src="chrome-extension://d98fbf91-9667-4a9c-a2d5-be4f69ba0403/assets/logos/icon.png"><span class="simplify-banner-logo-text flex flex-col items-start text-left text-lg text-[#263137] font-bold">Simplify</span><span class="simplify-banner-ai-toggle absolute top-4 -left-20 h-6 w-16 px-0.5 bg-gray-100 rounded-xl flex items-center justify-center hover:shadow-[0px_0px_1px_0px_rgba(213,215,224,1.00)]" role="button" tabindex="0"><span class="flex items-center justify-center w-8 h-5 text-xs text-gray-600 bg-white rounded-xl">V1</span><span class="flex items-center justify-center w-8 h-5 text-xs text-gray-400">V2</span></span></span></button><style>
+  .simplify-banner {
+    container-type: inline-size;
+    container-name: simplify-banner;
+    height: 90px;
+  }
+
+  .simplify-banner-text {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .simplify-banner-logo {
+    display: none;
+    height: 100%;
+  }
+
+  .simplify-banner-logo-icon {
+    height: 40px;
+  }
+
+  .simplify-banner-logo-text {
+    display: none;
+  }
+
+  @container simplify-banner (min-width: 320px) {
+    .simplify-banner-logo {
+      display: flex;
+      padding: 20px;
+    }
+  }
+
+  @container simplify-banner (min-width: 420px) {
+    .simplify-banner-text-present::after {
+      content: 'in your resume';
+      margin-left: 4px;
+    }
+  }
+
+  @container simplify-banner (min-width: 500px) {
+    .simplify-banner-text {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+
+    .simplify-banner-text-present::after {
+      content: 'are present in your resume';
+    }
+  }
+
+  @container simplify-banner (min-width: 580px) {
+    .simplify-banner-logo {
+      padding: 16px;
+    }
+
+    .simplify-banner-logo-icon {
+      height: 24px;
+    }
+
+    .simplify-banner-logo-text {
+      display: flex;
+      font-size: 20px;
+      margin-left: 4px;
+    }
+  }
+</style></div>
+--- SHADOW#1 (size=6065) ---
+<div class="leading-normal font-sans text-black"><div class="fixed top-0 right-0 m-3 max-h-[calc(100vh-24px)] w-full max-w-sm overflow-auto rounded-md border bg-white font-sans text-black shadow-md" style="z-index: 2147483646;"><div class="flex flex-col"><div class="sticky top-0 z-10 flex flex-col justify-between bg-white p-4 pb-3"><div class="flex items-center"><button type="button"><img class="h-6 w-auto mr-2" id="simplify-icon" alt="Simplify" src="chrome-extension://d98fbf91-9667-4a9c-a2d5-be4f69ba0403/assets/logos/icon.png"></button><div class="ml-auto flex items-center justify-center gap-1"><button type="button" title="Report an issue" aria-label="Report an issue" class="inline-flex h-7 items-center justify-center gap-1.5 py-3 px-2 border rounded-md text-gray-400 border-gray-200 hover:text-primary-darkest hover:border-primary-darkest transition duration-150 ease-in-out focus:outline-none"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 256 256" height="14" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M232,56V176a8,8,0,0,1-2.76,6c-15.28,13.23-29.89,18-43.82,18-18.91,0-36.57-8.74-53-16.85C105.87,170,82.79,158.61,56,179.77V224a8,8,0,0,1-16,0V56a8,8,0,0,1,2.77-6h0c36-31.18,68.31-15.21,96.79-1.12C167,62.46,190.79,74.2,218.76,50A8,8,0,0,1,232,56Z"></path></svg><span class="text-xs font-medium">Report</span></button><button type="button" title="Settings" aria-label="Settings" class="inline-flex h-6 w-6 items-center justify-center border border-transparent rounded-md text-gray-400 hover:text-primary-darkest transition duration-150 ease-in-out focus:outline-none"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 24 24" height="20" width="20" xmlns="http://www.w3.org/2000/svg"><path d="M2.13127 13.6308C1.9492 12.5349 1.95521 11.434 2.13216 10.3695C3.23337 10.3963 4.22374 9.86798 4.60865 8.93871C4.99357 8.00944 4.66685 6.93557 3.86926 6.17581C4.49685 5.29798 5.27105 4.51528 6.17471 3.86911C6.9345 4.66716 8.0087 4.99416 8.93822 4.60914C9.86774 4.22412 10.3961 3.23332 10.369 2.13176C11.4649 1.94969 12.5658 1.9557 13.6303 2.13265C13.6036 3.23385 14.1319 4.22422 15.0612 4.60914C15.9904 4.99406 17.0643 4.66733 17.8241 3.86975C18.7019 4.49734 19.4846 5.27153 20.1308 6.1752C19.3327 6.93499 19.0057 8.00919 19.3907 8.93871C19.7757 9.86823 20.7665 10.3966 21.8681 10.3695C22.0502 11.4654 22.0442 12.5663 21.8672 13.6308C20.766 13.6041 19.7756 14.1324 19.3907 15.0616C19.0058 15.9909 19.3325 17.0648 20.1301 17.8245C19.5025 18.7024 18.7283 19.4851 17.8247 20.1312C17.0649 19.3332 15.9907 19.0062 15.0612 19.3912C14.1316 19.7762 13.6033 20.767 13.6303 21.8686C12.5344 22.0507 11.4335 22.0447 10.3691 21.8677C10.3958 20.7665 9.86749 19.7761 8.93822 19.3912C8.00895 19.0063 6.93508 19.333 6.17532 20.1306C5.29749 19.503 4.51479 18.7288 3.86862 17.8252C4.66667 17.0654 4.99367 15.9912 4.60865 15.0616C4.22363 14.1321 3.23284 13.6038 2.13127 13.6308ZM11.9997 15.0002C13.6565 15.0002 14.9997 13.657 14.9997 12.0002C14.9997 10.3433 13.6565 9.00018 11.9997 9.00018C10.3428 9.00018 8.99969 10.3433 8.99969 12.0002C8.99969 13.657 10.3428 15.0002 11.9997 15.0002Z"></path></svg></button><button id="close-button" type="button" class="inline-flex h-6 w-6 items-center justify-center border border-transparent rounded-md text-gray-400 hover:text-primary-darkest transition duration-150 ease-in-out focus:outline-none" title="Minimize" aria-label="Minimize"><svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div></div><div class="flex flex-col my-auto"><span class="relative w-14 h-14 mx-auto mt-2"><svg class="w-full h-full mx-auto animate-spin" width="16" height="16" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient x1="8.042%" y1="0%" x2="65.682%" y2="23.865%" id="a"><stop stop-color="#3ec0de" stop-opacity="0" offset="0%"></stop><stop stop-color="#3ec0de" stop-opacity=".631" offset="63.146%"></stop><stop stop-color="#3ec0de" offset="100%"></stop></linearGradient></defs><g fill="none" fill-rule="evenodd"><g transform="translate(1 1)"><path d="M36 18c0-9.94-8.06-18-18-18" id="Oval-2" stroke="#3ec0de" stroke-width="2"></path><circle fill="#3ec0de" cx="36" cy="18" r="1"></circle></g></g></svg></span><h1 class="mt-2 pb-4 text-center text-lg font-semibold">Filling location...</h1><div class="absolute bottom-0 left-0 h-1 bg-primary-base transition-none" style="width: 38.8889%;"></div></div><div class="border-b my-2"></div><div class="flex items-center justify-center gap-1 p-2 my-3 bg-slate-50 border border-gray-200 rounded-md whitespace-nowrap"><div class="text-sm text-gray-600 mr-4">Autofilling</div><button type="button" class="flex items-center justify-center transition duration-150 ease-in-out focus:outline-none bg-white border border-gray-200 rounded-full px-2 py-1 text-gray-600 text-xs font-medium hover:text-gray-900 hover:border-gray-500" title="Pause fill" aria-label="Pause fill"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M304 176h80v672h-80zm408 0h-64c-4.4 0-8 3.6-8 8v656c0 4.4 3.6 8 8 8h64c4.4 0 8-3.6 8-8V184c0-4.4-3.6-8-8-8z"></path></svg><span>Pause</span></button><button type="button" class="flex items-center justify-center transition duration-150 ease-in-out focus:outline-none bg-white border border-gray-200 rounded-full px-2 py-1 text-gray-600 text-xs font-medium hover:text-gray-900 hover:border-gray-500" title="Skip to next input" aria-label="Skip to next input"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 24 24" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg><span>Skip to next input</span></button></div></div></div></div></div>
+--- SHADOW#2 (size=55) ---
+<div class="leading-normal font-sans text-black"></div>
+--- SHADOW#3 (size=55) ---
+<div class="leading-normal font-sans text-black"></div>
+--- SHADOW#4 (size=55) ---
+<div class="leading-normal font-sans text-black"></div>
+--- SHADOW#5 (size=55) ---
+<div class="leading-normal font-sans text-black"></div>
+--- SHADOW#6 (size=55) ---
+<div class="leading-normal font-sans text-black"></div>
+--- SHADOW#7 (size=606) ---
+<div class="leading-normal font-sans text-black"><div class="absolute flex items-center justify-center text-center group text-primary-base" style="top: 5094px; left: 432px;"><button type="button" class="flex items-center justify-center text-center w-full h-full p-1 hover:bg-white focus:outline-none transition ease-in-out duration-150 cursor-pointer" title="Generate with Simplify Copilot" style="width: 36px; height: 36px; padding: 1px;"><img class="h-6 w-auto" alt="Generate with Simplify Copilot" src="chrome-extension://d98fbf91-9667-4a9c-a2d5-be4f69ba0403/assets/logos/icon.png"></button></div></div>

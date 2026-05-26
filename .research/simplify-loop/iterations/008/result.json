@@ -1,0 +1,421 @@
+{
+  "iteration": 8,
+  "target_url": "https://boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874",
+  "started_at": "2026-05-24T22:11:39.732624+00:00",
+  "stage_outcomes": {
+    "chrome_launch": "OK",
+    "simplify_pre_attach": "OK",
+    "cdp_connect": "OK",
+    "navigate": "OK",
+    "apply_flow": "OK"
+  },
+  "apply_worker_import_ok": true,
+  "chrome_pid": 80201,
+  "cdp_port": 52928,
+  "simplify_pre_attach": {
+    "shadow_host_count": 2,
+    "autofill_present": true,
+    "ready_state": "complete",
+    "title": "Job Application for Commercial Account Executive (German speaking) at Cloudflare",
+    "elapsed_s": 6.2118435419979505
+  },
+  "page_url": "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874",
+  "simplify_scan": {
+    "url": "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874",
+    "shadow_host_count": 2,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 27205,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "Save Job Instead",
+          "Collapse Resume Section",
+          "Tailor Resume"
+        ]
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "7%Resume Match1 of 15 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Autofill",
+        "text": "Autofill this page",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Save Job Instead",
+        "text": "Save Job Instead",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Collapse Resume Section",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Tailor Resume",
+        "text": "Tailor Resume",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 3,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": true,
+    "render_completion_ms": 4000
+  },
+  "apply_run_result": {
+    "success": true,
+    "outcome": "NEEDS_REVIEW",
+    "failure_reason": null,
+    "resume_pdf_path": "/Users/jspags/Projects/agentic-job-applier/config/resume_base.pdf",
+    "resume_source": null,
+    "confidence_score": 0.8,
+    "confidence_report": {
+      "score": 0.8,
+      "checks": [
+        {
+          "name": "page_loaded",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "URL: https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify"
+        },
+        {
+          "name": "simplify_autofill_detected",
+          "passed": true,
+          "weight": 0.15,
+          "detail": null
+        },
+        {
+          "name": "resume_uploaded",
+          "passed": true,
+          "weight": 0.2,
+          "detail": null
+        },
+        {
+          "name": "name_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "email_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "no_unresolved_required",
+          "passed": false,
+          "weight": 0.2,
+          "detail": "7 required fields empty"
+        },
+        {
+          "name": "no_error_banners",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "0 visible error elements"
+        },
+        {
+          "name": "correct_domain",
+          "passed": true,
+          "weight": 0.05,
+          "detail": "Current: https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify"
+        }
+      ],
+      "has_hard_blockers": true,
+      "resume_uploaded": true,
+      "simplify_autofill_detected": true,
+      "unresolved_required_count": 7,
+      "unresolved_optional_count": 0,
+      "ats_platform": "greenhouse"
+    },
+    "screenshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/008/screenshot.png",
+    "dom_snapshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/008/dom_post.html",
+    "unresolved_fields": [
+      {
+        "field_id": "country",
+        "label": "Country*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#country",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "iti-0__search-input",
+        "label": "Search",
+        "field_type": "search",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#iti-0__search-input",
+        "parent_form_selector": "form#application-form",
+        "placeholder": "Search"
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "resume",
+        "label": "Attach",
+        "field_type": "file",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#resume",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "cover_letter",
+        "label": "Attach",
+        "field_type": "file",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#cover_letter",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_62232281",
+        "label": "Would you like to include your LinkedIn profile, personal website or blog?",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_62232281",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_62232282",
+        "label": "How did you hear about this job?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_62232282",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_62232283",
+        "label": "Do you now or will you in the future require immigration sponsorship to work at Cloudflare?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_62232283",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      }
+    ],
+    "ats_platform": "greenhouse",
+    "page_url": "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify"
+  },
+  "simplify_scan_post": {
+    "url": "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify",
+    "shadow_host_count": 2,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 6065,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Pause fill",
+          "Skip to next input"
+        ]
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "7%Resume Match1 of 15 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Pause fill",
+        "text": "Pause",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Skip to next input",
+        "text": "Skip to next input",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 3,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "post_click_capture": {
+    "tabs_seen": [
+      "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify"
+    ],
+    "captured_url": "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify",
+    "url": "https://job-boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874&utm_source=Simplify&gh_src=Simplify",
+    "title": "Job Application for Commercial Account Executive (German speaking) at Cloudflare",
+    "shadow_host_count": 2,
+    "shadow_summary": [
+      {
+        "idx": 0,
+        "size": 3934,
+        "labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "size": 6065,
+        "labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Pause fill",
+          "Skip to next input"
+        ]
+      }
+    ],
+    "autofill_button_present": false,
+    "page_form_count": 1,
+    "page_input_count": 16
+  },
+  "finished_at": "2026-05-24T22:12:07.444937+00:00",
+  "pass": true
+}

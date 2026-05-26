@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from scripts import process_new_jobs
+from src.workers import gate as _worker_gate
 from src.agents.root_apply_decider import (
     ApplyDecision,
     GateDebugInfo,
@@ -182,7 +183,7 @@ async def test_process_once_skips_rows_missing_job_hash(
 
         raise AssertionError("gate should not run for missing-hash rows")
 
-    monkeypatch.setattr(process_new_jobs, "run_gate_with_provider", should_not_run_gate)
+    monkeypatch.setattr(_worker_gate, "run_gate_with_provider", should_not_run_gate)
 
     fake_provider = object()
     processed = await process_new_jobs._process_once(
@@ -252,7 +253,7 @@ async def test_process_once_skips_batch_when_budget_exceeded(
 
         raise AssertionError("gate should not run when budget is exceeded")
 
-    monkeypatch.setattr(process_new_jobs, "run_gate_with_provider", should_not_run)
+    monkeypatch.setattr(_worker_gate, "run_gate_with_provider", should_not_run)
 
     fake_provider = object()
     processed = await process_new_jobs._process_once(

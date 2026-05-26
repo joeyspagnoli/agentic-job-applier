@@ -1,0 +1,703 @@
+{
+  "iteration": 1,
+  "target_url": "https://boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628",
+  "started_at": "2026-05-24T21:27:31.187946+00:00",
+  "stage_outcomes": {
+    "chrome_launch": "OK",
+    "simplify_pre_attach": "OK",
+    "cdp_connect": "OK",
+    "navigate": "OK",
+    "apply_flow": "OK"
+  },
+  "apply_worker_import_ok": true,
+  "chrome_pid": 77244,
+  "cdp_port": 51631,
+  "simplify_pre_attach": {
+    "shadow_host_count": 8,
+    "autofill_present": true,
+    "ready_state": "complete",
+    "title": "Job Application for Machine Learning Engineer Intern (Summer 2026) at Cloudflare",
+    "elapsed_s": 8.71678758302005
+  },
+  "page_url": "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628",
+  "simplify_scan": {
+    "url": "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628",
+    "shadow_host_count": 8,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 4036,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 27306,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "Save Job Instead",
+          "Collapse Resume Section",
+          "Tailor Resume"
+        ]
+      },
+      {
+        "idx": 2,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 3,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 4,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 5,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 6,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 7,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "40%Resume Match6 of 15 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Autofill",
+        "text": "Autofill this page",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Save Job Instead",
+        "text": "Save Job Instead",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Collapse Resume Section",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Tailor Resume",
+        "text": "Tailor Resume",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 9,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": true,
+    "render_completion_ms": 4000
+  },
+  "apply_run_result": {
+    "success": true,
+    "outcome": "NEEDS_REVIEW",
+    "failure_reason": null,
+    "resume_pdf_path": "/Users/jspags/Projects/agentic-job-applier/config/resume_base.pdf",
+    "resume_source": null,
+    "confidence_score": 0.8,
+    "confidence_report": {
+      "score": 0.8,
+      "checks": [
+        {
+          "name": "page_loaded",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "URL: https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify"
+        },
+        {
+          "name": "simplify_autofill_detected",
+          "passed": true,
+          "weight": 0.15,
+          "detail": null
+        },
+        {
+          "name": "resume_uploaded",
+          "passed": true,
+          "weight": 0.2,
+          "detail": null
+        },
+        {
+          "name": "name_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "email_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "no_unresolved_required",
+          "passed": false,
+          "weight": 0.2,
+          "detail": "17 required fields empty"
+        },
+        {
+          "name": "no_error_banners",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "0 visible error elements"
+        },
+        {
+          "name": "correct_domain",
+          "passed": true,
+          "weight": 0.05,
+          "detail": "Current: https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify"
+        }
+      ],
+      "has_hard_blockers": true,
+      "resume_uploaded": true,
+      "simplify_autofill_detected": true,
+      "unresolved_required_count": 17,
+      "unresolved_optional_count": 0,
+      "ats_platform": "greenhouse"
+    },
+    "screenshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/001/screenshot.png",
+    "dom_snapshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/001/dom_post.html",
+    "unresolved_fields": [
+      {
+        "field_id": "country",
+        "label": "Country*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#country",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "iti-0__search-input",
+        "label": "Search",
+        "field_type": "search",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#iti-0__search-input",
+        "parent_form_selector": "form#application-form",
+        "placeholder": "Search"
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "resume",
+        "label": "Attach",
+        "field_type": "file",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#resume",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "cover_letter",
+        "label": "Attach",
+        "field_type": "file",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#cover_letter",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747916",
+        "label": "Would you like to include your LinkedIn profile, personal website or blog?",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747916",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747917",
+        "label": "How did you hear about this job?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747917",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747918",
+        "label": "Do you currently live or are you willing to relocate to the job\u2019s location?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747918",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747919",
+        "label": "Do you now or will you in the future require immigration sponsorship to work at Cloudflare?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747919",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747921",
+        "label": "Are you currently enrolled in a university or program and will return to the program upon completion of internship?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747921",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747922",
+        "label": "If you are currently enrolled in a university or program, when do you expect to graduate or complete your program? (Select the closest date.)*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747922",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747923",
+        "label": "If you are enrolled in university, what degree are you currently pursuing?\n*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747923",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747924",
+        "label": "A successful internship may lead to consideration for a full-time opportunity. If you were to receive a full-time offer, when would you be available to start?*",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747924",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "question_66747925",
+        "label": "Do you possess proficient knowledge and experience in Python and SQL?",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#question_66747925",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "gender",
+        "label": "Gender",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#gender",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "hispanic_ethnicity",
+        "label": "Are you Hispanic/Latino?",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#hispanic_ethnicity",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "veteran_status",
+        "label": "Veteran Status",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#veteran_status",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "disability_status",
+        "label": "Disability Status",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#disability_status",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      }
+    ],
+    "ats_platform": "greenhouse",
+    "page_url": "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify"
+  },
+  "simplify_scan_post": {
+    "url": "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify",
+    "shadow_host_count": 8,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 4036,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 6166,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Pause fill",
+          "Skip to next input"
+        ]
+      },
+      {
+        "idx": 2,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 3,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 4,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 5,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 6,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      },
+      {
+        "idx": 7,
+        "accessible": true,
+        "inner_size": 156,
+        "aria_labels": []
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "40%Resume Match6 of 15 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Pause fill",
+        "text": "Pause",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Skip to next input",
+        "text": "Skip to next input",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 9,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "post_click_capture": {
+    "tabs_seen": [
+      "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify"
+    ],
+    "captured_url": "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify",
+    "url": "https://job-boards.greenhouse.io/cloudflare/jobs/7914628?gh_jid=7914628&utm_source=Simplify&gh_src=Simplify",
+    "title": "Job Application for Machine Learning Engineer Intern (Summer 2026) at Cloudflare",
+    "shadow_host_count": 8,
+    "shadow_summary": [
+      {
+        "idx": 0,
+        "size": 4036,
+        "labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "size": 6166,
+        "labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Pause fill",
+          "Skip to next input"
+        ]
+      },
+      {
+        "idx": 2,
+        "size": 156,
+        "labels": []
+      },
+      {
+        "idx": 3,
+        "size": 156,
+        "labels": []
+      },
+      {
+        "idx": 4,
+        "size": 156,
+        "labels": []
+      },
+      {
+        "idx": 5,
+        "size": 156,
+        "labels": []
+      },
+      {
+        "idx": 6,
+        "size": 156,
+        "labels": []
+      },
+      {
+        "idx": 7,
+        "size": 156,
+        "labels": []
+      }
+    ],
+    "autofill_button_present": false,
+    "page_form_count": 1,
+    "page_input_count": 31
+  },
+  "finished_at": "2026-05-24T21:28:04.541941+00:00",
+  "pass": true
+}

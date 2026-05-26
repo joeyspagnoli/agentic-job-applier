@@ -1,11 +1,9 @@
 /**
  * @packageDocumentation
  *
- * Composer for the "Profile & Resume" top-level settings tab. The
- * Resume Editor sub-section was removed in the post-#61 cleanup
- * because the structured editor relied on the pre-`.tex` YAML payload
- * the backend no longer emits. The resume itself is uploaded through
- * the onboarding wizard's Resume step.
+ * Composer for the "Profile & Resume" top-level settings tab.
+ * Resume editing is handled through the `.tex` upload and contract
+ * validator flow in the onboarding wizard, not via an inline editor.
  */
 
 import type { JSX } from "react";

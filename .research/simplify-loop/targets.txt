@@ -1,0 +1,28 @@
+# Smoke-test targets — 9 jobs across 3 ATSes (3 companies, 3 role types).
+# Goal: gather a representative sample of unresolved-field data per ATS so we
+# can document exactly what Simplify Copilot fills vs. what it misses.
+
+# === Cloudflare on Greenhouse ===
+# Intern (marketing/analyst)
+https://boards.greenhouse.io/cloudflare/jobs/7729700?gh_jid=7729700
+# Engineering
+https://boards.greenhouse.io/cloudflare/jobs/7591808?gh_jid=7591808
+# Sales / customer-facing
+https://boards.greenhouse.io/cloudflare/jobs/7478874?gh_jid=7478874
+
+# === Coupa Software on Lever (URLs intentionally WITHOUT /apply so the
+# _normalize_apply_url helper is exercised) ===
+# Account Development Representative
+https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4
+# Account Director
+https://jobs.lever.co/coupa/c2056798-3f3e-4b38-94c1-76ae8bb4650d
+# AI Business Transformation & Design Strategist
+https://jobs.lever.co/coupa/db52b148-715a-4a37-98ee-069bf906c254
+
+# === Notion on Ashby ===
+# Outbound BDR
+https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application
+# Application Security Engineer, AI Security
+https://jobs.ashbyhq.com/Notion/e3944777-d4a8-41d2-88ab-32daef949d4e/application
+# Software Engineer, Data Platform
+https://jobs.ashbyhq.com/Notion/91156750-4050-4621-aa45-0fb068308d2c/application

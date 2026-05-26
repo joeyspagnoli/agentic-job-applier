@@ -1,21 +1,20 @@
 """Cover the resume-download endpoint's reviewer-verdict resolution.
 
 Purpose:
-    Lock the contract added in issue #41 item #3 — the
-    `/api/jobs/{hash}/resume` endpoint must serve the reviewer-chosen
+    The `/api/jobs/{hash}/resume` endpoint must serve the reviewer-chosen
     PDF (`review_runs.selected_pdf_path`) for the reviewer-driven BASE
     and PAGE_FIT_FAILED branches, not the always-tailored
-    `tailor_runs.artifact_pdf_path` it previously read. The legacy
-    fallback to `tailor_runs.artifact_pdf_path` must still work for
-    rows with no `review_runs` join.
+    `tailor_runs.artifact_pdf_path`. The legacy fallback to
+    `tailor_runs.artifact_pdf_path` still works for rows with no
+    `review_runs` join.
 
-    Issue #52 extends this contract: the on-disk layout the tailor
-    pipeline actually emits is `<hash>/<variant>/<variant>.pdf`, not the
-    flat `<hash>/resume_tailored.pdf` shape the pre-fix validator
-    expected. The variant-subdir tests here lock the corrected
-    `_is_safe_tailored_resume_path` validator (commit 38a89b1) against
-    every reviewer verdict, while the legacy flat-layout tests near the
-    top of the file keep the backwards-compat branch covered.
+    The on-disk layout the tailor pipeline emits is
+    `<hash>/<variant>/<variant>.pdf`, not the flat
+    `<hash>/resume_tailored.pdf` shape the legacy validator expected.
+    The variant-subdir tests lock the corrected
+    `_is_safe_tailored_resume_path` validator against every reviewer
+    verdict, while the legacy flat-layout tests near the top keep
+    the backwards-compat branch covered.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ async def _seed_review_outcome(
 
     Purpose:
         Build the minimum set of rows the resume-download endpoint needs
-        to resolve a PDF path for each branch of issue #41 item #3.
+        to resolve a PDF path for each verdict branch.
         Skipping the `review_runs` insert exercises the legacy fallback
         to `tailor_runs.artifact_pdf_path`.
     Args:
@@ -155,11 +154,9 @@ def _write_variant_pdf(
     Purpose:
         Match the on-disk layout the resume-tailor pipeline actually
         emits — `<parent>/<hash>/<variant>/<variant>.pdf` — rather than
-        the legacy flat shape `_write_pdf` produces. The bug surfaced in
-        issue #52 (every successful tailor run returned HTTP 500
-        `INVALID_ARTIFACT_PATH`) slipped through because the previous
-        tests only exercised the legacy flat layout; tests using this
-        helper turn red without the validator fix in commit 38a89b1.
+        the legacy flat shape `_write_pdf` produces. Tests using this
+        helper turn red without the `_is_safe_tailored_resume_path`
+        validator fix that accepts the per-variant subdir layout.
     Args:
         parent_dir: Container directory under which the per-job folder
             is created.
@@ -227,9 +224,9 @@ def test_serves_base_pdf_when_reviewer_verdict_is_base(
     """Reviewer chose the base variant — endpoint serves the BASE PDF.
 
     Purpose:
-        Regression target for issue #41 item #3. Before the fix the
-        endpoint read `tailor_runs.artifact_pdf_path` and would have
-        served the tailored bytes under a "Download base PDF" label.
+        The endpoint must read `review_runs.selected_pdf_path` for the
+        BASE verdict, not `tailor_runs.artifact_pdf_path`, which would
+        silently serve tailored bytes under a "Download base PDF" label.
     """
 
     job_hash = "b" * 32
@@ -357,11 +354,11 @@ def test_serves_tailored_v2_pdf_with_variant_subdir_layout(
     """Reviewer chose tailored_v2; endpoint serves the per-variant artifact.
 
     Purpose:
-        This is the exact bug reported in issue #52 — when the reviewer
-        retry loop produces a `tailored_v2.pdf`, the validator must
-        accept `<hash>/tailored_v2/tailored_v2.pdf`. The test stays red
-        without the validator fix; together with the v1 case it locks
-        both reviewer-tailored variants against the variant whitelist.
+        When the reviewer retry loop produces a `tailored_v2.pdf`, the
+        validator must accept `<hash>/tailored_v2/tailored_v2.pdf`. The
+        test stays red without the validator fix; together with the v1
+        case it locks both reviewer-tailored variants against the
+        variant whitelist.
     """
 
     job_hash = "f" * 32
@@ -394,10 +391,9 @@ def test_serves_base_pdf_when_verdict_base_with_variant_subdir_layout(
     """BASE verdict serves `<hash>/base/base.pdf` under the variant layout.
 
     Purpose:
-        Pair the issue #41 reviewer-verdict contract with the issue #52
-        on-disk shape: when the reviewer picks the BASE variant the
-        endpoint must serve the per-variant base PDF the pipeline wrote,
-        not a synthesized flat-layout path.
+        When the reviewer picks the BASE variant the endpoint must serve
+        the per-variant base PDF the pipeline wrote, not a synthesized
+        flat-layout path.
     """
 
     job_hash = "1" * 32

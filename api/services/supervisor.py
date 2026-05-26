@@ -35,11 +35,11 @@ from src.utils.paths import resolve_repo_root
 
 from main import DEFAULT_DISCOVERY_INTERVAL_MINUTES
 from main import run_discovery_loop
-from scripts.process_apply_jobs import DEFAULT_APPLY_OUTPUT_DIR
-from scripts.process_apply_jobs import run_apply_loop
 from src.agents.apply_worker.finisher_integration import safe_mode_from_env
-from scripts.process_new_jobs import run_gate_loop
-from scripts.process_qualified_jobs import (
+from src.workers.apply import DEFAULT_APPLY_OUTPUT_DIR
+from src.workers.apply import run_apply_loop
+from src.workers.gate import run_gate_loop
+from src.workers.tailor import (
     DEFAULT_CANDIDATE_PROFILE_YAML_PATH,
     DEFAULT_TAILOR_OUTPUT_DIR,
     DEFAULT_TAILOR_RESUME_TEX_PATH,

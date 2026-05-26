@@ -14,17 +14,17 @@ from loguru import logger
 
 from src.database.db_manager import DatabaseManager
 from src.filters.job_filter import JobFilter
-from src.orchestrator.fetchers.adzuna import fetch_adzuna_jobs
-from src.orchestrator.fetchers.ashby import fetch_ashby_jobs
-from src.orchestrator.fetchers.career_pages import fetch_career_page_jobs
-from src.orchestrator.fetchers.github_repos import fetch_github_repo_jobs
-from src.orchestrator.fetchers.greenhouse import fetch_greenhouse_jobs
-from src.orchestrator.fetchers.icims import fetch_icims_jobs
-from src.orchestrator.fetchers.jobspy import fetch_jobspy_jobs
-from src.orchestrator.fetchers.lever import fetch_lever_jobs
-from src.orchestrator.fetchers.linkedin import fetch_linkedin_jobs
-from src.orchestrator.fetchers.taleo import fetch_taleo_jobs
-from src.orchestrator.fetchers.workday import fetch_workday_jobs
+from src.orchestrator.crawl_runners.adzuna import fetch_adzuna_jobs
+from src.orchestrator.crawl_runners.ashby import fetch_ashby_jobs
+from src.orchestrator.crawl_runners.career_pages import fetch_career_page_jobs
+from src.orchestrator.crawl_runners.github_repos import fetch_github_repo_jobs
+from src.orchestrator.crawl_runners.greenhouse import fetch_greenhouse_jobs
+from src.orchestrator.crawl_runners.icims import fetch_icims_jobs
+from src.orchestrator.crawl_runners.jobspy import fetch_jobspy_jobs
+from src.orchestrator.crawl_runners.lever import fetch_lever_jobs
+from src.orchestrator.crawl_runners.linkedin import fetch_linkedin_jobs
+from src.orchestrator.crawl_runners.taleo import fetch_taleo_jobs
+from src.orchestrator.crawl_runners.workday import fetch_workday_jobs
 from src.utils.deduplicator import Deduplicator
 
 # Type alias for any fetcher-family coroutine awaited in ``run_job_discovery``.

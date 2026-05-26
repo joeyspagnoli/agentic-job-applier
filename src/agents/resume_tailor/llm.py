@@ -10,11 +10,11 @@ validation, the library re-prompts with the error attached, up to
 
 Provider selection is driven by env vars so the rest of the pipeline
 does not need to know whether OpenAI, Anthropic, or another backend is
-in use. Defaults: tailor/trim run on `openai/gpt-5.4` because the
-small models compressed bullets and stripped `\textbf{}` macros even
-with the rules spelled out (issue #53 was a similar bail mode); the
-reviewer stays on `openai/gpt-5-mini` since rubric scoring tolerates
-the smaller model and the budget impact is per-call, per-job.
+in use. Defaults: tailor/trim run on `openai/gpt-5.4` because smaller
+models tend to compress bullets and strip `\textbf{}` macros even with
+explicit rules in the prompt; the reviewer stays on `openai/gpt-5-mini`
+since rubric scoring tolerates the smaller model and the budget impact
+is per-call, per-job.
 """
 
 from __future__ import annotations

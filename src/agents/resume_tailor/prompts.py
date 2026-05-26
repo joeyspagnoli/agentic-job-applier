@@ -5,9 +5,8 @@ manifest, candidate profile, job posting, previous attempt) is
 appended at runtime inside `pipeline.py` so the agents themselves
 stay stateless.
 
-Phase 2 (#60) rewrote these to operate on the deterministic bullet
-manifest emitted by `src/agents/resume_tailor/locator.py` instead of
-the YAML resume payload. The new rules:
+These prompts operate on the deterministic bullet manifest emitted by
+`src/agents/resume_tailor/locator.py`. Key rules:
 
 - `rewrite_plan` / `rationale` come BEFORE answers in every payload
   (LMSF-safe ordering — small models collapse otherwise).

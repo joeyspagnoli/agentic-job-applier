@@ -4,12 +4,12 @@
  *
  * Component test for the `TailoredResumeCell` mutation-error display.
  *
- * After issue #56 the three branches split across two mutations:
+ * The cell routes button clicks to two different mutations:
  *
  * * FAILED and SUCCESS served-base (BASE / NO_IMPROVEMENT /
- *   PAGE_FIT_FAILED) now call `retryTailorRun` — clicking "Delete &
+ *   PAGE_FIT_FAILED) call `retryTailorRun` — clicking "Delete &
  *   retry" must surface `retryMutation` errors under that button.
- * * SUCCESS+TAILORED still calls `deleteTailorRun` — "Delete tailored"
+ * * SUCCESS+TAILORED calls `deleteTailorRun` — "Delete tailored"
  *   must surface `deleteMutation` errors under it.
  *
  * Both contracts are locked here so a future refactor cannot

@@ -171,7 +171,7 @@ async def test_process_apply_row_drives_user_enqueued_row_to_success(
         success ``ApplyRunResult`` so the test runs deterministically.
     """
 
-    import scripts.process_apply_jobs as process_apply_jobs
+    import src.workers.apply as process_apply_jobs
 
     async def _stub_apply_to_job(**_kwargs: object) -> ApplyRunResult:
         return ApplyRunResult(

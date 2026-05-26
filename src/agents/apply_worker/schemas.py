@@ -203,7 +203,7 @@ class FinisherDiagnostics(BaseModel):
         NEEDS_REVIEW or FAILED outcome — the finisher's terminal state,
         cost / turn counters, the Tier-2 drafts, the verify-after-fill
         result, and any submit-time error toasts. Stored as JSON in the
-        ``apply_handoffs`` row added in issue #59.
+        ``apply_handoffs.finisher_diagnostics_json`` column.
 
     Attributes:
         finisher_outcome: ``COMPLETE`` / ``AGENT_GAVE_UP`` /
@@ -267,8 +267,8 @@ class ApplyRunResult(BaseModel):
         unresolved_fields: Rich metadata for every unresolved form field.
         ats_platform: Detected ATS platform.
         page_url: Final page URL after any redirects.
-        finisher_diagnostics: Issue #59 finisher telemetry (None when
-            the finisher was not invoked, e.g. unsupported ATS).
+        finisher_diagnostics: Finisher telemetry (None when the finisher
+            was not invoked, e.g. for unsupported ATS platforms).
         deferred_questions: Tier-3 questions the finisher logged; the
             worker persists these to
             ``apply_handoffs.deferred_questions_json``.

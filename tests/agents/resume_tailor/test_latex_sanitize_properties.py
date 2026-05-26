@@ -77,8 +77,8 @@ def test_latex_safe_input_is_a_subsequence_of_output(
         "and passes them through without escaping (see latex_sanitize.py module "
         "docstring). The counter in this test counts every bare `$` as a growth "
         "unit, but the production code only escapes an odd count. This is a test "
-        "bug, not a production bug — the math-mode preservation is correct per "
-        "issue #54. Counterexample: `'$$'` → growth=0 but bare_special_count=2."
+        "bug, not a production bug — the math-mode preservation is by design. "
+        "Counterexample: `'$$'` → growth=0 but bare_special_count=2."
     )
 )
 @given(arbitrary_text=st.text(max_size=200))

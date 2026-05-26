@@ -2,7 +2,7 @@
 
 > ⚠️ **Alpha software.** Auto-submit fires only when a strict binary gate passes — all required fields filled, no pending Tier-2 drafts, no Tier-3 deferred questions. Otherwise the form lands in `NEEDS_REVIEW` for you to finish. `SAFE_MODE=true` disables auto-submit globally. See [Status & Safety](#status--safety) before running.
 
-A self-hosted, AI-driven job discovery and application pipeline. It crawls a long list of ATSes, aggregators, and remote-only boards (full list below), decides which postings are worth applying to, generates a tailored LaTeX resume per job, runs a second-pass review, and drives a real browser to fill the application form (you submit it yourself). State lives in a local SQLite database, and a FastAPI + React dashboard exposes everything that happens at runtime.
+A self-hosted, AI-driven job discovery and application pipeline. It crawls a long list of ATSes, aggregators, and remote-only boards (full list below), decides which postings are worth applying to, generates a tailored LaTeX resume per job, runs a second-pass review, and drives a real browser to fill the application form. A binary gate decides whether to auto-submit or hand off to the human-review queue. State lives in a local SQLite database, and a FastAPI + React dashboard exposes everything that happens at runtime.
 
 ### Supported sources
 
@@ -16,7 +16,18 @@ A self-hosted, AI-driven job discovery and application pipeline. It crawls a lon
 | Curated GitHub repos         | e.g. SimplifyJobs internships repos via the GitHub fetcher           |
 | Custom company watchers      | Direct career-page polling for non-ATS sites                         |
 
-<!-- screenshots TBD -->
+![Jobs discovered across 14+ ATSes and aggregators, qualified through the gate](docs/screenshots/jobs.png)
+
+<details>
+<summary>More screenshots — Dashboard, Human Review, Cost Tracking</summary>
+
+![Dashboard with discovery trends and source breakdown](docs/screenshots/dashboard.png)
+
+![Human Review queue surfacing a NEEDS_REVIEW handoff with deferred questions](docs/screenshots/human-review.png)
+
+![Cost Tracking page with daily spend trend across all pipeline stages](docs/screenshots/cost-tracking.png)
+
+</details>
 
 ## Status & Safety
 
@@ -28,8 +39,8 @@ This project is **alpha software**. The discovery, gate, tailor, review, and das
 - Tailor agent generates a job-specific LaTeX resume + PDF.
 - Review agent does a second-pass verdict on the tailored resume.
 - Dashboard pipeline timeline updates as each job moves through.
-- Apply worker opens a real browser, navigates to the posting, and triggers Simplify autofill on the form.
-- **Apply finisher drives Greenhouse + Ashby form completion and auto-submits when the binary gate passes:** (a) all required fields are filled, (b) no Tier-2 drafts pending review, (c) no Tier-3 questions deferred. Otherwise the apply lands `NEEDS_REVIEW`. `SAFE_MODE=true` disables auto-submit globally regardless of gate outcome.
+- Apply worker opens a real browser, navigates to the posting, and triggers Simplify Copilot autofill on the form.
+- **Apply finisher (Greenhouse + Ashby only):** after Simplify autofill, a Pydantic AI agent drives form completion using 8 typed BYO Playwright tools (field detection, value injection, file upload, dropdown selection, checkbox/radio handling, form-state snapshot, page-scroll, submit-click). It then evaluates a binary submit gate: (a) all required fields are filled, (b) no Tier-3 questions deferred, (c) no Tier-2 drafts below the confidence threshold. If the gate passes, the finisher auto-submits; otherwise the job lands `NEEDS_REVIEW`. For all other ATSes the apply always lands `NEEDS_REVIEW` without finisher involvement. `SAFE_MODE=true` disables auto-submit globally regardless of gate outcome.
 
 ### What does NOT work, on purpose
 - **Multi-provider BYOK.** Onboarding accepts only an OpenAI API key. The provider abstraction at `src/providers/factory.py` is ready for Anthropic, Gemini, OpenRouter, and Codex, but the tailor and review workers are still hardcoded to OpenAI — see [#35](https://github.com/joeyspagnoli/agentic-job-applier/issues/35).
@@ -41,7 +52,7 @@ This project is **alpha software**. The discovery, gate, tailor, review, and das
 3. `docker compose up -d`.
 4. Open the dashboard, complete onboarding, then flip the **AUTONOMOUS** toggle in the top bar to ON.
 5. Wait for jobs to flow through. When the binary gate passes the finisher auto-submits; otherwise the job lands in the **NEEDS_REVIEW** queue.
-6. For each `NEEDS_REVIEW` job: open the job in your browser (the apply worker has already filled the form via Simplify autofill in your host Chrome), verify the application looks right, complete any deferred questions, click Submit yourself, then click "Mark Complete" in the dashboard.
+6. For each `NEEDS_REVIEW` job: the apply finisher has already filled the form in your host Chrome via Simplify autofill and the Pydantic AI agent. Open the job URL, verify the application looks right, complete any deferred questions, click Submit yourself, then click "Mark Complete" in the dashboard.
 
 Treat the AI's output as a draft. Read the tailored resume before letting it represent you. **Do not write a wrapper that auto-submits forms.** If you do, you own the consequences. The disclosure process for security-relevant changes is in [`SECURITY.md`](SECURITY.md).
 
@@ -105,16 +116,18 @@ produces FAILED rows.
 
 ## Onboarding
 
-The dashboard refuses to load until `config/candidate_profile.yaml`, `config/resume_content.yaml`, and `config/filters.yaml` are populated. The onboarding wizard at `/onboarding` walks through the six steps below and writes the YAML files for you. It runs automatically the first time you open the dashboard.
+The dashboard refuses to load until `config/candidate_profile.yaml` and `config/filters.yaml` are populated. The onboarding wizard at `/onboarding` walks through eight steps and writes the config files for you. It runs automatically the first time you open the dashboard.
 
 | Step | Label              | What it captures                                                                                                  |
 | ---- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | 1    | About You          | Name, email, phone, location, LinkedIn, professional summary. Written to `config/candidate_profile.yaml`.         |
-| 2    | Target Roles       | Target titles, strongest areas, experience highlights for the resume tailor, and job-board search terms.          |
-| 3    | Resume             | Upload a `.pdf`, `.tex`, `.yaml`, or `.yml` resume. Parsed into the structured `config/resume_content.yaml`.       |
-| 4    | Filters            | Salary range, job types, remote/hybrid requirement, title exclusion patterns, company blocklist. Writes `config/filters.yaml`. |
-| 5    | AI Provider        | Enter your OpenAI API key. Multi-provider BYOK (Anthropic, Gemini, OpenRouter, Codex) is tracked in [#35](https://github.com/joeyspagnoli/agentic-job-applier/issues/35). |
-| 6    | Watchlist          | Optional list of companies to track explicitly. Resolved against known Greenhouse slugs and written to `config/companies.yaml`. |
+| 2    | Education          | Degree entries (school, degree, field, dates). Written to `config/candidate_profile.yaml`.                        |
+| 3    | Target Roles       | Target titles, strongest areas, experience highlights for the resume tailor, and job-board search terms.          |
+| 4    | Resume             | Upload a `.tex` resume. Validated against the contract in [`docs/resume-tex-contract.md`](docs/resume-tex-contract.md) and saved to `config/resume.tex`. |
+| 5    | Filters            | Salary range, job types, remote/hybrid requirement, title exclusion patterns, company blocklist. Writes `config/filters.yaml`. |
+| 6    | AI Provider        | Enter your OpenAI API key. Multi-provider BYOK (Anthropic, Gemini, OpenRouter, Codex) is tracked in [#35](https://github.com/joeyspagnoli/agentic-job-applier/issues/35). |
+| 7    | Apply Preferences  | Work authorization status, sponsorship, EEO defaults, expected salary, preferred locations. Written to `config/candidate_profile.yaml`. |
+| 8    | Watchlist          | Optional list of companies to track explicitly. Resolved against known Greenhouse slugs and written to `config/companies.yaml`. |
 
 After the final step the dashboard becomes available. Re-run any step later from **Settings** in the sidebar; raw YAML is editable there too.
 
@@ -128,7 +141,7 @@ Adzuna is a free, API-backed job aggregator covering 12+ countries. It's used he
 2. Once logged in, create a new application — any name works.
 3. You'll receive an **App ID** and an **App Key**. You need both.
 
-Enter them in Step 5 of the onboarding wizard (or under **Settings → API Keys**). The wizard validates the credentials against the live API before saving, so typos are caught immediately. Once saved, `adzuna.enabled` in `config/companies.yaml` is flipped on automatically and the fetcher runs on every discovery cycle.
+Enter them in Step 6 of the onboarding wizard (or under **Settings → API Keys**). The wizard validates the credentials against the live API before saving, so typos are caught immediately. Once saved, `adzuna.enabled` in `config/companies.yaml` is flipped on automatically and the fetcher runs on every discovery cycle.
 
 ## Operational commands
 
@@ -156,14 +169,15 @@ docker compose exec app bash           # shell into the running container
 | `SAFE_MODE`                      | Apply finisher kill switch                  | Set `true` to disable auto-submit globally; forms still fill, outcome lands `NEEDS_REVIEW`. Defaults to `false`. |
 | `LITELLM_LOCAL_MODEL_COST_MAP`   | Cost tracking                               | Use litellm's bundled pricing table; avoids outbound calls for price data. Defaults to `true`. |
 
-User-facing YAML files live under `config/` and are persisted via the Docker `./config:/app/config` bind mount:
+User-facing YAML files live under `config/` and are persisted via the Docker `./config:/app/config` bind mount. The onboarding wizard creates the personal ones on first run; you can also seed them by copying the shipped templates.
 
-| File                          | Owner                                  |
-| ----------------------------- | -------------------------------------- |
-| `config/candidate_profile.yaml` | About You + Target Roles wizard steps |
-| `config/resume_content.yaml`  | Resume wizard step                     |
-| `config/filters.yaml`         | Filters wizard step                    |
-| `config/companies.yaml`       | Watchlist wizard step                  |
+| File                          | Owner                                                                                            | Tracked in git? |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ | --------------- |
+| `config/candidate_profile.yaml` | About You, Education, Target Roles, and Apply Preferences wizard steps                          | No (gitignored) |
+| `config/resume.tex`           | Resume wizard step. Validated against [`docs/resume-tex-contract.md`](docs/resume-tex-contract.md). Copy [`config/resume.example.tex`](config/resume.example.tex) if you prefer to edit `.tex` directly. | No (gitignored) |
+| `config/filters.yaml`         | Filters wizard step. Shipped defaults reject obvious noise (recruiter / sales / marketing / support) and leave the rest to the gate. | Yes (defaults)  |
+| `config/companies.yaml`       | Watchlist wizard step. Ships with a small list of well-known tech employers to give discovery something to crawl on first boot. | Yes (defaults)  |
+| `config/defer_rules.yaml`     | User-tunable Tier-3 regex policy for the apply finisher. Defaults defer sponsorship, EEO, salary, and start-date.                | Yes (defaults)  |
 
 
 ## Local development
@@ -217,12 +231,14 @@ fetchers   apply-       Instructor +    Playwright
            decider      LaTeX/latexmk   + Simplify
 ```
 
-| Stage     | Producer / consumer                          | Inputs                                  | Outputs                                                |
+Each stage runs as an asyncio task inside the FastAPI process, managed by `api/services/supervisor.py:LoopSupervisor`. The stages can also be driven individually as CLI scripts for local development.
+
+| Stage     | In-process loop / CLI script                 | Inputs                                  | Outputs                                                |
 | --------- | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------ |
-| Discovery | `main.py`                                    | `config/companies.yaml`, fetchers       | New rows in `job_postings`, `crawl_history`            |
-| Gate      | `scripts/process_new_jobs.py`                | `NEW` postings, candidate profile       | `QUALIFIED` or `FILTERED` status; cost events          |
-| Tailor + Review | `scripts/process_qualified_jobs.py`    | `QUALIFIED` postings, `resume_content.yaml` | `tailor_runs` + matching `review_runs` rows, tailored LaTeX/PDF artifacts |
-| Apply     | `scripts/process_apply_jobs.py`              | Successful `review_runs`                | `apply_runs` rows; auto-submitted when binary gate passes, otherwise `apply_handoffs` at `NEEDS_REVIEW` |
+| Discovery | `main.run_discovery_loop` / `main.py`        | `config/companies.yaml`, fetchers       | New rows in `job_postings`, `crawl_history`            |
+| Gate      | supervisor gate task / `scripts/process_new_jobs.py` | `NEW` postings, candidate profile | `QUALIFIED` or `FILTERED` status; cost events          |
+| Tailor + Review | supervisor tailor task / `scripts/process_qualified_jobs.py` | `QUALIFIED` postings, `config/resume.tex` | `tailor_runs` + matching `review_runs` rows, tailored LaTeX/PDF artifacts |
+| Apply     | supervisor apply task / `scripts/process_apply_jobs.py` | Successful `review_runs`         | `apply_runs` rows; auto-submitted (Greenhouse/Ashby) when binary gate passes, otherwise `apply_handoffs` at `NEEDS_REVIEW` |
 
 State lives in:
 
@@ -238,8 +254,6 @@ Key directories:
 - `src/` — fetchers, agents, database manager, utilities.
 - `scripts/` — worker entry points and operator helpers.
 - `deploy/` — systemd units and helper scripts for Linux deployments.
-
-By default `GET /api/jobs/{job_hash}/resume` is restricted to localhost. Set `TAILORED_RESUME_DOWNLOAD_TOKEN` and pass it via the `x-tailored-resume-token` header to enable remote downloads.
 
 ## Testing
 

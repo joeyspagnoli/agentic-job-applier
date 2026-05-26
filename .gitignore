@@ -30,6 +30,14 @@ config/candidate_profile.local.yaml
 config/*.bak
 config/backups/
 
+# User resume — personal data. Ship config/resume.example.tex as a template;
+# the onboarding wizard writes the real config/resume.tex on first run.
+config/resume.tex
+# Generated PDFs from local LaTeX edits.
+config/resume.pdf
+config/resume_base.pdf
+config/resume_base.tex
+
 # =============================================================================
 # Runtime data and logs
 # =============================================================================

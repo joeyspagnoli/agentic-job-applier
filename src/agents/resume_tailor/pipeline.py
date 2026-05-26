@@ -6,8 +6,8 @@ BackgroundTasks path (`POST /api/jobs/{hash}/tailor`) call this same
 function. Each LLM stage is one structured Instructor call validated
 against a Pydantic schema (see `pipeline_schemas.py`).
 
-Phase 2 (#60) replaced the YAML-edit-list flow with a `.tex`
-manifest + byte-offset patcher flow. Stages, in order (plan §7):
+The pipeline operates on a `.tex` manifest + byte-offset patcher flow.
+Stages, in order:
 
  1. Mark the tailor run RUNNING.
  2. Load job context.

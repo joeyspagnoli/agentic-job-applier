@@ -223,8 +223,8 @@ export function detectSimplifyCategories(targetRoles: string[]): string[] {
  * @remarks
  * Surgical edit: leaves comments, sibling fields, and adjacent blocks
  * intact. When the file does not yet contain an `adzuna:` block, a
- * minimal one is appended at the end of the document so older user
- * configs (created before issue #9) still pick up the toggle.
+ * minimal one is appended at the end of the document so the toggle
+ * is available for all user configurations.
  *
  * @param yamlText - Full text of `companies.yaml`.
  * @param enabled - New value for `adzuna.enabled`.

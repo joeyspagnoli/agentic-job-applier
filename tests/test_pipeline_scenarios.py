@@ -1,12 +1,11 @@
-"""Scenario tests for `run_tailor_review_pipeline` (Phase 2).
+"""Scenario tests for `run_tailor_review_pipeline`.
 
 Purpose:
-    Phase 2 (#60) rewrote the pipeline to operate on the user's
-    `.tex` resume + a bullet manifest + a byte-offset patcher. Each
-    test below pins one documented behavioral-contract branch by
-    monkeypatching the LLM calls and the write/compile step, then
-    asserts the resulting `TailorRunResult`, `tailor_runs` row, and
-    (where applicable) the `review_runs` row.
+    The pipeline operates on the user's `.tex` resume + a bullet manifest
+    + a byte-offset patcher. Each test below pins one documented
+    behavioral-contract branch by monkeypatching the LLM calls and the
+    write/compile step, then asserts the resulting `TailorRunResult`,
+    `tailor_runs` row, and (where applicable) the `review_runs` row.
 
     Mocks land on the module-bound names (`pipeline.call_tailor`,
     `pipeline.call_reviewer`, `pipeline._write_and_compile_variant`)

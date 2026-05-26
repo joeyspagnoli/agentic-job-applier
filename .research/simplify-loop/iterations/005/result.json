@@ -1,0 +1,392 @@
+{
+  "iteration": 5,
+  "target_url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application",
+  "started_at": "2026-05-24T21:40:01.465133+00:00",
+  "stage_outcomes": {
+    "chrome_launch": "OK",
+    "simplify_pre_attach": "OK",
+    "cdp_connect": "OK",
+    "navigate": "OK",
+    "apply_flow": "OK"
+  },
+  "apply_worker_import_ok": true,
+  "chrome_pid": 78202,
+  "cdp_port": 52311,
+  "simplify_pre_attach": {
+    "shadow_host_count": 1,
+    "autofill_present": true,
+    "ready_state": "complete",
+    "title": "Outbound Business Development Representative @ Notion",
+    "elapsed_s": 2.2501857910247054
+  },
+  "page_url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application",
+  "simplify_scan": {
+    "url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application",
+    "shadow_host_count": 6,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 22756,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "Save Job Instead",
+          "Expand Resume Section"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 2,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 3,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 4,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 5,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Autofill",
+        "text": "Autofill this page",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Save Job Instead",
+        "text": "Save Job Instead",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Expand Resume Section",
+        "text": "",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 7,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": true,
+    "render_completion_ms": 2000
+  },
+  "apply_run_result": {
+    "success": true,
+    "outcome": "NEEDS_REVIEW",
+    "failure_reason": null,
+    "resume_pdf_path": "/Users/jspags/Projects/agentic-job-applier/config/resume_base.pdf",
+    "resume_source": null,
+    "confidence_score": 1.0,
+    "confidence_report": {
+      "score": 1.0,
+      "checks": [
+        {
+          "name": "page_loaded",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "URL: https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify"
+        },
+        {
+          "name": "simplify_autofill_detected",
+          "passed": true,
+          "weight": 0.15,
+          "detail": null
+        },
+        {
+          "name": "resume_uploaded",
+          "passed": true,
+          "weight": 0.2,
+          "detail": null
+        },
+        {
+          "name": "name_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "email_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "no_unresolved_required",
+          "passed": true,
+          "weight": 0.2,
+          "detail": "0 required fields empty"
+        },
+        {
+          "name": "no_error_banners",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "0 visible error elements"
+        },
+        {
+          "name": "correct_domain",
+          "passed": true,
+          "weight": 0.05,
+          "detail": "Current: https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify"
+        }
+      ],
+      "has_hard_blockers": false,
+      "resume_uploaded": true,
+      "simplify_autofill_detected": true,
+      "unresolved_required_count": 0,
+      "unresolved_optional_count": 0,
+      "ats_platform": "ashby"
+    },
+    "screenshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/005/screenshot.png",
+    "dom_snapshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/005/dom_post.html",
+    "unresolved_fields": [
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "file",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input:nth-child(1)",
+        "parent_form_selector": null,
+        "placeholder": null
+      }
+    ],
+    "ats_platform": "ashby",
+    "page_url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify"
+  },
+  "simplify_scan_post": {
+    "url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify",
+    "shadow_host_count": 6,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 22863,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "View Saved Job",
+          "Expand Resume Section"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 2,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 3,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 4,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 5,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Autofill",
+        "text": "Autofill this page again",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "View Saved Job",
+        "text": "View Saved Job",
+        "visible": true
+      },
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Expand Resume Section",
+        "text": "",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 7,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": true
+  },
+  "post_click_capture": {
+    "tabs_seen": [
+      "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify"
+    ],
+    "captured_url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify",
+    "url": "https://jobs.ashbyhq.com/Notion/05e14247-17c4-4e98-9a13-53828a4e2f13/application?utm_source=Simplify",
+    "title": "Outbound Business Development Representative @ Notion",
+    "shadow_host_count": 6,
+    "shadow_summary": [
+      {
+        "idx": 0,
+        "size": 22863,
+        "labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "View Saved Job",
+          "Expand Resume Section"
+        ]
+      },
+      {
+        "idx": 1,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 2,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 3,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 4,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 5,
+        "size": 55,
+        "labels": []
+      }
+    ],
+    "autofill_button_present": true,
+    "page_form_count": 0,
+    "page_input_count": 35
+  },
+  "finished_at": "2026-05-24T21:40:21.140263+00:00",
+  "pass": true
+}

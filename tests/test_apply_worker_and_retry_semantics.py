@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from scripts import process_apply_jobs
+from src.workers import apply as _worker_apply
 from src.agents.apply_worker import browser
 from src.agents.apply_worker import field_scanner
 from src.agents.apply_worker import resume_upload
@@ -958,7 +959,7 @@ async def test_apply_once_persists_handoff_when_outcome_needs_review(
             page_url="https://boards.greenhouse.io/example/jobs/77",
         )
 
-    monkeypatch.setattr(process_apply_jobs, "apply_to_job", fake_apply_to_job)
+    monkeypatch.setattr(_worker_apply, "apply_to_job", fake_apply_to_job)
 
     fake_db = FakeDB()
     processed_count = await process_apply_jobs._apply_once(
@@ -1200,9 +1201,9 @@ async def test_apply_once_persists_handoff_when_cost_telemetry_fails(
 
         raise RuntimeError("cost telemetry unavailable")
 
-    monkeypatch.setattr(process_apply_jobs, "apply_to_job", fake_apply_to_job)
+    monkeypatch.setattr(_worker_apply, "apply_to_job", fake_apply_to_job)
     monkeypatch.setattr(
-        process_apply_jobs,
+        _worker_apply,
         "record_apply_browser_stub",
         fake_record_apply_browser_stub,
     )

@@ -1,23 +1,22 @@
 # Pre-gate filtering rules for job discovery.
-# Hard filters reject jobs before they enter the database.
-# Soft filters auto-categorize jobs to skip the gate agent when the decision is obvious.
+#
+# Hard filters reject jobs outright before they enter the database.
+# Soft filters auto-categorize jobs to skip the gate agent when the decision
+# is obvious. The dashboard's Filters settings page writes to this file, and
+# wizard step 5 seeds it on first run.
+#
+# Defaults shipped here are conservative — they reject obvious noise (recruiter
+# / sales / support) but otherwise let everything through to the gate agent.
+# Tune for your seniority, geography, and salary band.
 
 hard_filters:
-  # Job types to reject outright (case-insensitive match against normalized job_type).
-  # Valid values: "Full-time", "Part-time", "Contract", "Internship"
-  exclude_job_types:
-    - "Full-time"
+  # Job types to reject outright (case-insensitive match against normalized
+  # job_type). Valid values: "Full-time", "Part-time", "Contract",
+  # "Internship". Leave empty to accept all types.
+  exclude_job_types: []
 
   # Regex patterns — a job whose title matches ANY of these is rejected.
   exclude_title_patterns:
-    - "(?i)senior"
-    - "(?i)staff"
-    - "(?i)principal"
-    - "(?i)manager"
-    - "(?i)director"
-    - "(?i)vp|vice president"
-    - "(?i)head of"
-    - "(?i)chief"
     - "(?i)recruiter"
     - "(?i)sales"
     - "(?i)marketing"
@@ -25,13 +24,7 @@ hard_filters:
 
   # Regex patterns — a job must match AT LEAST ONE of these to be kept.
   # Leave empty to disable (all titles pass).
-  require_title_patterns:
-    - "intern"
-    - "co-op"
-    - "coop"
-    - "new.?grad"
-    - "early.?career"
-    - "student"
+  require_title_patterns: []
 
   # Location strings to reject (case-insensitive substring match).
   exclude_locations: []
@@ -57,18 +50,13 @@ soft_filters:
   negative_keywords:
     - "clearance required"
     - "security clearance"
-    - "5+ years"
-    - "7+ years"
-    - "10+ years"
-    - "help desk"
-    - "it support"
 
   # If a job description contains ALL of these keywords, auto-QUALIFY it
-  # (skip the gate agent, mark as QUALIFIED).
-  positive_keywords:
-    - "intern"
+  # (skip the gate agent, mark as QUALIFIED). Use sparingly — bypassing the
+  # gate means no LLM judgment.
+  positive_keywords: []
 
   # Maximum years of experience mentioned in the description.
   # If the job mentions "X+ years" and X exceeds this, auto-FILTER.
   # Set to 0 to disable.
-  max_experience_years: 3
+  max_experience_years: 0

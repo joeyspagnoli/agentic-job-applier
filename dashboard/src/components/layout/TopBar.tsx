@@ -6,8 +6,8 @@
  * @remarks
  * Rendered above every page. Shows three chips: the auto-sync status,
  * the global autonomous toggle, and the host Chrome reachability chip.
- * Replaces the older bell + manual sync + power-menu layout that was
- * incompatible with the single-container Docker shape (issue #61).
+ * The chip layout accommodates single-container Docker deployment without
+ * requiring multi-service orchestration.
  */
 
 import type { JSX } from "react";

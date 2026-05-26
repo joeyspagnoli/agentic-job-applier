@@ -1,0 +1,6 @@
+Without Host header (IP literal - Chrome 148):
+HTTP 200
+With Host: localhost:9222 (IP literal - Chrome 148):
+HTTP 200
+host.docker.internal without Host header (hostname - Chrome 148):
+HTTP 500

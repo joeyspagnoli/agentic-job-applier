@@ -2,8 +2,7 @@
 /**
  * @packageDocumentation
  *
- * Regression guards for the NotTailoredModal flows shipped in the
- * post-#59 apply-UX fix:
+ * Regression guards for the NotTailoredModal flows:
  *
  *   1. "No, skip tailoring" → POST /apply with `{ resumeMode: "base" }`,
  *      no follow-up POST /tailor.

@@ -1,8 +1,7 @@
-"""Risk-area tests for `run_tailor_review_pipeline` (Phase 2 of #60).
+"""Risk-area tests for `run_tailor_review_pipeline`.
 
 Purpose:
-    Fill the gaps the Phase 1-4 handoff called out beyond the 13
-    scenarios in `test_pipeline_scenarios.py`:
+    Fill the gaps beyond the 13 scenarios in `test_pipeline_scenarios.py`:
 
     - Risk #2 — every DB row written by the pipeline carries `""` in
       the legacy `*_yaml_path` columns.

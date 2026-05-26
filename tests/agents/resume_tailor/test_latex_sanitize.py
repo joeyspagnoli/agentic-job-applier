@@ -1,11 +1,11 @@
-"""Tests for the simplified `latex_safe` (Phase 4 of #60).
+"""Tests for the simplified `latex_safe`.
 
 Purpose:
-    The Phase 4 sanitizer escapes only the five hard-break LaTeX-active
-    characters (`&`, `%`, `$`, `#`, `_`) and leaves everything else —
-    macros, braces, tildes, carets, backslashes — alone. The tailor
-    prompt is the discipline ("copy macros verbatim"); the sanitizer
-    is no longer a safety net for malformed LaTeX.
+    The sanitizer escapes only the five hard-break LaTeX-active characters
+    (`&`, `%`, `$`, `#`, `_`) and leaves everything else — macros, braces,
+    tildes, carets, backslashes — alone. The tailor prompt is the discipline
+    ("copy macros verbatim"); the sanitizer is not a safety net for malformed
+    LaTeX.
 """
 
 from __future__ import annotations
@@ -144,8 +144,8 @@ def test_latex_safe_is_idempotent_on_arbitrary_text(arbitrary_text: str) -> None
     reason=(
         "The property is violated for balanced `$...$` pairs: the sanitizer "
         "intentionally treats an even count of bare `$` as math-mode delimiters "
-        "and passes them through unescaped (see latex_sanitize.py module docstring "
-        "and issue #54). Counterexample: `'$$'` → output `'$$'` which has a bare "
+        "and passes them through unescaped (see latex_sanitize.py module docstring). "
+        "Counterexample: `'$$'` → output `'$$'` which has a bare "
         "`$` at index 0. This is a test expectation bug, not a production bug."
     )
 )

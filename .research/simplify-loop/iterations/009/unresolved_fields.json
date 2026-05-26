@@ -1,0 +1,98 @@
+[
+  {
+    "field_id": null,
+    "label": "Portfolio URL",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"urls[Portfolio]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Other website",
+    "field_type": "text",
+    "is_required": false,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"urls[Other]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field1]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field2]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field3]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  },
+  {
+    "field_id": null,
+    "label": "Type your response",
+    "field_type": "text",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": null,
+    "selector": "input[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field4]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": "Type your response"
+  },
+  {
+    "field_id": null,
+    "label": null,
+    "field_type": "select-one",
+    "is_required": true,
+    "current_value": "",
+    "validation_error": null,
+    "options": [
+      "Yes",
+      "No"
+    ],
+    "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field5]\"]",
+    "parent_form_selector": "form#application-form",
+    "placeholder": null
+  }
+]

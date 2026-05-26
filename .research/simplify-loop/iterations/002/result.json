@@ -1,0 +1,308 @@
+{
+  "iteration": 2,
+  "target_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+  "started_at": "2026-05-24T21:28:13.986683+00:00",
+  "stage_outcomes": {
+    "chrome_launch": "OK",
+    "simplify_pre_attach": "MISSING",
+    "cdp_connect": "OK",
+    "navigate": "OK",
+    "apply_flow": "OK"
+  },
+  "apply_worker_import_ok": true,
+  "chrome_pid": 77366,
+  "cdp_port": 51737,
+  "simplify_pre_attach": {
+    "shadow_host_count": 2,
+    "autofill_present": false,
+    "ready_state": "complete",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "timed_out": true
+  },
+  "simplify_pre_attach_after_reload": {
+    "shadow_host_count": 2,
+    "autofill_present": false,
+    "ready_state": "complete",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "timed_out": true
+  },
+  "page_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+  "simplify_scan": {
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+    "shadow_host_count": 2,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 28533,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Close",
+          "Hide this message",
+          "Open job tracker",
+          "Collapse Resume Section",
+          "Tailor Resume"
+        ]
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "20%Resume Match1 of 5 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Open job tracker",
+        "text": "Account Development Representative - 11235Coupa Software, IncNot savedMadrid, Sp",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Collapse Resume Section",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Tailor Resume",
+        "text": "Tailor Resume",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 3,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "apply_run_result": {
+    "success": true,
+    "outcome": "NEEDS_REVIEW",
+    "failure_reason": null,
+    "resume_pdf_path": "/Users/jspags/Projects/agentic-job-applier/config/resume_base.pdf",
+    "resume_source": null,
+    "confidence_score": 0.45,
+    "confidence_report": {
+      "score": 0.45,
+      "checks": [
+        {
+          "name": "page_loaded",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "URL: https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4"
+        },
+        {
+          "name": "simplify_autofill_detected",
+          "passed": false,
+          "weight": 0.15,
+          "detail": null
+        },
+        {
+          "name": "resume_uploaded",
+          "passed": false,
+          "weight": 0.2,
+          "detail": null
+        },
+        {
+          "name": "name_populated",
+          "passed": false,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "email_populated",
+          "passed": false,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "no_unresolved_required",
+          "passed": true,
+          "weight": 0.2,
+          "detail": "0 required fields empty"
+        },
+        {
+          "name": "no_error_banners",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "0 visible error elements"
+        },
+        {
+          "name": "correct_domain",
+          "passed": true,
+          "weight": 0.05,
+          "detail": "Current: https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4"
+        }
+      ],
+      "has_hard_blockers": true,
+      "resume_uploaded": false,
+      "simplify_autofill_detected": false,
+      "unresolved_required_count": 0,
+      "unresolved_optional_count": 0,
+      "ats_platform": "lever"
+    },
+    "screenshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/002/screenshot.png",
+    "dom_snapshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/002/dom_post.html",
+    "unresolved_fields": [],
+    "ats_platform": "lever",
+    "page_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4"
+  },
+  "simplify_scan_post": {
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+    "shadow_host_count": 2,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 22499,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Tailor Resume",
+          "Toggle keyword match model",
+          "Update Job Description"
+        ]
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "20%Resume Match1 of 5 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Tailor Resume",
+        "text": "Tailor Resume",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Toggle keyword match model",
+        "text": "V1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Update Job Description",
+        "text": "Update Job Description",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 3,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "post_click_capture": {
+    "tabs_seen": [
+      "https://storage.googleapis.com/simplify-resumes/0a60b10a-4ce6-4a56-85fe-cca508fa3e96/9b75561b-141a-49e0-bbad-a2efafb6c961/1778133215.pdf?Expires=1780262859&GoogleAccessId=gcs-signing-service-account%40mifflin-backend.iam.gserviceaccount.com&Signature=fESfz5wcljqFQIqzpbBlkq2xA41vesuv%2Bhjolx30bXrTBQW%2BNCR2XBnYNAg%2Bs%2BUX%2BKFiBEYu7Mbp0ag7KvGjDev1Yce1iLtlACU2u9HQnHJ6BDrZP%2FR40rHgtXpKqukeyFFbLSL3rkw4N4lBMwpUrlEFw8FY3XrQ%2FyZkzpLFeBnqdr%2BwOu13%2BaQtG%2F7xLMGOZD21bGy53dBs41KI9f6Dlm2HxhMT5Dx3jgasvGDCr9Fn3Kwj5lwLpCeAMtVdxiHkbFjmjPkxYaVWYuZw%2FWTr%2FzMTJrewYB6BVE2W5szxW8xbIpYuv7sJUgKP7J8%2Bf3rq0WsGAkaoL6EfsKi%2FXkvuvg%3D%3D",
+      "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4"
+    ],
+    "captured_url": "https://storage.googleapis.com/simplify-resumes/0a60b10a-4ce6-4a56-85fe-cca508fa3e96/9b75561b-141a-49e0-bbad-a2efafb6c961/1778133215.pdf?Expires=1780262859&GoogleAccessId=gcs-signing-service-account%40mifflin-backend.iam.gserviceaccount.com&Signature=fESfz5wcljqFQIqzpbBlkq2xA41vesuv%2Bhjolx30bXrTBQW%2BNCR2XBnYNAg%2Bs%2BUX%2BKFiBEYu7Mbp0ag7KvGjDev1Yce1iLtlACU2u9HQnHJ6BDrZP%2FR40rHgtXpKqukeyFFbLSL3rkw4N4lBMwpUrlEFw8FY3XrQ%2FyZkzpLFeBnqdr%2BwOu13%2BaQtG%2F7xLMGOZD21bGy53dBs41KI9f6Dlm2HxhMT5Dx3jgasvGDCr9Fn3Kwj5lwLpCeAMtVdxiHkbFjmjPkxYaVWYuZw%2FWTr%2FzMTJrewYB6BVE2W5szxW8xbIpYuv7sJUgKP7J8%2Bf3rq0WsGAkaoL6EfsKi%2FXkvuvg%3D%3D",
+    "url": "https://storage.googleapis.com/simplify-resumes/0a60b10a-4ce6-4a56-85fe-cca508fa3e96/9b75561b-141a-49e0-bbad-a2efafb6c961/1778133215.pdf?Expires=1780262859&GoogleAccessId=gcs-signing-service-account%40mifflin-backend.iam.gserviceaccount.com&Signature=fESfz5wcljqFQIqzpbBlkq2xA41vesuv%2Bhjolx30bXrTBQW%2BNCR2XBnYNAg%2Bs%2BUX%2BKFiBEYu7Mbp0ag7KvGjDev1Yce1iLtlACU2u9HQnHJ6BDrZP%2FR40rHgtXpKqukeyFFbLSL3rkw4N4lBMwpUrlEFw8FY3XrQ%2FyZkzpLFeBnqdr%2BwOu13%2BaQtG%2F7xLMGOZD21bGy53dBs41KI9f6Dlm2HxhMT5Dx3jgasvGDCr9Fn3Kwj5lwLpCeAMtVdxiHkbFjmjPkxYaVWYuZw%2FWTr%2FzMTJrewYB6BVE2W5szxW8xbIpYuv7sJUgKP7J8%2Bf3rq0WsGAkaoL6EfsKi%2FXkvuvg%3D%3D",
+    "title": "",
+    "shadow_host_count": 0,
+    "shadow_summary": [],
+    "autofill_button_present": false,
+    "page_form_count": 0,
+    "page_input_count": 0
+  },
+  "finished_at": "2026-05-24T21:31:44.548544+00:00",
+  "pass": false
+}

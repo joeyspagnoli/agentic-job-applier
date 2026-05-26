@@ -1,23 +1,22 @@
 """Escape LaTeX-active characters in LLM-authored bullet replacement text.
 
 Purpose:
-    Phase 4 (#60) simplified the sanitizer to the bare minimum: escape
-    only the five "hard-break" LaTeX-active characters (`&`, `%`, `$`,
-    `#`, `_`) and leave everything else — including `\\foo{...}`
-    macros, raw `{` / `}`, `~`, `^`, and `\\\\` — alone. The tailor
-    prompt tells the LLM "copy any macros verbatim" so the previous
-    emphasis-allowlist machinery is no longer load-bearing; if the LLM
-    ignores that instruction and emits an unknown `\\macro{...}`,
-    tectonic will fail to compile and the pipeline ships the base PDF
-    via the existing failure path.
+    The sanitizer escapes only the five "hard-break" LaTeX-active
+    characters (`&`, `%`, `$`, `#`, `_`) and leaves everything else —
+    including `\\foo{...}` macros, raw `{` / `}`, `~`, `^`, and
+    `\\\\` — alone. The tailor prompt instructs the LLM to "copy any
+    macros verbatim" so the previous emphasis-allowlist machinery is no
+    longer load-bearing; if the LLM ignores that instruction and emits
+    an unknown `\\macro{...}`, tectonic will fail to compile and the
+    pipeline ships the base PDF via the existing failure path.
 
 `$` has dual meaning in LaTeX — literal currency *and* math-mode
 delimiter (`$R^2$`, `$O(n)$`). Eagerly escaping every `$` breaks math
-mode (issue #54 hot-fix): the contents (`^`, `_`) become invalid
-outside math mode and tectonic aborts with "Missing $ inserted". We
-therefore treat `$` pairwise — an even count of unescaped `$` in the
-bullet is assumed to be math-mode delimiters and passes through; an
-odd count is treated as a stray literal and every bare `$` is escaped.
+mode: the contents (`^`, `_`) become invalid outside math mode and
+tectonic aborts with "Missing $ inserted". We therefore treat `$`
+pairwise — an even count of unescaped `$` in the bullet is assumed to
+be math-mode delimiters and passes through; an odd count is treated as
+a stray literal and every bare `$` is escaped.
 
 The function remains idempotent — already-escaped sequences pass
 through unchanged.

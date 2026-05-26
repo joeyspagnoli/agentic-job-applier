@@ -137,9 +137,9 @@ def test_download_tailored_resume_succeeds_for_any_client(
     """Verify the download endpoint serves resumes without an access gate.
 
     Purpose:
-        Lock in the post-#61 contract that the endpoint accepts any
-        client because the operator already chose port exposure in
-        docker-compose. Replaces the prior token/localhost-only test.
+        The endpoint accepts any client because the operator has already
+        chosen port exposure in docker-compose. No access gate is enforced
+        at the application layer.
     Args:
         api_client: Isolated FastAPI test client fixture.
         tmp_path: Temporary directory fixture.

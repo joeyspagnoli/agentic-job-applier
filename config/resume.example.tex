@@ -1,0 +1,115 @@
+% Example resume satisfying the contract in docs/resume-tex-contract.md.
+%
+% Copy this file to config/resume.tex (or upload it through the onboarding
+% wizard) and replace the placeholders with your own content. Compiles with
+% tectonic out of the box; passes the validator at
+% src/agents/resume_tailor/validator.py.
+
+\documentclass[letterpaper,10pt]{article}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{titlesec}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\input{glyphtounicode}
+\usepackage{newtxtext,newtxmath}
+\usepackage[hidelinks]{hyperref}
+
+% Page style and spacing.
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\setlist{nosep,leftmargin=*}
+
+% Section formatting.
+\titleformat{\section}{\fontsize{13pt}{15pt}\selectfont\scshape}{}{0em}{}[\color{black}\titlerule]
+\titlespacing*{\section}{0pt}{1pt}{1pt}
+
+% Make the output PDF machine-readable.
+\pdfgentounicode=1
+
+% List macros recognized by the tailor locator.
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0pt,label={},itemsep=2pt]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[label=\textbullet,leftmargin=0.2in,itemsep=1pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}}
+\newcommand{\resumeSubheading}[4]{\item {\textbf{#1}}\hfill{\textbf{#2}}\\
+  {#3}\hfill{\textbf{#4}}}
+\newcommand{\resumeItem}[1]{\item #1}
+
+\begin{document}
+\vspace*{-0.45in}
+
+%==============================================================================
+% Header — replace with your contact details.
+%==============================================================================
+\begin{center}
+  {\Large \textbf{Your Name}} \\
+  \vspace{2pt}
+  \small City, State \textbar{} you@example.com \textbar{} (555) 555-5555 \\
+  \href{https://github.com/your-handle}{github.com/your-handle} \textbar{}
+  \href{https://linkedin.com/in/your-handle}{linkedin.com/in/your-handle}
+\end{center}
+
+%==============================================================================
+% Education — the locator records this section as "other" and skips it.
+%==============================================================================
+\section{Education}
+\resumeSubHeadingListStart
+  \resumeSubheading
+    {Your University}{Graduation Month YYYY}
+    {Bachelor of Science in Your Major}{GPA: X.XX / 4.00}
+\resumeSubHeadingListEnd
+
+%==============================================================================
+% Experience — bullets here ARE rewritten by the tailor LLM.
+%==============================================================================
+\section{Experience}
+\resumeSubHeadingListStart
+
+  \resumeSubheading
+    {Your Most Recent Role}{Month YYYY -- Present}
+    {Company Name}{City, State}
+    \resumeItemListStart
+      \resumeItem{Describe an impact you delivered. Quantify with a metric where possible (\%, dollars, users, latency).}
+      \resumeItem{Describe a technical decision you owned. Name the tools (Python, Postgres, etc.) so the keyword match has something to work with.}
+      \resumeItem{Describe a collaboration moment — cross-team work, mentoring, design review wins.}
+    \resumeItemListEnd
+
+  \resumeSubheading
+    {A Previous Role}{Month YYYY -- Month YYYY}
+    {Previous Company}{City, State}
+    \resumeItemListStart
+      \resumeItem{Bullet describing a meaningful contribution. Verb-first.}
+      \resumeItem{Bullet describing another contribution with concrete scope.}
+    \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%==============================================================================
+% Projects — bullets here ARE rewritten by the tailor LLM.
+%==============================================================================
+\section{Projects}
+\resumeSubHeadingListStart
+
+  \resumeSubheading
+    {Project Name}{Month YYYY}
+    {Tech stack, e.g. Python, FastAPI, Postgres}{\href{https://github.com/your-handle/project}{repo}}
+    \resumeItemListStart
+      \resumeItem{One sentence framing the problem and the solution shape.}
+      \resumeItem{Concrete metric, scale, or differentiator (users, throughput, novel technique).}
+    \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%==============================================================================
+% Skills — recorded as "other"; not rewritten.
+%==============================================================================
+\section{Skills}
+\textbf{Languages:} Python, TypeScript, Go \\
+\textbf{Tools:} Docker, Postgres, Redis, AWS \\
+\textbf{Other:} List anything else you'd want a recruiter or ATS to see.
+
+\end{document}

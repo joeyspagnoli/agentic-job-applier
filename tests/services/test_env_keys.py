@@ -3,9 +3,9 @@
 Purpose:
     Pin the contract for `_read_env_pairs`, `_write_env_key`, `_delete_env_key`,
     and `_read_env_key_statuses` so the OpenAI BYOK onboarding flow has a
-    reliable foundation. These helpers are also intended to support future BYOK
-    keys (issue #35), so the placeholder-sentinel handling and key-name
-    allowlist are exercised explicitly.
+    reliable foundation. The placeholder-sentinel handling and key-name
+    allowlist are exercised explicitly since the same infrastructure will
+    support additional BYOK keys when multi-provider support is added.
 """
 
 from __future__ import annotations

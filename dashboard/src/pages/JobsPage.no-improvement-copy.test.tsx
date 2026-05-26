@@ -3,10 +3,9 @@
  * @packageDocumentation
  *
  * Component test for the {@link TailoredResumeCell} NO_IMPROVEMENT
- * verdict copy added in issue #53. The cell branches on the structured
- * `reviewReason` value pulled out of `review_runs.review_report_json`
- * so users see why the base resume was served instead of the
- * pre-fix lie ("Reviewer thought the base resume was fine").
+ * verdict display. The cell branches on the structured `reviewReason`
+ * value pulled out of `review_runs.review_report_json` so users see why
+ * the base resume was served instead of a generic explanation.
  *
  * Three reason values must each map to their dedicated copy:
  *

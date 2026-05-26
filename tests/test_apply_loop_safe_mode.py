@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-import scripts.process_apply_jobs as process_apply_jobs
+import src.workers.apply as process_apply_jobs
 
 
 class _StopLoop(BaseException):

@@ -12,9 +12,10 @@ These tests pin down the contract documented in the testing handoff:
 - Non-string entries in the configured list are silently skipped — they must
   not raise.
 
-The handoff explicitly flagged the ``all() → any()`` change as the bug fix
-for users with non-software profiles whose descriptions never contained
-every configured keyword. These tests assert the new behavior directly.
+The ``all() → any()`` change enables users with non-software profiles to
+match jobs when their description contains any one configured keyword,
+rather than requiring every keyword to appear. These tests assert that
+behavior directly.
 """
 
 from __future__ import annotations

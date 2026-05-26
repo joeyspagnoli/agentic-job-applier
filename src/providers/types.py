@@ -1,16 +1,15 @@
 """Core types and protocol for the AI provider abstraction.
 
-The unified abstraction kept its name even after Codex / Anthropic /
-Gemini providers were removed in the post-issue-61 cleanup, so the gate
-/ tailor / review / apply stages can continue depending on the
-`AIProvider` protocol rather than importing the OpenAI SDK directly.
+The unified abstraction allows the gate / tailor / review / apply stages
+to depend on the `AIProvider` protocol rather than importing the OpenAI
+SDK directly. Only the OpenAI backend is currently wired; the protocol
+remains so future providers can be added without touching call sites.
 
-Cost-aware additions (issue #59):
-    `TokenUsage` and `CostBreakdown` carry per-call accounting that
-    providers compute themselves so the central recorder can stay
-    pricing-agnostic. Each provider owns its cache-discount math
-    (OpenAI 50% on cached input, Anthropic 10% on cache-read, etc.)
-    and emits an authoritative `CostBreakdown` for persistence.
+`TokenUsage` and `CostBreakdown` carry per-call accounting that
+providers compute themselves so the central recorder can stay
+pricing-agnostic. Each provider owns its cache-discount math
+(OpenAI 50% on cached input, Anthropic 10% on cache-read, etc.)
+and emits an authoritative `CostBreakdown` for persistence.
 """
 
 from __future__ import annotations

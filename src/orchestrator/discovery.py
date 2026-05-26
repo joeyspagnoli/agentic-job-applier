@@ -3,7 +3,7 @@
 ``run_job_discovery`` loads configuration, opens the database, fans out
 across every configured fetcher family concurrently, and writes the
 cycle-level rollup row to ``daily_stats``.  Per-fetcher logic lives in
-``src.orchestrator.fetchers``; this module owns coordination only.
+``src.orchestrator.crawl_runners``; this module owns coordination only.
 """
 
 from __future__ import annotations

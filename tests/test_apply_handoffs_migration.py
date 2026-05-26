@@ -1,10 +1,10 @@
-"""Tests for issue #59 apply_handoffs schema migration and record helper.
+"""Tests for the apply_handoffs schema migration and record helper.
 
 Purpose:
-    Verify that `migrate_apply_schema` idempotently adds the two finisher
+    Verify that `migrate_apply_schema` idempotently adds the finisher
     columns (`deferred_questions_json`, `finisher_diagnostics_json`) to an
-    existing database that predates issue #59, and that `record_apply_handoff`
-    correctly persists both new kwargs.
+    existing database that predates them, and that `record_apply_handoff`
+    correctly persists both kwargs.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ if not hasattr(_cost_tracking_mod, "PIPELINE_STAGE_TAILOR"):
 from src.database.db_manager import DatabaseManager  # noqa: E402
 
 
-_PRE_59_APPLY_HANDOFFS_DDL = """
+_LEGACY_APPLY_HANDOFFS_DDL = """
 CREATE TABLE apply_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_hash TEXT NOT NULL,
@@ -85,11 +85,11 @@ CREATE TABLE apply_handoffs (
     CHECK (handoff_status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED'))
 );
 """
-"""DDL for the apply tables as they existed before issue #59.
+"""DDL for the apply tables before the finisher diagnostic columns were added.
 
 Purpose:
-    Reproduce the on-disk schema that a real deployment would have so the
-    migration can be exercised against a database that is already in use.
+    Reproduce the on-disk schema that a deployed database would carry so the
+    idempotent migration can be exercised against a pre-existing database.
 """
 
 
@@ -115,7 +115,7 @@ async def _column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
 async def test_migrate_adds_finisher_columns_to_existing_db(
     tmp_path: Path,
 ) -> None:
-    """PRAGMA shows both new columns after migrating a pre-#59 database.
+    """PRAGMA shows both finisher columns after migrating a legacy database.
 
     Purpose:
         Catch the regression where `migrate_apply_schema` creates the table
@@ -123,12 +123,12 @@ async def test_migrate_adds_finisher_columns_to_existing_db(
         exercised for databases already carrying the old schema.
     """
 
-    db_path = tmp_path / "pre59.db"
+    db_path = tmp_path / "legacy.db"
 
     # Seed the database with the old schema (no finisher columns).
     async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
-        await conn.executescript(_PRE_59_APPLY_HANDOFFS_DDL)
+        await conn.executescript(_LEGACY_APPLY_HANDOFFS_DDL)
         await conn.commit()
 
         cols_before = await _column_names(conn, "apply_handoffs")

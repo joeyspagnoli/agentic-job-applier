@@ -5,10 +5,9 @@
  * every job with a non-deleted tailor_run.
  *
  * @remarks
- * The plan in issue #39 calls for the same row component and expand
- * behavior as JobsPage with a different fetcher; we reach that by
- * passing `hasTailorRun=true` through to the shared `/api/jobs`
- * endpoint and rendering the existing JobsPage component.
+ * Reuses the JobsPage row component and expand behavior with a different
+ * filter; we reach that by passing `hasTailorRun=true` through to the
+ * shared `/api/jobs` endpoint and rendering the existing JobsPage component.
  */
 
 import type { JSX } from "react";

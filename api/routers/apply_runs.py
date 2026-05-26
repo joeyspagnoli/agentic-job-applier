@@ -67,7 +67,7 @@ async def _spawn_user_apply_task(
 
     # Local imports avoid pulling the heavy apply-worker module at
     # router-import time.
-    from scripts.process_apply_jobs import (  # noqa: PLC0415
+    from src.workers.apply import (  # noqa: PLC0415
         DEFAULT_APPLY_MAX_RETRIES,
         DEFAULT_APPLY_RETRY_BACKOFF_MULTIPLIER,
         DEFAULT_APPLY_RETRY_BACKOFF_SECONDS,

@@ -2,7 +2,7 @@
 
 Loads environment + logger configuration and hands off to
 ``src.orchestrator.discovery.run_job_discovery``.  Per-fetcher logic lives
-under ``src.orchestrator.fetchers``; this module re-exports the helpers and
+under ``src.orchestrator.crawl_runners``; this module re-exports the helpers and
 fetcher classes that tests and external scripts already import from
 ``main`` so the public surface stays unchanged.
 """
@@ -36,17 +36,17 @@ from src.orchestrator.config_loader import (
     resolve_job_board_default_search_terms,
 )
 from src.orchestrator.discovery import run_job_discovery
-from src.orchestrator.fetchers.adzuna import fetch_adzuna_jobs
-from src.orchestrator.fetchers.ashby import fetch_ashby_jobs
-from src.orchestrator.fetchers.career_pages import fetch_career_page_jobs
-from src.orchestrator.fetchers.github_repos import fetch_github_repo_jobs
-from src.orchestrator.fetchers.greenhouse import fetch_greenhouse_jobs
-from src.orchestrator.fetchers.icims import fetch_icims_jobs
-from src.orchestrator.fetchers.jobspy import fetch_jobspy_jobs
-from src.orchestrator.fetchers.lever import fetch_lever_jobs
-from src.orchestrator.fetchers.linkedin import fetch_linkedin_jobs
-from src.orchestrator.fetchers.taleo import fetch_taleo_jobs
-from src.orchestrator.fetchers.workday import fetch_workday_jobs
+from src.orchestrator.crawl_runners.adzuna import fetch_adzuna_jobs
+from src.orchestrator.crawl_runners.ashby import fetch_ashby_jobs
+from src.orchestrator.crawl_runners.career_pages import fetch_career_page_jobs
+from src.orchestrator.crawl_runners.github_repos import fetch_github_repo_jobs
+from src.orchestrator.crawl_runners.greenhouse import fetch_greenhouse_jobs
+from src.orchestrator.crawl_runners.icims import fetch_icims_jobs
+from src.orchestrator.crawl_runners.jobspy import fetch_jobspy_jobs
+from src.orchestrator.crawl_runners.lever import fetch_lever_jobs
+from src.orchestrator.crawl_runners.linkedin import fetch_linkedin_jobs
+from src.orchestrator.crawl_runners.taleo import fetch_taleo_jobs
+from src.orchestrator.crawl_runners.workday import fetch_workday_jobs
 from src.orchestrator.insert_pipeline import insert_with_filters as _insert_with_filters
 from src.utils.logger import log_crawl_summary, setup_logger
 from src.utils.paths import resolve_database_path

@@ -4,11 +4,11 @@ Owns the `cost_events`, `budget_settings`, and `app_settings` tables.
 Recorded cost events feed dashboards while the budget rollup powers
 worker guards and the settings UI.
 
-Issue #59 added per-LLM-call columns (`provider`, `model`,
-`prompt_tokens`, `completion_tokens`, `cached_input_tokens`,
-`reasoning_tokens`, `phase`, `cost_source`) so dashboards can break
-spend down by model and phase. Existing rows are backfilled to
-`unknown` via the PRAGMA-guarded `ALTER TABLE` block.
+Per-LLM-call columns (`provider`, `model`, `prompt_tokens`,
+`completion_tokens`, `cached_input_tokens`, `reasoning_tokens`,
+`phase`, `cost_source`) let dashboards break spend down by model and
+phase. Existing rows are backfilled to `unknown` via the
+PRAGMA-guarded `ALTER TABLE` block.
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ from src.utils.json_types import JSONObject, get_float_opt
 
 DEFAULT_MONTHLY_BUDGET_USD = 500.0
 
-# Per-LLM-call columns added in issue #59. Each entry is
+# Per-LLM-call columns that extend the base cost_events schema. Each entry is
 # (column_name, column_definition_sql) and is applied via PRAGMA-guarded
-# ALTER TABLE so the migration is idempotent.
+# ALTER TABLE so the migration is idempotent on pre-existing databases.
 _COST_EVENTS_NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("provider", "TEXT NOT NULL DEFAULT 'unknown'"),
     ("model", "TEXT NOT NULL DEFAULT 'unknown'"),
@@ -43,8 +43,7 @@ class CostsMixin(_BaseMixin):
             Bootstrap forward-only cost tracking and monthly budget settings so
             dashboard endpoints can report spend without separate migrations.
             Also applies PRAGMA-guarded `ALTER TABLE` for the per-LLM-call
-            columns added in issue #59 so existing databases pick them up
-            on the next startup.
+            columns so existing databases pick them up on the next startup.
         Args:
             self: The database manager performing the migration.
         Output:
@@ -95,7 +94,7 @@ class CostsMixin(_BaseMixin):
             """
         )
 
-        # Idempotent ALTER for databases that pre-date the issue #59
+        # Idempotent ALTER for databases that predate the per-LLM-call
         # columns. SQLite has no `ADD COLUMN IF NOT EXISTS`, so probe
         # with `PRAGMA table_info` first.
         existing_cursor = await conn.execute("PRAGMA table_info(cost_events)")

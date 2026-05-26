@@ -89,17 +89,17 @@ class TailorMixin(_BaseMixin):
                 "ALTER TABLE tailor_runs ADD COLUMN deleted_at TIMESTAMP"
             )
         if "plan_json_path" not in column_names:
-            # Issue #59 Bug E (2026-05-25): persist the planner's
-            # rationale-first JSON to the artifact directory and store
-            # its path here so the dashboard can surface "Why these edits".
+            # Persist the planner's rationale-first JSON to the artifact
+            # directory and store its path here so the dashboard can
+            # surface "Why these edits" for each tailor run.
             await conn.execute(
                 "ALTER TABLE tailor_runs ADD COLUMN plan_json_path TEXT"
             )
         if "apply_after_completion" not in column_names:
-            # Post-#59 follow-up (2026-05-25): when the user clicks
-            # "Yes, tailor my resume" from the NotTailoredModal, the
-            # backend persists the auto-apply intent here so it survives
+            # Persist the auto-apply intent on the row so it survives
             # process restarts between the POST and the pipeline finish.
+            # The worker reads this flag after the pipeline completes to
+            # decide whether to enqueue an apply run automatically.
             await conn.execute(
                 "ALTER TABLE tailor_runs ADD COLUMN "
                 "apply_after_completion INTEGER NOT NULL DEFAULT 0"
@@ -388,9 +388,8 @@ class TailorMixin(_BaseMixin):
             artifact_pdf_path: Filesystem path to the generated PDF file.
             page_count: Final page count of the generated PDF.
             plan_json_path: Filesystem path to the planner's rationale-first
-                JSON artifact (``tailored_v1.plan.json``). Passed as a
-                keyword-only optional so legacy callers that predate Bug E
-                continue to work without modification.
+                JSON artifact (``tailored_v1.plan.json``). Optional so
+                callers that do not produce a plan artifact can omit it.
         Output:
             Returns `None` after updating the row and committing.
         """

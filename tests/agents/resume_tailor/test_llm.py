@@ -1,13 +1,12 @@
 """Direct unit tests for `src/agents/resume_tailor/llm.py`.
 
 Purpose:
-    Lock the five surfaces called out in issue #41 item #7 —
-    `_split_provider_and_model`, `_build_client`, `_extract_usage`,
-    `get_tailor_model_name`, and `get_reviewer_model_name` — at the
-    unit level. Integration coverage already exercises the public
-    `call_tailor` / `call_reviewer` functions via monkeypatch; this
-    file targets the internals at the `instructor.from_openai`
-    boundary so no real API calls are made.
+    Lock the five internal surfaces — `_split_provider_and_model`,
+    `_build_client`, `_extract_usage`, `get_tailor_model_name`, and
+    `get_reviewer_model_name` — at the unit level. Integration coverage
+    already exercises the public `call_tailor` / `call_reviewer` functions
+    via monkeypatch; this file targets the internals at the
+    `instructor.from_openai` boundary so no real API calls are made.
 """
 
 from __future__ import annotations
@@ -101,9 +100,8 @@ def test_build_client_raises_value_error_for_unsupported_provider(
     """Non-OpenAI providers are rejected with `ValueError`.
 
     Purpose:
-        Per the issue #41 item #4 decision, only OpenAI is wired today;
-        attempting another provider must fail loudly rather than fall
-        through to a misleading branch.
+        Only OpenAI is currently wired; attempting another provider must
+        fail loudly rather than fall through to a misleading branch.
     """
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -207,8 +205,8 @@ def test_get_reviewer_model_name_default_is_pinned_to_gpt_5_mini(
     """Pin the literal default reviewer model to `openai/gpt-5-mini`.
 
     Purpose:
-        The reviewer was also swapped off the coding-tuned default in
-        #53 so the tailor and reviewer share the same prose-tuned model.
+        The tailor and reviewer share the same prose-tuned model; this
+        test catches any future silent bump to the reviewer default.
     """
 
     monkeypatch.delenv(llm.REVIEWER_MODEL_ENV_VAR, raising=False)

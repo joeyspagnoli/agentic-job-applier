@@ -1,0 +1,522 @@
+{
+  "iteration": 9,
+  "target_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+  "started_at": "2026-05-24T22:12:11.118167+00:00",
+  "stage_outcomes": {
+    "chrome_launch": "OK",
+    "simplify_pre_attach": "MISSING",
+    "cdp_connect": "OK",
+    "navigate": "OK",
+    "apply_flow": "OK"
+  },
+  "apply_worker_import_ok": true,
+  "chrome_pid": 80488,
+  "cdp_port": 52985,
+  "simplify_pre_attach": {
+    "shadow_host_count": 2,
+    "autofill_present": false,
+    "ready_state": "complete",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "timed_out": true
+  },
+  "simplify_pre_attach_after_reload": {
+    "shadow_host_count": 2,
+    "autofill_present": false,
+    "ready_state": "complete",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "timed_out": true
+  },
+  "page_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+  "simplify_scan": {
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+    "shadow_host_count": 2,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 26599,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Open job tracker",
+          "Collapse Resume Section",
+          "Tailor Resume"
+        ]
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "20%Resume Match1 of 5 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Open job tracker",
+        "text": "Account Development Representative - 11235Coupa Software, IncSavedMadrid, SpainE",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Collapse Resume Section",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Tailor Resume",
+        "text": "Tailor Resume",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 3,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "apply_run_result": {
+    "success": true,
+    "outcome": "NEEDS_REVIEW",
+    "failure_reason": null,
+    "resume_pdf_path": "/Users/jspags/Projects/agentic-job-applier/config/resume_base.pdf",
+    "resume_source": null,
+    "confidence_score": 0.8,
+    "confidence_report": {
+      "score": 0.8,
+      "checks": [
+        {
+          "name": "page_loaded",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "URL: https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply"
+        },
+        {
+          "name": "simplify_autofill_detected",
+          "passed": true,
+          "weight": 0.15,
+          "detail": null
+        },
+        {
+          "name": "resume_uploaded",
+          "passed": true,
+          "weight": 0.2,
+          "detail": null
+        },
+        {
+          "name": "name_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "email_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "no_unresolved_required",
+          "passed": false,
+          "weight": 0.2,
+          "detail": "5 required fields empty"
+        },
+        {
+          "name": "no_error_banners",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "0 visible error elements"
+        },
+        {
+          "name": "correct_domain",
+          "passed": true,
+          "weight": 0.05,
+          "detail": "Current: https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply"
+        }
+      ],
+      "has_hard_blockers": true,
+      "resume_uploaded": true,
+      "simplify_autofill_detected": true,
+      "unresolved_required_count": 5,
+      "unresolved_optional_count": 0,
+      "ats_platform": "lever"
+    },
+    "screenshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/009/screenshot.png",
+    "dom_snapshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/009/dom_post.html",
+    "unresolved_fields": [
+      {
+        "field_id": null,
+        "label": "Portfolio URL",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"urls[Portfolio]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Other website",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"urls[Other]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field1]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field2]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field3]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Type your response",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field4]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": "Type your response"
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field5]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      }
+    ],
+    "ats_platform": "lever",
+    "page_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply"
+  },
+  "simplify_scan_post": {
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply",
+    "shadow_host_count": 10,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3933,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 22863,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "View Saved Job",
+          "Expand Resume Section"
+        ]
+      },
+      {
+        "idx": 2,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 3,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 4,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 5,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 6,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 7,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 8,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 9,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "0%Resume Match0 of 1 keywordSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Autofill",
+        "text": "Autofill this page again",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "View Saved Job",
+        "text": "View Saved Job",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Expand Resume Section",
+        "text": "",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 11,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": true
+  },
+  "post_click_capture": {
+    "tabs_seen": [
+      "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply"
+    ],
+    "captured_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply",
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "shadow_host_count": 10,
+    "shadow_summary": [
+      {
+        "idx": 0,
+        "size": 3933,
+        "labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "size": 22863,
+        "labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Hide this message",
+          "Autofill",
+          "View Saved Job",
+          "Expand Resume Section"
+        ]
+      },
+      {
+        "idx": 2,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 3,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 4,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 5,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 6,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 7,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 8,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 9,
+        "size": 55,
+        "labels": []
+      }
+    ],
+    "autofill_button_present": true,
+    "page_form_count": 1,
+    "page_input_count": 59
+  },
+  "finished_at": "2026-05-24T22:14:55.056725+00:00",
+  "pass": true
+}

@@ -97,7 +97,7 @@ export interface FiltersDraft {
 export interface ProviderDraft {
   /** OpenAI API key the user pasted into the wizard. May be empty. */
   apiKey: string;
-  /** Optional Adzuna application ID (issue #9 — Glassdoor replacement). */
+  /** Optional Adzuna application ID for jobs-board coverage. */
   adzunaAppId: string;
   /** Optional Adzuna application key. */
   adzunaAppKey: string;

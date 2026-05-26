@@ -1,7 +1,7 @@
 """Cover the Adzuna orchestrator entry point's gating and fan-out semantics.
 
 Purpose:
-    Lock in the contract from issue #9: Adzuna stays silent when env keys
+    Lock in the Adzuna orchestrator contract: it stays silent when env keys
     or the YAML toggle are missing, profile defaults beat block-configured
     search terms, an empty location list collapses to a single sentinel
     crawl, and crawl-history rows are written for every search variant.

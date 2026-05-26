@@ -5,10 +5,10 @@
  * Adzuna API-key section.
  *
  * @remarks
- * Adzuna is the API-backed replacement for the JobSpy Glassdoor scraper
- * (see issue #9). Both Adzuna fields are optional — the user can finish
- * onboarding without filling either, and partial fills are flagged with
- * an inline error so finish-flow validation can refuse to persist them.
+ * Adzuna provides API-backed coverage for jobs-board listings.
+ * Both Adzuna fields are optional — the user can finish onboarding without
+ * filling either, and partial fills are flagged with an inline error so
+ * finish-flow validation can refuse to persist them.
  */
 
 import type { JSX } from "react";

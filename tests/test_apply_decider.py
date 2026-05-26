@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts import process_new_jobs
+from src.workers import gate as _worker_gate
 from src.agents.root_apply_decider import (
     ApplyDecision,
     GateDebugInfo,
@@ -347,7 +348,7 @@ async def test_process_once_records_apply_result(monkeypatch: pytest.MonkeyPatch
         return GateRunOutcome(result=result, response=response)
 
     monkeypatch.setattr(
-        process_new_jobs, "run_gate_with_provider", fake_run_gate_with_provider
+        _worker_gate, "run_gate_with_provider", fake_run_gate_with_provider
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -423,7 +424,7 @@ async def test_process_once_marks_agent_failure_when_decision_is_unrecoverable(
         raise ValueError("Could not recover APPLY or SKIP from model response")
 
     monkeypatch.setattr(
-        process_new_jobs, "run_gate_with_provider", fake_run_gate_with_provider
+        _worker_gate, "run_gate_with_provider", fake_run_gate_with_provider
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:

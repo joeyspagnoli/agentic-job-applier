@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 
 from scripts import process_qualified_jobs as worker_module
+from src.workers import tailor as _worker_tailor
 from src.database._mixins.system_settings import TAILOR_MODE_KEY
 from src.database.db_manager import DatabaseManager
 from src.models.job_posting import JobPosting
@@ -70,7 +71,7 @@ def _patch_pipeline(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
         return _Result()
 
-    monkeypatch.setattr(worker_module, "run_tailor_review_pipeline", _stub)
+    monkeypatch.setattr(_worker_tailor, "run_tailor_review_pipeline", _stub)
     return invocations
 
 

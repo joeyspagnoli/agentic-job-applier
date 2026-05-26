@@ -6,9 +6,8 @@ Purpose:
     returns a fully validated Pydantic model so tests fail fast on
     schema drift.
 
-Phase 2 (#60) replaced the YAML-edit factories with manifest +
-patch-proposal factories — the pipeline no longer consumes
-`ResumeContent`.
+Factories produce bullet manifests and patch-proposal payloads — the
+pipeline no longer consumes the legacy `ResumeContent` shape.
 """
 
 from __future__ import annotations

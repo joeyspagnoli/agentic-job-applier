@@ -7,10 +7,9 @@ rationale-first by design — small models constrained by strict
 reasoning (Let Me Speak Freely, arXiv 2408.02442), so `rewrite_plan`
 and `rationale` are field-1 in their respective payloads.
 
-Phase 2 (#60) replaced the YAML-edit-list shape with a bullet
-manifest + byte-offset patch shape. The YAML-era schemas
-(`BulletEdit`, the old `TailorOutput` / `ReviewerOutput`,
-`EDITABLE_SECTION_IDS`) were dropped.
+The pipeline operates on a bullet manifest + byte-offset patch shape.
+YAML-era schemas (`BulletEdit`, the old `TailorOutput` /
+`ReviewerOutput`, `EDITABLE_SECTION_IDS`) are no longer in use.
 """
 
 from __future__ import annotations

@@ -1,10 +1,10 @@
-"""Resume-related settings router — `.tex`-only upload + download (Phase 3).
+"""Resume-related settings router — `.tex`-only upload + download.
 
-Phase 3 (#60) replaced the YAML / structured / PDF upload endpoints
-with a single `POST /api/settings/resume` that accepts a `.tex` file
-and validates it against `docs/resume-tex-contract.md`. The old
-endpoints respond 410 GONE with a structured error envelope pointing
-at the new endpoint and the contract doc.
+The only supported upload endpoint is `POST /api/settings/resume`, which
+accepts a `.tex` file and validates it against `docs/resume-tex-contract.md`.
+Previously supported YAML / structured / PDF upload endpoints respond 410 GONE
+with a structured error envelope pointing at the new endpoint and the contract
+doc.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def _gone_response(detail: str) -> JSONResponse:
             "code": _ENDPOINT_REMOVED_CODE,
             "message": (
                 f"This endpoint was retired in the .tex-only upload "
-                f"redesign (#60). Use {_NEW_RESUME_ENDPOINT}. ({detail})"
+                f"redesign. Use {_NEW_RESUME_ENDPOINT}. ({detail})"
             ),
             "new_endpoint": _NEW_RESUME_ENDPOINT,
             "docs_url": _CONTRACT_DOCS_URL,

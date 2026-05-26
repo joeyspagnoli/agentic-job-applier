@@ -1,0 +1,19 @@
+agent-browser version: 0.27.0
+Binaries in npm package:
+total 147248
+-rwxr-xr-x@ 1 jspags  admin   9.6M May 19 23:11 agent-browser-darwin-arm64
+-rwxr-xr-x@ 1 jspags  admin    10M May 19 23:11 agent-browser-darwin-x64
+-rwxr-xr-x@ 1 jspags  admin   9.7M May 19 23:11 agent-browser-linux-arm64
+-rwxr-xr-x@ 1 jspags  admin   9.5M May 19 23:11 agent-browser-linux-musl-arm64
+-rwxr-xr-x@ 1 jspags  admin    11M May 19 23:11 agent-browser-linux-musl-x64
+-rwxr-xr-x@ 1 jspags  admin    11M May 19 23:11 agent-browser-linux-x64
+-rwxr-xr-x@ 1 jspags  admin    11M May 19 23:11 agent-browser-win32-x64.exe
+-rwxr-xr-x@ 1 jspags  admin   3.1K May 19 23:11 agent-browser.js
+
+linux-arm64 ELF type:
+/opt/homebrew/lib/node_modules/agent-browser/bin/agent-browser-linux-arm64: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 2.0.0, stripped
+Dynamic deps:
+libm.so.6, libc.so.6, libpthread.so.0, libdl.so.2 (all present in python:3.11-slim-bookworm)
+Container glibc:
+ldd (Debian GLIBC 2.36-9+deb12u14) 2.36
+Test result: binary ran successfully in container ✓

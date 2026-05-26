@@ -1,0 +1,625 @@
+{
+  "iteration": 4,
+  "target_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+  "started_at": "2026-05-24T21:36:56.775553+00:00",
+  "stage_outcomes": {
+    "chrome_launch": "OK",
+    "simplify_pre_attach": "MISSING",
+    "cdp_connect": "OK",
+    "navigate": "OK",
+    "apply_flow": "OK"
+  },
+  "apply_worker_import_ok": true,
+  "chrome_pid": 77969,
+  "cdp_port": 52132,
+  "simplify_pre_attach": {
+    "shadow_host_count": 2,
+    "autofill_present": false,
+    "ready_state": "complete",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "timed_out": true
+  },
+  "simplify_pre_attach_after_reload": {
+    "shadow_host_count": 2,
+    "autofill_present": false,
+    "ready_state": "complete",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "timed_out": true
+  },
+  "page_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+  "simplify_scan": {
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4",
+    "shadow_host_count": 2,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 28533,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Close",
+          "Close",
+          "Hide this message",
+          "Open job tracker",
+          "Collapse Resume Section",
+          "Tailor Resume"
+        ]
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "20%Resume Match1 of 5 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Close",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Hide this message",
+        "text": "Hide this message",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Open job tracker",
+        "text": "Account Development Representative - 11235Coupa Software, IncNot savedMadrid, Sp",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Collapse Resume Section",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Tailor Resume",
+        "text": "Tailor Resume",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 3,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "apply_run_result": {
+    "success": true,
+    "outcome": "NEEDS_REVIEW",
+    "failure_reason": null,
+    "resume_pdf_path": "/Users/jspags/Projects/agentic-job-applier/config/resume_base.pdf",
+    "resume_source": null,
+    "confidence_score": 0.7,
+    "confidence_report": {
+      "score": 0.7,
+      "checks": [
+        {
+          "name": "page_loaded",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "URL: https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify"
+        },
+        {
+          "name": "simplify_autofill_detected",
+          "passed": true,
+          "weight": 0.15,
+          "detail": null
+        },
+        {
+          "name": "resume_uploaded",
+          "passed": true,
+          "weight": 0.2,
+          "detail": null
+        },
+        {
+          "name": "name_populated",
+          "passed": true,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "email_populated",
+          "passed": false,
+          "weight": 0.1,
+          "detail": null
+        },
+        {
+          "name": "no_unresolved_required",
+          "passed": false,
+          "weight": 0.2,
+          "detail": "9 required fields empty"
+        },
+        {
+          "name": "no_error_banners",
+          "passed": true,
+          "weight": 0.1,
+          "detail": "0 visible error elements"
+        },
+        {
+          "name": "correct_domain",
+          "passed": true,
+          "weight": 0.05,
+          "detail": "Current: https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify"
+        }
+      ],
+      "has_hard_blockers": true,
+      "resume_uploaded": true,
+      "simplify_autofill_detected": true,
+      "unresolved_required_count": 9,
+      "unresolved_optional_count": 0,
+      "ats_platform": "lever"
+    },
+    "screenshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/004/screenshot.png",
+    "dom_snapshot_path": "/Users/jspags/Projects/agentic-job-applier/.research/simplify-loop/iterations/004/dom_post.html",
+    "unresolved_fields": [
+      {
+        "field_id": null,
+        "label": "Full name\u2731",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"name\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Email\u2731",
+        "field_type": "email",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"email\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Phone \u2731",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"phone\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": "location-input",
+        "label": "Current location No location found. Try entering a different locationLoading",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input#location-input",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Current company",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"org\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "LinkedIn URL",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"urls[LinkedIn]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "GitHub URL",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"urls[GitHub]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Portfolio URL",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"urls[Portfolio]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Other website",
+        "field_type": "text",
+        "is_required": false,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"urls[Other]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "ALPHA",
+          "AnitaB",
+          "Black Tech Pipeline (BTP)",
+          "Blacks in Technology (BIT) / Blacks United in Leading",
+          "BuiltIn",
+          "Technology (BUILT)",
+          "Comparably",
+          "Coupa Career Site",
+          "Coupa Cares",
+          "Current Customer",
+          "Empower",
+          "Glassdoor",
+          "HBCU Connect",
+          "Illuminate",
+          "LinkedIn",
+          "National Hispanic MBA Association",
+          "National Society of Black Engineers",
+          "North Carolina A&T",
+          "Other",
+          "Professional Diversity Network",
+          "Returning Intern/Employee",
+          "Social Media",
+          "Webinar",
+          "Women Who Code",
+          "WomenHack"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field0]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field1]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field2]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field3]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      },
+      {
+        "field_id": null,
+        "label": "Type your response",
+        "field_type": "text",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": null,
+        "selector": "input[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field4]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": "Type your response"
+      },
+      {
+        "field_id": null,
+        "label": null,
+        "field_type": "select-one",
+        "is_required": true,
+        "current_value": "",
+        "validation_error": null,
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "selector": "select[name=\"cards[dd2e8824-019c-4bbb-b995-94fb7798c799][field5]\"]",
+        "parent_form_selector": "form#application-form",
+        "placeholder": null
+      }
+    ],
+    "ats_platform": "lever",
+    "page_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify"
+  },
+  "simplify_scan_post": {
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify",
+    "shadow_host_count": 10,
+    "shadow_roots": [
+      {
+        "idx": 0,
+        "accessible": true,
+        "inner_size": 3934,
+        "aria_labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "accessible": true,
+        "inner_size": 6063,
+        "aria_labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Pause fill",
+          "Skip to next input"
+        ]
+      },
+      {
+        "idx": 2,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 3,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 4,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 5,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 6,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 7,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 8,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      },
+      {
+        "idx": 9,
+        "accessible": true,
+        "inner_size": 55,
+        "aria_labels": []
+      }
+    ],
+    "page_script_present": true,
+    "buttons": [
+      {
+        "host_idx": 0,
+        "tag": "button",
+        "aria_label": "Resume score banner",
+        "text": "20%Resume Match1 of 5 keywordsSimplifyV1V2",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Report an issue",
+        "text": "Report",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Settings",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Minimize",
+        "text": "",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Pause fill",
+        "text": "Pause",
+        "visible": true
+      },
+      {
+        "host_idx": 1,
+        "tag": "button",
+        "aria_label": "Skip to next input",
+        "text": "Skip to next input",
+        "visible": true
+      }
+    ],
+    "page_buttons_with_simplify": 11,
+    "shadow_host_present": true,
+    "shadow_root_accessible": true,
+    "autofill_button_present": false
+  },
+  "post_click_capture": {
+    "tabs_seen": [
+      "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify"
+    ],
+    "captured_url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify",
+    "url": "https://jobs.lever.co/coupa/f7fce723-473c-428f-afc9-e56e982edec4/apply?lever-source=Simplify",
+    "title": "Coupa Software, Inc. - Account Development Representative - 11235",
+    "shadow_host_count": 10,
+    "shadow_summary": [
+      {
+        "idx": 0,
+        "size": 3934,
+        "labels": [
+          "Resume score banner"
+        ]
+      },
+      {
+        "idx": 1,
+        "size": 6063,
+        "labels": [
+          "Report an issue",
+          "Settings",
+          "Minimize",
+          "Pause fill",
+          "Skip to next input"
+        ]
+      },
+      {
+        "idx": 2,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 3,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 4,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 5,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 6,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 7,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 8,
+        "size": 55,
+        "labels": []
+      },
+      {
+        "idx": 9,
+        "size": 55,
+        "labels": []
+      }
+    ],
+    "autofill_button_present": false,
+    "page_form_count": 1,
+    "page_input_count": 59
+  },
+  "finished_at": "2026-05-24T21:39:40.873826+00:00",
+  "pass": true
+}

@@ -80,9 +80,9 @@ PERSONAL_CONTACT_PATTERN = re.compile(
     flags=re.DOTALL,
 )
 
-# Valid API key names that the settings UI may read/write. Anthropic / Google /
-# OpenRouter were dropped in the post-#61 cleanup; the only AI provider is
-# OpenAI BYOK, and Adzuna is the sole optional job-board credential pair.
+# Valid API key names that the settings UI may read/write. The only AI
+# provider currently wired is OpenAI BYOK; Adzuna is the sole optional
+# job-board credential pair.
 ALLOWED_API_KEY_NAMES: frozenset[str] = frozenset(
     {
         "OPENAI_API_KEY",

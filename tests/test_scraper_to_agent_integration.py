@@ -15,6 +15,7 @@ import pytest
 
 import main as discovery_main
 from scripts import process_new_jobs
+from src.workers import gate as _worker_gate
 from src.agents.root_apply_decider import (
     ApplyDecision,
     GateDebugInfo,
@@ -188,7 +189,7 @@ async def test_discovery_row_is_handed_to_gate_worker(
         monkeypatch.setattr(discovery_main, "load_yaml", fake_load_yaml)
         monkeypatch.setattr(discovery_main, "GreenhouseFetcher", FakeGreenhouseFetcher)
         monkeypatch.setattr(
-            process_new_jobs, "run_gate_with_provider", fake_run_gate_with_provider
+            _worker_gate, "run_gate_with_provider", fake_run_gate_with_provider
         )
 
         await discovery_main.run_job_discovery()
@@ -269,10 +270,10 @@ async def test_worker_retries_transient_failures_then_succeeds(
 
             fake_provider = object()
             monkeypatch.setattr(
-                process_new_jobs, "run_gate_with_provider", flaky_gate
+                _worker_gate, "run_gate_with_provider", flaky_gate
             )
             monkeypatch.setattr(
-                process_new_jobs,
+                _worker_gate,
                 "_calculate_next_retry_at",
                 lambda **_: "2000-01-01 00:00:00",
             )
@@ -376,17 +377,17 @@ async def test_worker_terminal_failure_sends_single_notification(
 
             fake_provider = object()
             monkeypatch.setattr(
-                process_new_jobs,
+                _worker_gate,
                 "run_gate_with_provider",
                 always_failing_gate,
             )
             monkeypatch.setattr(
-                process_new_jobs,
+                _worker_gate,
                 "_calculate_next_retry_at",
                 lambda **_: "2000-01-01 00:00:00",
             )
             monkeypatch.setattr(
-                process_new_jobs,
+                _worker_gate,
                 "_notify_terminal_failure",
                 fake_terminal_notify,
             )
@@ -467,7 +468,7 @@ async def test_worker_respects_batch_limit_and_drains_backlog_incrementally(
 
             fake_provider = object()
             monkeypatch.setattr(
-                process_new_jobs,
+                _worker_gate,
                 "run_gate_with_provider",
                 deterministic_gate,
             )

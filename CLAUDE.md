@@ -1,4 +1,4 @@
-# Agentic Job Applier Guide
+# Agentic Job Applier Guide — Claude Code
 
 ## Read this first
 
@@ -11,16 +11,21 @@ When code and the spec disagree, treat current source as authoritative and updat
 - The project is organized so fetchers gather raw postings, the database layer persists normalized records, and operational scripts expose common workflows for discovery, querying, and agent processing.
 
 ## Key Entry Points
-- `main.py`: Runs the async discovery cycle, coordinates fetchers, deduplicates results, persists jobs, and updates crawl metrics.
+- `api/main.py`: FastAPI app; the real runtime entry point. Its lifespan hook runs all DB migrations, then starts `LoopSupervisor`, which owns the discovery + gate + tailor + apply asyncio tasks for the life of the process.
+- `main.py`: Importable async entry for the discovery loop (`run_discovery_loop`); also runnable directly as `python main.py` for discovery-only dev use.
 - `src/database/db_manager.py`: Owns SQLite connection management, schema initialization, crawl tracking, and agent-processing persistence.
 - `src/models/job_posting.py`: Defines the normalized `JobPosting` model that all fetchers return before persistence.
-- `scripts/process_new_jobs.py`: Pulls NEW jobs from the database, builds the agent prompt payload, runs the ADK decider, and records the resulting status.
+- `scripts/process_new_jobs.py`: CLI shim for the gate worker (flags: `--once`, `--loop`). The supervisor imports and calls `run_gate_loop()` from this module directly; the script is also usable standalone for local dev. Gate decisions use Instructor-backed structured-output calls via `run_gate_with_provider`.
+- `scripts/process_qualified_jobs.py`: CLI shim for the tailor + review worker, same dual-mode pattern.
+- `scripts/process_apply_jobs.py`: CLI shim for the apply worker; includes a Chrome reachability preflight before claiming any job.
 
 ## Major Subsystems
 - `src/fetchers/`: Source-specific integrations for every board listed in Purpose, plus shared helpers (`base_fetcher`, `ats_scanner`, `fuzzy_dedup`, `liveness_checker`, `errors`).
 - `src/utils/`: Cross-cutting helpers for logging, deduplication, cost tracking, notifications, and path resolution used across orchestrators and workers.
-- `src/agents/`: Agent schemas and builder code for the apply/skip workflow.
-- `src/agents/apply_finisher/`: Pydantic AI agent + 8 typed BYO Playwright tools that drive Greenhouse and Ashby form completion after Simplify autofill, evaluates the binary submit gate, and clicks Submit when the gate passes.
+- `src/agents/apply_decider/` (under `src/agents/root_apply_decider/`): Gate agent — qualifies or rejects NEW postings against the candidate profile using Instructor-backed structured-output LLM calls.
+- `src/agents/resume_tailor/`: LaTeX tailor + reviewer pipeline — rewrites resume bullets for a specific job, compiles via tectonic, and selects the best variant (base / v1 / v2) via a 3-axis LLM reviewer.
+- `src/agents/apply_worker/`: Playwright-driven apply worker — connects to host Chrome over CDP, triggers Simplify autofill, evaluates the binary submit gate, and either submits or hands off to human review.
+- `src/agents/apply_finisher/`: Pydantic-AI agent with 8 typed BYO Playwright tools for post-Simplify Greenhouse and Ashby form completion.
 - `tests/`: Integration-style tests that validate the database lifecycle, deduplication, crawl tracking, and model normalization.
 
 ## Documentation Standard
@@ -45,32 +50,34 @@ When code and the spec disagree, treat current source as authoritative and updat
 - Live model tests require `OPENAI_API_KEY` and are skipped unless `--run-live-agent-e2e` is passed.
 
 ## Resume Tailor Worker (Per-Stage Mode)
-- `scripts/process_qualified_jobs.py`: Polls the database and, on every cycle, sweeps stale tailor runs and reads `automation.tailor_mode` from `system_settings`.
-- When the mode is `autonomous` or `both` the worker claims one QUALIFIED job and runs `src.agents.resume_tailor.run_tailor_review_pipeline`. When the mode is `opt_in` the worker idles — user-triggered runs from the dashboard are the only way to tailor.
+- The tailor loop runs as an asyncio task owned by `api/services/supervisor.py:LoopSupervisor`. On every cycle it sweeps stale runs and reads `automation.tailor_mode` from `system_settings`. `scripts/process_qualified_jobs.py` is a standalone CLI shim that calls the same `run_gate_loop` / `run_tailor_loop` logic and is used for local dev or the legacy systemd deployment.
+- When the mode is `autonomous` or `both` the loop claims one QUALIFIED job and runs `src.agents.resume_tailor.run_tailor_review_pipeline`. When the mode is `opt_in` the loop idles — user-triggered runs from the dashboard are the only way to tailor.
 - The pipeline is a single async function (Instructor-backed structured LLM calls) covering tailor → patch → compile → reviewer → optional retry → 3-way pick. It writes both `tailor_runs` and the matching `review_runs` row from one process; there is no separate review worker.
 - The pipeline reads `config/resume.tex` (re-validated against `docs/resume-tex-contract.md` at runtime), builds a deterministic bullet manifest via `src/agents/resume_tailor/locator.py`, and splices LLM rewrites in via the byte-offset patcher (`src/agents/resume_tailor/patcher.py`). The on-disk `.tex` is never mutated by a tailor run — every patched variant lands in the per-run artifact dir.
-- State lives in `tailor_runs` (PENDING → RUNNING → SUCCESS/FAILED, plus a `deleted_at` soft-delete column) and `review_runs` (verdicts: PASS, TAILORED, BASE, FAIL, NO_IMPROVEMENT, PAGE_FIT_FAILED). The DB still carries the legacy `*_yaml_path` columns; Phase 2+ writes `""` to them (they're semantically dead pending a future cleanup PR).
+- State lives in `tailor_runs` (PENDING → RUNNING → SUCCESS/FAILED, plus a `deleted_at` soft-delete column) and `review_runs` (verdicts: PASS, TAILORED, BASE, FAIL, NO_IMPROVEMENT, PAGE_FIT_FAILED). The DB retains legacy `*_yaml_path` columns (`artifact_yaml_path`, `selected_yaml_path`, `fallback_base_yaml_path`); the pipeline writes `""` to them — they have no consumers.
 - Preflight requires `tectonic` (the default compiler; `RESUME_COMPILER=latexmk` falls back to the legacy path) and a resolvable database path.
 - Generated artifacts land in `<TAILOR_OUTPUT_DIR>/<job_hash>/{base,tailored_v1,tailored_v2}/...` (default `data/tailored_resumes/...`).
 - Systemd unit: `deploy/job-tailor-worker.service`.
 - Environment knobs: `TAILOR_POLL_INTERVAL_SECONDS`, `TAILOR_MAX_RETRIES`, `TAILOR_CLAIM_LEASE_SECONDS`, `TAILOR_OUTPUT_DIR`, `RESUME_TAILOR_MODEL`, `RESUME_REVIEWER_MODEL`, plus `TAILOR_MODE` / `REVIEW_MODE` for first-boot seeding of the per-stage modes.
 
 ## Apply Finisher Worker
-- `src/agents/apply_finisher/`: Pydantic AI agent that picks up after Simplify Copilot autofill and drives Greenhouse and Ashby form completion to the point of submission.
-- ATS scope: Greenhouse and Ashby only. Other ATSes continue to land `NEEDS_REVIEW` without finisher involvement.
+- `src/agents/apply_finisher/`: Pydantic-AI agent that picks up after Simplify Copilot autofill and drives Greenhouse and Ashby form completion to the point of submission.
+- ATS scope: Greenhouse and Ashby only. Other ATSes land `NEEDS_REVIEW` without finisher involvement.
 - The agent is equipped with 8 typed BYO Playwright tools: field detection, value injection, file upload, dropdown selection, checkbox/radio handling, form-state snapshot, page-scroll, and submit-click.
 - Binary submit gate (evaluated inside `src/agents/apply_worker/browser.py:_run_application_flow`): `all_required_filled AND no_tier3_deferred AND (no_tier2_pending OR all_tier2_drafts >= threshold)`. If the gate fails the apply lands `NEEDS_REVIEW`; the human-review queue at `/human-review` is the canonical approval point.
 - Soft cost cap: $0.20 per apply run, log-only (no hard abort).
 - `SAFE_MODE=true` env var disables auto-submit globally regardless of gate outcome; the worker still fills forms and writes `apply_handoffs` rows.
 - Runtime caches: `config/defer_rules.yaml` (user-tunable Tier-3 regexes), `data/answer_cache.yaml` (machine-mutable, schema_version 1).
-- New DB columns: `apply_handoffs.deferred_questions_json`, `apply_handoffs.finisher_diagnostics_json`.
-- New REST surface: `POST /api/jobs/{job_hash}/apply` (409 on in-flight conflict), `GET /api/apply-runs/{id}`, `DELETE /api/apply-runs/{id}`.
+- DB columns: `apply_handoffs.deferred_questions_json`, `apply_handoffs.finisher_diagnostics_json`.
+- REST surface: `POST /api/jobs/{job_hash}/apply` (409 on in-flight conflict), `GET /api/apply-runs/{id}`, `DELETE /api/apply-runs/{id}`.
 - Environment knobs: `SAFE_MODE`, `LITELLM_LOCAL_MODEL_COST_MAP`.
 
 ## Opt-In API Surface
-- `POST /api/jobs/{job_hash}/tailor` enqueues a FastAPI BackgroundTask that runs the same `run_tailor_review_pipeline`. Returns 409 with `code=MODE_AUTONOMOUS` when `tailor_mode=autonomous`, `code=RUN_ALREADY_EXISTS` when a non-deleted active run already exists, or `code=BUDGET_EXCEEDED` when the monthly budget is exhausted.
-- `GET /api/tailor-runs/{id}` and `DELETE /api/tailor-runs/{id}` back the JobsPage row's polling and "delete & retry" buttons.
-- `GET/PATCH /api/system-settings/automation` drive the Automation card on the Settings page. The worker re-reads the modes on every poll cycle, so flips take effect within one cycle without a restart.
+- `POST /api/jobs/{job_hash}/tailor` (`api/routers/tailor_runs.py`): enqueues a FastAPI BackgroundTask that runs `run_tailor_review_pipeline`. Returns 409 with `code=MODE_AUTONOMOUS` when `tailor_mode=autonomous`, `code=RUN_ALREADY_EXISTS` when a non-deleted active run already exists, or `code=BUDGET_EXCEEDED` when the monthly budget is exhausted.
+- `GET /api/tailor-runs/{id}`, `DELETE /api/tailor-runs/{id}`, `POST /api/tailor-runs/{id}/retry` (`api/routers/tailor_runs.py`): back the JobsPage row's polling, soft-delete, and "delete & retry" buttons.
+- `POST /api/jobs/{job_hash}/apply` (`api/routers/apply_runs.py`): accepts `{resume_mode: 'base' | 'tailored'}`, spawns a detached asyncio task for the browser flow.
+- `GET /api/apply-runs/{id}`, `DELETE /api/apply-runs/{id}` (`api/routers/apply_runs.py`).
+- `GET/PATCH /api/system-settings/automation` (`api/routers/system_settings.py`): drive the Automation card on the Settings page. The supervisor re-reads the modes within ~1.5 s of a toggle via `notify_mode_changed()`.
 
 ## Autonomy End Goal
 - This repository can be cloneable on a home server, configured once, and run autonomously through discovery → gate → tailor → review → apply.

@@ -133,7 +133,8 @@ class ApplyMixin(_BaseMixin):
                 ON apply_handoffs(review_run_id);
             """
         )
-        # Idempotent ALTER for finisher columns added in issue #59.
+        # Idempotent ALTER ensures pre-existing databases pick up the
+        # finisher diagnostic columns on the next startup.
         existing_cursor = await conn.execute("PRAGMA table_info(apply_handoffs)")
         existing_rows = await existing_cursor.fetchall()
         existing_columns = {str(row["name"]) for row in existing_rows}
@@ -148,7 +149,8 @@ class ApplyMixin(_BaseMixin):
                 f"ALTER TABLE apply_handoffs ADD COLUMN {column_name} {column_definition}"
             )
 
-        # Idempotent ALTER: soft-delete support for apply_runs (issue #59 Phase F).
+        # Idempotent ALTER: add soft-delete support to apply_runs on
+        # pre-existing databases.
         runs_cursor = await conn.execute("PRAGMA table_info(apply_runs)")
         runs_rows = await runs_cursor.fetchall()
         runs_columns = {str(row["name"]) for row in runs_rows}
@@ -238,8 +240,8 @@ class ApplyMixin(_BaseMixin):
                         AND ar.status = 'PENDING'
                         AND ar.started_at > datetime('now', ?)
                   )
-                  -- Bug 4 (2026-05-25): never re-claim a PENDING row that
-                  -- already has a claim_token. User-triggered rows from
+                  -- Never re-claim a PENDING row that already has a
+                  -- claim_token. User-triggered rows from
                   -- POST /api/jobs/{hash}/apply always carry one, and so
                   -- does every autonomous-claim row. Stale rows are recovered
                   -- by ``mark_stale_apply_runs_failed`` at startup, not by
@@ -828,8 +830,7 @@ class ApplyMixin(_BaseMixin):
             apply exists, (b) find the most recent SUCCESS review run +
             its job posting, (c) INSERT a new ``apply_runs`` row with a
             fresh ``claim_token`` so the autonomous loop never duplicates
-            it (Bug 4 in the 2026-05-25 smoke pass), and (d) return a
-            merged row in the same shape as
+            it, and (d) return a merged row in the same shape as
             :meth:`claim_next_apply_job` so the router can hand it
             straight to the background task that runs the browser.
         Args:
