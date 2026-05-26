@@ -79,7 +79,7 @@ The boundary is clean: `src/agents/` owns LLM and browser work, `src/database/` 
 | Tailor + review | Locator → tailor LLM → patcher → tectonic → reviewer → 3-way pick | `scripts/process_qualified_jobs.py`, `src/agents/resume_tailor/` |
 | Apply worker | Claim review row, CDP-drive Chrome, trigger Simplify, optionally invoke finisher, evaluate submit gate | `scripts/process_apply_jobs.py`, `src/agents/apply_worker/` |
 | Apply finisher | Pydantic-AI agent + 8 typed Playwright tools for Greenhouse/Ashby long-tail questions | `src/agents/apply_finisher/` |
-| Supervisor | Lifespan-owned `LoopSupervisor` running all worker loops in one process | `api/services/supervisor.py`, `api/services/migrations.py` |
+| Supervisor | Lifespan-owned `WLoopSupervisor` running all worker loops in one process | `api/services/supervisor.py`, `api/services/migrations.py` |
 | HTTP API | ~60 endpoints across 16 routers | `api/main.py`, `api/routers/*.py` |
 | Dashboard | React SPA with TanStack Query polling | `dashboard/src/` |
 | Database | 9 mixins composed onto `DatabaseManager`; `BEGIN IMMEDIATE` claim-and-lease | `src/database/db_manager.py`, `src/database/_mixins/*.py` |
@@ -130,7 +130,7 @@ graph TB
   USER[User Browser] -->|HTTP| API[FastAPI app]
   API -->|static fallback| DIST[dashboard/dist/]
   API -->|/api/*| ROUTERS[16 routers]
-  API -->|lifespan| SUP[LoopSupervisor]
+  API -->|lifespan| SUP[WLoopSupervisor]
 
   SUP --> DISC[discovery loop<br/>always-on]
   SUP --> GATE[gate loop<br/>mode-gated]
@@ -164,7 +164,7 @@ sequenceDiagram
   participant Uvicorn
   participant Lifespan
   participant DB as DatabaseManager
-  participant Sup as LoopSupervisor
+  participant Sup as WLoopSupervisor
   participant Watch as mode_watcher
 
   Uvicorn->>Lifespan: startup hook
@@ -191,7 +191,7 @@ sequenceDiagram
   participant Apply as POST /apply
   participant DB
   participant BG as BackgroundTask
-  participant Loop as worker loop
+  participant WLoop as worker loop
   participant Det as detached task
 
   Dash->>Tailor: { apply_after: true }
@@ -212,7 +212,7 @@ sequenceDiagram
   Det->>DB: open own DatabaseManager
   Det->>Det: _process_apply_row — full browser flow
 
-  Note over Loop: Autonomous loop polling PENDING rows<br/>races for the same job — per-job single-slot<br/>constraint at insert resolves the race
+  Note over WLoop: Autonomous loop polling PENDING rows<br/>races for the same job — per-job single-slot<br/>constraint at insert resolves the race
 ```
 
 ### Concurrency model
@@ -247,7 +247,7 @@ sequenceDiagram
 
 ### Supervisor
 
-- `api/services/supervisor.py:LoopSupervisor` — four asyncio tasks (discovery + gate + tailor + apply) plus a mode-watcher. Crash recovery via exponential restart-with-backoff (5s → 300s cap). `notify_mode_changed()` reconciles gated loops within ~1.5s.
+- `api/services/supervisor.py:WLoopSupervisor` — four asyncio tasks (discovery + gate + tailor + apply) plus a mode-watcher. Crash recovery via exponential restart-with-backoff (5s → 300s cap). `notify_mode_changed()` reconciles gated loops within ~1.5s.
 - `api/services/migrations.py:_lifespan` — startup: validates candidate profile, runs all mixin migrations, starts the supervisor. Shutdown: stops the supervisor cleanly.
 
 ### Discovery
@@ -686,35 +686,35 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-  participant Loop as gate loop
+  participant WLoop as gate loop
   participant DB
   participant Gate as run_gate_with_provider
   participant Prov as OpenAIProvider
   participant OAI as OpenAI API
 
-  Loop->>DB: _is_gate_mode_active
+  WLoop->>DB: _is_gate_mode_active
   alt mode=opt_in
-    Note over Loop: skip cycle, sleep
+    Note over WLoop: skip cycle, sleep
   else mode in {autonomous, both}
-    Loop->>DB: check_budget_before_claim(stage=GATE)
+    WLoop->>DB: check_budget_before_claim(stage=GATE)
     alt budget exceeded
-      Note over Loop: skip cycle
+      Note over WLoop: skip cycle
     else budget ok
-      Loop->>DB: get_jobs_pending_agent_processing(limit=25)
-      DB-->>Loop: list[job_row]
+      WLoop->>DB: get_jobs_pending_agent_processing(limit=25)
+      DB-->>WLoop: list[job_row]
       loop each job
-        Loop->>Gate: run_gate_with_provider(job)
+        WLoop->>Gate: run_gate_with_provider(job)
         Gate->>Prov: CompletionRequest(temp=0.1, max_tokens=1024)
         Prov->>OAI: openai/gpt-5-mini chat completion
         OAI-->>Prov: CompletionResponse
         Prov-->>Gate: parsed
-        Gate-->>Loop: GateRunOutcome(result, response)
+        Gate-->>WLoop: GateRunOutcome(result, response)
         alt decision = APPLY
-          Loop->>DB: record_agent_decision(status='QUALIFIED')
+          WLoop->>DB: record_agent_decision(status='QUALIFIED')
         else decision = SKIP
-          Loop->>DB: record_agent_decision(status='FILTERED')
+          WLoop->>DB: record_agent_decision(status='FILTERED')
         end
-        Loop->>DB: record_llm_call_cost(stage=GATE)
+        WLoop->>DB: record_llm_call_cost(stage=GATE)
       end
     end
   end
@@ -726,7 +726,7 @@ Backoff is exponential ×3 (300s → 900s → 2700s) capped at `AGENT_MAX_RETRIE
 
 ```mermaid
 sequenceDiagram
-  participant Loop as tailor loop
+  participant WLoop as tailor loop
   participant DB
   participant Pipeline as run_tailor_review_pipeline
   participant Loc as locator
@@ -735,9 +735,9 @@ sequenceDiagram
   participant Comp as compiler
   participant Reviewer as call_reviewer
 
-  Loop->>DB: mark_stale_tailor_runs_failed(lease=7200)
-  Loop->>DB: claim_next_tailor_job
-  Loop->>Pipeline: run_tailor_review_pipeline(...)
+  WLoop->>DB: mark_stale_tailor_runs_failed(lease=7200)
+  WLoop->>DB: claim_next_tailor_job
+  WLoop->>Pipeline: run_tailor_review_pipeline(...)
   Pipeline->>DB: mark_tailor_running
   Pipeline->>Pipeline: load + validate config/resume.tex
   Pipeline->>Comp: compile base.pdf
@@ -997,7 +997,7 @@ graph TB
 
   subgraph Container[Docker container]
     API[FastAPI + dashboard dist/]
-    SUP[LoopSupervisor]
+    SUP[WLoopSupervisor]
     PYDEPS[Python deps via uv]
     TECT[tectonic /usr/local/bin/tectonic]
     AGENTBR[agent-browser /usr/local/bin/agent-browser]
@@ -1105,7 +1105,7 @@ The one-line pitch: crawl job boards, decide which are worth pursuing, write a t
 - **The submit click is the riskiest action.** Wrong resume, wrong work-auth answer, wrong sponsorship status — all visible to the recruiter forever. Bugs in an auto-applier are bugs visible to every company the user might want to work for. So: a strict binary gate, conservative defaults, human-review queue with screenshots/DOM snapshots, and `SAFE_MODE` as a global kill switch.
 - **Forms vary.** Greenhouse, Ashby, Workday, iCIMS, Lever, Taleo, SmartRecruiters, and a long tail of one-off career pages all have different DOM structures, question wording, consent checkboxes. The autonomous apply path is locked to Greenhouse and Ashby; everything else lands `NEEDS_REVIEW` for human review.
 - **The interesting judgment is per-posting.** Per-user context (profile, preferences, hard filters, education status, work auth, salary expectations) feeds the gate, tailor, and finisher from the same canonical YAML.
-- **Single FastAPI process** — earlier iterations had separate worker containers. Painful deployment and slow autonomous toggle. Collapsing into one process with a `LoopSupervisor` that reads modes on every cycle is much better operationally.
+- **Single FastAPI process** — earlier iterations had separate worker containers. Painful deployment and slow autonomous toggle. Collapsing into one process with a `WLoopSupervisor` that reads modes on every cycle is much better operationally.
 - **Host Chrome over CDP** — in-container Chromium would add ~400MB, lose the user's Simplify extension, and route through Docker Desktop's vpnkit NAT which trips rate-limiters. Driving the user's real Chrome instead is more reliable.
 - **`.tex` source-of-truth** — YAML-derived resumes lost too much template heterogeneity and broke on duplicate bullet bodies. Byte-offset patches into the user's actual LaTeX are robust to template variety; the patcher never confuses identical bullets because offsets disambiguate.
 - **Pydantic-AI agent with 8 narrow tools** — driving a form is a sequence of dozens of small interactions, each mutating state the next reads. A single big plan is stale by the second click. Narrow typed tools make the agent's intent legible and constrain it from string-interpolation mistakes.
