@@ -31,7 +31,7 @@ dependencies = [
     "pypdf==4.3.1",
     "python-dotenv==1.2.1",
     "python-jobspy==1.1.82",
-    "python-multipart==0.0.22",
+    "python-multipart==0.0.29",
     "pyyaml==6.0.3",
     "uvicorn==0.40.0",
     "texsoup==0.3.3",
