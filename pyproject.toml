@@ -11,7 +11,7 @@ dependencies = [
     "anthropic==0.104.1",
     "apscheduler==3.11.2",
     "authlib==1.6.9",
-    "cryptography==46.0.6",
+    "cryptography==48.0.0",
     "fastapi==0.123.10",
     "google-adk==1.23.0",
     "google-genai==1.60.0",
