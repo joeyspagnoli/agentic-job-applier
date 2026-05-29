@@ -34,7 +34,7 @@ jobs:
 
       - name: Open or update PR
         if: steps.diff.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v6.1.0
+        uses: peter-evans/create-pull-request@v8.1.1
         with:
           branch: refresh/greenhouse-slug-table
           title: "chore: refresh Greenhouse slug lookup table"
