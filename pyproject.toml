@@ -14,7 +14,7 @@ dependencies = [
     "cryptography==46.0.6",
     "fastapi==0.123.10",
     "google-adk==1.23.0",
-    "google-genai==1.60.0",
+    "google-genai==2.7.0",
     "curl-cffi==0.15.0",
     "httpx==0.28.1",
     "instructor==1.15.1",
