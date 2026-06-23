@@ -102,3 +102,4 @@ reference-repos/
 temp-resume/
 claude_notes/
 codex_oneoff.*
+.mcp.json

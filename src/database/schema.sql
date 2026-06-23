@@ -292,3 +292,29 @@ CREATE TABLE IF NOT EXISTS portal_configs (
     UNIQUE(company_name, careers_url)
 );
 CREATE INDEX IF NOT EXISTS idx_portal_configs_enabled ON portal_configs(is_enabled);
+
+CREATE TABLE IF NOT EXISTS email_subscribers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    role_level TEXT NOT NULL DEFAULT 'both',
+    fields TEXT DEFAULT NULL,
+    terms TEXT DEFAULT NULL,
+    location_preference TEXT NOT NULL DEFAULT 'both',
+    excluded_companies TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    confirm_token TEXT NOT NULL,
+    unsubscribe_token TEXT NOT NULL,
+    last_digest_at TEXT DEFAULT NULL,
+    bounce_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS digest_sends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscriber_id INTEGER NOT NULL REFERENCES email_subscribers(id),
+    job_id INTEGER NOT NULL REFERENCES job_postings(id),
+    sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_digest_sends_sub ON digest_sends(subscriber_id);
+CREATE INDEX IF NOT EXISTS idx_digest_sends_job ON digest_sends(job_id);
