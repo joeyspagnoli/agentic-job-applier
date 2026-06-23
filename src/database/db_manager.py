@@ -188,7 +188,56 @@ class DatabaseManager(
         await self.migrate_tailor_schema()
         await self.migrate_review_schema()
         await self.migrate_system_settings_schema()
+        await self.migrate_subscriber_schema()
         await self.seed_automation_defaults_from_env()
+
+    async def migrate_subscriber_schema(self) -> None:
+        """Create email_subscribers and digest_sends tables when missing."""
+
+        conn = self._require_conn()
+        await conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS email_subscribers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                role_level TEXT NOT NULL DEFAULT 'both',
+                fields TEXT DEFAULT NULL,
+                location_preference TEXT NOT NULL DEFAULT 'both',
+                excluded_companies TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                confirmed INTEGER NOT NULL DEFAULT 0,
+                confirm_token TEXT NOT NULL,
+                unsubscribe_token TEXT NOT NULL,
+                last_digest_at TEXT DEFAULT NULL,
+                bounce_count INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS digest_sends (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscriber_id INTEGER NOT NULL REFERENCES email_subscribers(id),
+                job_id INTEGER NOT NULL REFERENCES job_postings(id),
+                sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_digest_sends_sub ON digest_sends(subscriber_id);
+            CREATE INDEX IF NOT EXISTS idx_digest_sends_job ON digest_sends(job_id);
+            """
+        )
+        await conn.commit()
+
+    async def cleanup_old_records(self, crawl_days: int = 90, job_days: int = 90) -> dict:
+        """Delete crawl_history and stale job_postings older than the given thresholds."""
+        conn = self._require_conn()
+        cur = await conn.execute(
+            f"DELETE FROM crawl_history WHERE started_at < datetime('now', '-{crawl_days} days')"
+        )
+        crawl_deleted = cur.rowcount
+        cur = await conn.execute(
+            f"DELETE FROM job_postings WHERE status = 'NEW' AND fetched_at < datetime('now', '-{job_days} days')"
+        )
+        jobs_deleted = cur.rowcount
+        await conn.commit()
+        return {"crawl_deleted": crawl_deleted, "jobs_deleted": jobs_deleted}
 
     async def close(self) -> None:
         """Close the active SQLite connection if one exists.

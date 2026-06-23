@@ -73,6 +73,8 @@ async def fetch_github_repo_jobs(
                 branch=repo_config.get("branch", "dev"),
                 json_path=repo_config.get("json_path", ".github/scripts/listings.json"),
                 categories=repo_config.get("categories"),
+                terms=repo_config.get("terms"),
+                max_days_old=repo_config.get("max_days_old"),
             ) as fetcher:
                 jobs = await fetcher.fetch_jobs()
                 if title_include_patterns:
