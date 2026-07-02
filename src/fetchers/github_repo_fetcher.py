@@ -25,6 +25,24 @@ DEFAULT_JSON_PATH = ".github/scripts/listings.json"
 DEFAULT_BRANCH = "dev"
 
 
+def _compute_relevant_terms() -> set[str]:
+    """Generate academic terms for the current + next ~12 months."""
+    now = datetime.now(tz=timezone.utc)
+    year, month = now.year, now.month
+    terms: set[str] = set()
+
+    seasons = {"Winter": 3, "Spring": 5, "Summer": 8, "Fall": 12}
+
+    for season, end_month in seasons.items():
+        if month <= end_month:
+            terms.add(f"{season} {year}")
+
+    for season in seasons:
+        terms.add(f"{season} {year + 1}")
+
+    return terms
+
+
 class GitHubRepoFetcher(BaseFetcher):
     """Fetch job listings from a GitHub repo's JSON listing file.
 
@@ -44,17 +62,10 @@ class GitHubRepoFetcher(BaseFetcher):
         branch: str = DEFAULT_BRANCH,
         json_path: str = DEFAULT_JSON_PATH,
         categories: list[str] | None = None,
+        terms: list[str] | None = None,
+        max_days_old: int | None = None,
     ) -> None:
-        """Configure which GitHub repo and branch to fetch listings from.
-
-        Args:
-            repo_owner: GitHub user or org that owns the repository.
-            repo_name: Repository name.
-            branch: Branch to fetch from.
-            json_path: File path within the repo to the JSON listing.
-            categories: If provided, only include entries matching these
-                category values (case-insensitive).
-        """
+        """Configure which GitHub repo and branch to fetch listings from."""
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.branch = branch
@@ -62,6 +73,11 @@ class GitHubRepoFetcher(BaseFetcher):
         self.categories = (
             {c.lower() for c in categories} if categories else None
         )
+        self._terms = (
+            {t.lower() for t in terms} if terms
+            else {t.lower() for t in _compute_relevant_terms()}
+        )
+        self._max_days_old = max_days_old
         self._client: Optional[httpx.AsyncClient] = None
         super().__init__(
             config={
@@ -200,14 +216,7 @@ class GitHubRepoFetcher(BaseFetcher):
         return jobs
 
     def _should_include(self, entry: dict[str, Any]) -> bool:
-        """Check whether a listing passes visibility and category filters.
-
-        Args:
-            entry: Raw listing dict from the JSON file.
-
-        Returns:
-            ``True`` if the entry should be included, ``False`` otherwise.
-        """
+        """Check whether a listing passes visibility, category, term, and date filters."""
         if not entry.get("active", True):
             return False
         if not entry.get("is_visible", True):
@@ -217,6 +226,22 @@ class GitHubRepoFetcher(BaseFetcher):
             category = (entry.get("category") or "").lower()
             if category not in self.categories:
                 return False
+
+        entry_terms = entry.get("terms")
+        if entry_terms and self._terms:
+            if not any(t.lower() in self._terms for t in entry_terms):
+                return False
+
+        if self._max_days_old is not None:
+            date_posted = entry.get("date_posted")
+            if date_posted is not None:
+                try:
+                    posted_dt = datetime.fromtimestamp(float(date_posted), tz=timezone.utc)
+                    age_days = (datetime.now(tz=timezone.utc) - posted_dt).days
+                    if age_days > self._max_days_old:
+                        return False
+                except (ValueError, OverflowError, OSError):
+                    pass
 
         return True
 

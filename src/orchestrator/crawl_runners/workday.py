@@ -15,7 +15,9 @@ from src.orchestrator.config_loader import EE_FRIENDLY_INDUSTRIES
 from src.orchestrator.crawl_runners._resolve import resolve_fetcher_attr
 from src.orchestrator.insert_pipeline import (
     filter_by_title_patterns,
+    resolve_digest_category,
     resolve_insert_with_filters,
+    stamp_digest_category,
 )
 from src.utils.deduplicator import Deduplicator
 from src.utils.logger import log_crawl_summary
@@ -104,6 +106,10 @@ async def fetch_workday_jobs(
                     jobs = filter_by_title_patterns(jobs, title_include_patterns)
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
+                # Route non-CS tenants (finance / real-estate / logistics) to
+                # the "Business" digest category so their senior/analyst roles
+                # never leak into the default CS digest.
+                stamp_digest_category(new_jobs, resolve_digest_category(config))
 
                 # Pick a filter based on the company's industry tag — EE-
                 # friendly tenants accept any entry-level title; everyone

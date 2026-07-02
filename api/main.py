@@ -15,7 +15,11 @@ from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response as StarletteResponse
 
 from src.utils.llm_pricing import register_custom_prices
 from src.utils.paths import resolve_database_path
@@ -37,6 +41,7 @@ from api.services.system_scripts import _dispatch_system_lifecycle_action
 from api.services.yaml_files import _backup_settings_file
 
 from api.routers import costs as costs_router
+from api.routers import digest as digest_router
 from api.routers import dashboard as dashboard_router
 from api.routers import failures as failures_router
 from api.routers import health as health_router
@@ -59,11 +64,47 @@ from api.routers import tailor_runs as tailor_runs_router
 logger = logging.getLogger(__name__)
 
 
+_DIGEST_HOST_MARKER = "jobs.joeyspagnoli-cloud"
+# Public-safe paths for the digest subdomain. This enumerates the
+# subscriber-facing digest endpoints explicitly rather than allowlisting the
+# whole "/api/digest/" prefix — that prefix would also expose the unauthenticated
+# admin trigger POST /api/digest/send to the internet. The daily cron calls
+# /send over localhost (no host marker), so it is unaffected.
+_DIGEST_ALLOWED_PREFIXES = (
+    "/subscribe",
+    "/manage",
+    "/api/digest/subscribe",
+    "/api/digest/confirm",
+    "/api/digest/hide",
+    "/api/digest/preferences",
+    "/api/digest/unsubscribe",
+    "/favicon",
+    "/apple-touch-icon",
+)
+
+
+class _DigestSubdomainGuard(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
+        host = request.headers.get("host", "")
+        if _DIGEST_HOST_MARKER in host:
+            path = request.url.path
+            if path == "/":
+                return RedirectResponse("/subscribe", status_code=302)
+            if not any(path.startswith(p) for p in _DIGEST_ALLOWED_PREFIXES):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+        return await call_next(request)
+
+
 app = FastAPI(lifespan=_lifespan)
+app.add_middleware(_DigestSubdomainGuard)
 
 if DASHBOARD_ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=DASHBOARD_ASSETS_DIR), name="assets")
 
+app.include_router(digest_router.router)
+app.include_router(digest_router.pages_router)
 app.include_router(health_router.router)
 app.include_router(system_router.router)
 app.include_router(costs_router.router)

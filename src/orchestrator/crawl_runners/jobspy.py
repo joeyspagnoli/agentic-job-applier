@@ -18,7 +18,9 @@ from src.orchestrator.config_loader import (
 from src.orchestrator.crawl_runners._resolve import resolve_fetcher_attr
 from src.orchestrator.insert_pipeline import (
     filter_by_title_patterns,
+    resolve_digest_category,
     resolve_insert_with_filters,
+    stamp_digest_category,
 )
 from src.utils.deduplicator import Deduplicator
 from src.utils.logger import log_crawl_summary
@@ -135,6 +137,10 @@ async def fetch_jobspy_jobs(
                         jobs = filter_by_title_patterns(jobs, title_include_patterns)
                     crawl_jobs_found = len(jobs)
                     new_jobs = await deduplicator.filter_new_jobs(jobs)
+                    # Route this board's jobs to the right digest category
+                    # (e.g. an Indeed_Business board → "Business") so they only
+                    # reach subscribers who opted into that field.
+                    stamp_digest_category(new_jobs, resolve_digest_category(config))
 
                     await insert_with_filters(
                         new_jobs, db=db, job_filter=job_filter,

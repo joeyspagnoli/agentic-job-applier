@@ -96,7 +96,6 @@ class JobPosting(BaseModel):
         # URL query parameters frequently include tracking data, so URL identity
         # is normalized before being included in the dedup fingerprint.
         identity_parts = [
-            self.source.lower().strip(),
             self.company.lower().strip(),
             self.title.lower().strip(),
             self._normalize_text(self.location),

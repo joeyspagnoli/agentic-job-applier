@@ -9,15 +9,18 @@ cycle-level rollup row to ``daily_stats``.  Per-fetcher logic lives in
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from loguru import logger
 
 from src.database.db_manager import DatabaseManager
+from src.utils.notification_dispatcher import NotificationDispatcher
+from src.utils.notifications import is_ntfy_enabled, send_ntfy_notification
 from src.filters.job_filter import JobFilter
 from src.orchestrator._family_tasks import build_family_tasks
 from src.orchestrator.config_loader import (
@@ -95,6 +98,95 @@ def _resolve_database_path_resolver() -> Callable[[], Path | str]:
         Callable[[], Path | str],
         _resolve_main_attr("resolve_database_path", resolve_database_path),
     )
+
+
+async def _send_watched_job_notifications(
+    db: DatabaseManager, cycle_start: float
+) -> None:
+    """Send ntfy notifications for new jobs matching the watch list.
+
+    Purpose:
+        After a discovery cycle, check for newly added jobs from watched
+        companies and send a single consolidated notification with titles
+        and URLs for quick access.
+    Args:
+        db: Active database manager.
+        cycle_start: Epoch timestamp of when this cycle began.
+    Output:
+        Returns None.  Notification failures are logged but never raised.
+    """
+    config_path = Path("config/notifications.yaml")
+    if not config_path.exists():
+        return
+
+    import yaml
+
+    with open(config_path) as f:
+        notify_config = yaml.safe_load(f) or {}
+
+    watch_companies = notify_config.get("watch_companies", [])
+    if not watch_companies:
+        return
+
+    exclude_patterns = notify_config.get("exclude_title_patterns", [])
+    compiled_excludes = [re.compile(p) for p in exclude_patterns]
+
+    cycle_iso = datetime.fromtimestamp(cycle_start, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    assert db.conn is not None
+    cursor = await db.conn.execute(
+        "SELECT company, title, source_url FROM job_postings "
+        "WHERE fetched_at >= ? "
+        "  AND id = (SELECT MIN(p2.id) FROM job_postings p2 "
+        "            WHERE LOWER(p2.company) = LOWER(job_postings.company) "
+        "              AND LOWER(p2.title) = LOWER(job_postings.title)) "
+        "ORDER BY company, title",
+        (cycle_iso,),
+    )
+    rows = await cursor.fetchall()
+
+    seen_keys: set[tuple[str, str]] = set()
+    unique: list[tuple[str, str, str]] = []
+    for company, title, url in rows:
+        company_lower = (company or "").lower()
+        if not any(w.lower() in company_lower for w in watch_companies):
+            continue
+        if any(pat.search(title or "") for pat in compiled_excludes):
+            continue
+        key = (" ".join(company_lower.split()), " ".join((title or "").lower().split()))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        unique.append((company, title, url or ""))
+
+    if not unique:
+        return
+
+    lines = []
+    for company, title, url in unique:
+        line = f"{company}: {title}"
+        if url:
+            line += f"\n  {url}"
+        lines.append(line)
+
+    count = len(unique)
+    batches: list[list[str]] = [[]]
+    batch_size = 0
+    for line in lines:
+        entry_size = len(line.encode("utf-8")) + 1
+        if batch_size + entry_size > 3700 and batches[-1]:
+            batches.append([])
+            batch_size = 0
+        batches[-1].append(line)
+        batch_size += entry_size
+
+    for i, batch in enumerate(batches):
+        part = f" ({i + 1}/{len(batches)})" if len(batches) > 1 else ""
+        await send_ntfy_notification(
+            title=f"{count} new job{'s' if count != 1 else ''} at watched companies{part}",
+            message="\n".join(batch),
+            tags=("briefcase", "star"),
+        )
+    logger.info("Sent {} ntfy notification(s) for {} watched-company jobs", len(batches), count)
 
 
 async def run_job_discovery() -> None:
@@ -284,3 +376,11 @@ async def run_job_discovery() -> None:
         total_jobs = await db.get_job_count()
         jobs_today = await db.get_jobs_today()
         logger.info(f"Database: {total_jobs} total jobs, {jobs_today} added today")
+
+        # TODO: Replace direct ntfy calls with NotificationDispatcher.from_yaml("config/notifications.yaml")
+        if total_new > 0 and is_ntfy_enabled():
+            await _send_watched_job_notifications(db, cycle_start)
+
+        cleanup = await db.cleanup_old_records()
+        if cleanup["crawl_deleted"] or cleanup["jobs_deleted"]:
+            logger.info("TTL cleanup: {}", cleanup)

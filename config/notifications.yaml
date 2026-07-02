@@ -1,0 +1,142 @@
+channels:
+  - type: ntfy
+    topic: ${NTFY_TOPIC}
+    server: ${NTFY_SERVER}
+    token: ${NTFY_TOKEN}
+    default_priority: default
+
+# Companies to send push notifications for when new jobs are discovered.
+# Case-insensitive substring match (e.g., "Google" matches "Google DeepMind").
+# One consolidated notification per discovery cycle — no notification if no matches.
+
+watch_companies:
+  # ── AI Labs ──
+  - Anthropic
+  - OpenAI
+  - Cohere
+  - Mistral
+  - xAI
+  - Cursor
+  - Perplexity
+  - Cognition
+  - Sierra
+  - Midjourney
+  - ElevenLabs
+  - Character.ai
+  - Runway
+  # ── AI Infra ──
+  - Cerebras
+  - Groq
+  - Figure AI
+  - Together AI
+  - Fireworks AI
+  - CoreWeave
+  - Physical Intelligence
+  - Etched
+  - GenBio AI
+  - Helm AI
+  # ── Forward Deployed / Enterprise AI ──
+  - Palantir
+  - Databricks
+  - Glean
+  - Scale AI
+  - Hebbia
+  - Replit
+  # ── Big Tech ──
+  - Google
+  - Apple
+  - Amazon
+  - Meta
+  - Microsoft
+  - Netflix
+  - Salesforce
+  - Adobe
+  - Oracle
+  - Cisco
+  - ServiceNow
+  - IBM
+  # ── Software / Dev Tools ──
+  - Stripe
+  - Cloudflare
+  - Airbnb
+  - Figma
+  - Notion
+  - Ramp
+  - Rippling
+  - Vercel
+  - Canva
+  - Snowflake
+  - Datadog
+  - MongoDB
+  - DoorDash
+  - Coinbase
+  - 1Password
+  # ── Consumer Tech ──
+  - Discord
+  - Epic Games
+  - Spotify
+  - Reddit
+  - Roblox
+  - Pinterest
+  - Snap
+  # ── Fintech ──
+  - Block
+  - Robinhood
+  - Plaid
+  - Revolut
+  - Gemini
+  # ── Defense / Space / Robotics ──
+  - Anduril
+  - SpaceX
+  - Shield AI
+  - Hadrian
+  - Axon
+  - Skydio
+  - Blue Origin
+  - Rocket Lab
+  - Astranis
+  - Joby Aviation
+  - Nuro
+  - Zoox
+  - Pony.ai
+  - Field AI
+  # ── Cybersecurity ──
+  - Wiz
+  - CrowdStrike
+  - Fortinet
+  - Zscaler
+  - SentinelOne
+  - Verkada
+  # ── Semiconductor ──
+  - Intel
+  - AMD
+  - TSMC
+  - Qualcomm
+  - Broadcom
+  - Marvell
+  - Samsung
+  # ── Automotive / Industrial ──
+  - Tesla
+  - TikTok
+  - ByteDance
+  - Neuralink
+  - General Motors
+  - Dolby
+  - Sony
+
+# Exclude jobs whose titles match any of these patterns (case-insensitive).
+# Keeps notifications focused on engineering/AI roles.
+exclude_title_patterns:
+  - "(?i)\\bfinance\\b"
+  - "(?i)\\baccounting\\b"
+  - "(?i)\\b(human resources|\\bhr\\b)"
+  - "(?i)\\brecruit(er|ing|ment)\\b"
+  - "(?i)\\blegal\\b"
+  - "(?i)\\bsales\\b"
+  - "(?i)\\bmarketing\\b"
+  - "(?i)\\boperations\\b"
+  - "(?i)\\bcommunications\\b"
+  - "(?i)\\bpolicy\\b"
+  - "(?i)\\bcompliance\\b"
+  - "(?i)\\bparalegal\\b"
+  - "(?i)\\bprocurement\\b"
