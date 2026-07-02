@@ -225,7 +225,7 @@ class DatabaseManager(
         )
         await conn.commit()
 
-    async def cleanup_old_records(self, crawl_days: int = 90, job_days: int = 90) -> dict:
+    async def cleanup_old_records(self, crawl_days: int = 90, job_days: int = 90) -> dict[str, int]:
         """Delete crawl_history and stale job_postings older than the given thresholds."""
         conn = self._require_conn()
         cur = await conn.execute(

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Any
 
 from src.digest import sender
 from src.orchestrator.insert_pipeline import (
@@ -45,19 +46,19 @@ def test_resolve_digest_category_cs_sources_are_uncategorized() -> None:
 
 
 def test_stamp_digest_category_tags_untagged_jobs() -> None:
-    jobs = [SimpleNamespace(raw_data={}), SimpleNamespace(raw_data={})]
+    jobs: list[Any] = [SimpleNamespace(raw_data={}), SimpleNamespace(raw_data={})]
     stamp_digest_category(jobs, "Business")
     assert all(j.raw_data["category"] == "Business" for j in jobs)
 
 
 def test_stamp_digest_category_preserves_existing_category() -> None:
-    job = SimpleNamespace(raw_data={"category": "Software"})
+    job: Any = SimpleNamespace(raw_data={"category": "Software"})
     stamp_digest_category([job], "Business")
     assert job.raw_data["category"] == "Software"
 
 
 def test_stamp_digest_category_none_is_noop() -> None:
-    job = SimpleNamespace(raw_data={})
+    job: Any = SimpleNamespace(raw_data={})
     stamp_digest_category([job], None)
     assert "category" not in job.raw_data
 
@@ -109,7 +110,7 @@ def test_role_level_both_passes_everything() -> None:
 
 
 def test_dedup_keeps_one_per_company_title_preferring_longest_description() -> None:
-    jobs = [
+    jobs: list[Any] = [
         {"company": "Acme", "title": "SWE Intern", "description": "short"},
         {"company": "acme", "title": "swe intern", "description": "a much longer description"},
     ]
@@ -119,7 +120,7 @@ def test_dedup_keeps_one_per_company_title_preferring_longest_description() -> N
 
 
 def test_render_job_item_escapes_scraped_company_and_title() -> None:
-    job = {
+    job: Any = {
         "company": "Smith & <b>Co</b>",
         "title": "Intern <script>alert(1)</script>",
         "source_url": "https://jobs.example/1",
@@ -132,7 +133,7 @@ def test_render_job_item_escapes_scraped_company_and_title() -> None:
 
 
 def test_render_job_item_rejects_non_http_apply_url() -> None:
-    job = {
+    job: Any = {
         "company": "X",
         "title": "Intern",
         "source_url": "javascript:alert(1)",

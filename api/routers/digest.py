@@ -11,6 +11,7 @@ import aiosqlite
 import httpx
 from fastapi import APIRouter
 from loguru import logger
+from fastapi import Body
 from fastapi import Query
 from fastapi import Request
 from fastapi.responses import FileResponse
@@ -288,8 +289,8 @@ async def get_preferences(token: str = Query(...)) -> JSONResponse:
 
 @router.put("/preferences")
 async def update_preferences(
-    token: str = Query(...), payload: PreferencesUpdateRequest = ...
-) -> dict[str, str]:
+    token: str = Query(...), payload: PreferencesUpdateRequest = Body(...)
+) -> JSONResponse:
     """Update subscriber preferences by unsubscribe token."""
 
     async with aiosqlite.connect(_db_path()) as conn:
@@ -331,7 +332,7 @@ async def update_preferences(
             )
             await conn.commit()
 
-    return {"status": "ok"}
+    return JSONResponse(content={"status": "ok"})
 
 
 @router.delete("/unsubscribe")
@@ -360,7 +361,7 @@ async def unsubscribe(token: str = Query(...)) -> JSONResponse:
 
 
 @router.post("/send")
-async def send_digest() -> dict[str, object]:
+async def send_digest() -> dict[str, int]:
     """Admin trigger to run the daily digest sender immediately."""
 
     from src.digest.sender import send_daily_digest

@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
 
 from src.utils.llm_pricing import register_custom_prices
@@ -84,7 +85,7 @@ _DIGEST_ALLOWED_PREFIXES = (
 
 class _DigestSubdomainGuard(BaseHTTPMiddleware):
     async def dispatch(
-        self, request: Request, call_next: object
+        self, request: Request, call_next: RequestResponseEndpoint
     ) -> StarletteResponse:
         host = request.headers.get("host", "")
         if _DIGEST_HOST_MARKER in host:

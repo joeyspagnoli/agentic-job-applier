@@ -117,7 +117,7 @@ async def _fetch_confirmed_subscribers(
     cursor = await db.execute(
         "SELECT * FROM email_subscribers WHERE confirmed = 1"
     )
-    return await cursor.fetchall()
+    return list(await cursor.fetchall())
 
 
 async def _fetch_new_jobs_for_subscriber(
@@ -138,7 +138,7 @@ async def _fetch_new_jobs_for_subscriber(
         """,
         (since_iso, subscriber_id),
     )
-    return await cursor.fetchall()
+    return list(await cursor.fetchall())
 
 
 async def _record_digest_sends(
