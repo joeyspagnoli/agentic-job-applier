@@ -29,6 +29,59 @@ def filter_by_title_patterns(
     return [j for j in jobs if any(rx.search(j.title) for rx in compiled)]
 
 
+# Non-CS industries whose roles route to the "Business" digest category, so
+# finance / real-estate / logistics analyst postings reach only subscribers
+# who opted into the business field — never the default CS digest. ATS jobs
+# carry no category otherwise, and the digest's category filter is inclusive
+# by default, so without this tag a business role would leak to CS subscribers.
+_BUSINESS_INDUSTRIES: frozenset[str] = frozenset(
+    {"finance_banking", "finance", "real_estate", "logistics"}
+)
+
+
+def resolve_digest_category(config: dict[str, Any] | None) -> str | None:
+    """Return the digest category a source's jobs should be tagged with.
+
+    Purpose:
+        Decide how a company/board's postings are routed in the email digest.
+        Prefers an explicit ``digest_category`` config key; otherwise derives
+        ``"Business"`` from a non-CS ``industry`` tag.
+    Args:
+        config: The per-source config mapping (a ``companies.yaml`` company
+            entry or a ``job_boards`` entry), or ``None``.
+    Output:
+        The category string to stamp, or ``None`` for CS/tech sources, which
+        stay uncategorized and reach every subscriber.
+    """
+    if not isinstance(config, dict):
+        return None
+    explicit = config.get("digest_category")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    industry = config.get("industry")
+    if isinstance(industry, str) and industry in _BUSINESS_INDUSTRIES:
+        return "Business"
+    return None
+
+
+def stamp_digest_category(jobs: list[JobPosting], category: str | None) -> None:
+    """Tag each job's ``raw_data['category']`` with ``category``, in place.
+
+    Purpose:
+        Persist the digest routing category on every posting from a source so
+        the digest sender can filter by subscriber field preferences.
+    Args:
+        jobs: Postings from a single source, mutated in place.
+        category: The category to stamp, or ``None`` to leave jobs untagged.
+    Output:
+        None. Jobs already carrying a category are left untouched.
+    """
+    if not category:
+        return
+    for job in jobs:
+        job.raw_data.setdefault("category", category)
+
+
 # Type alias for the insert-with-filters callable; mypy strict needs a
 # concrete shape so tests that monkeypatch ``main._insert_with_filters``
 # remain checkable when their stand-in returns a 2-tuple.
