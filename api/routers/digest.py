@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import uuid
@@ -9,6 +10,7 @@ import uuid
 import aiosqlite
 import httpx
 from fastapi import APIRouter
+from loguru import logger
 from fastapi import Query
 from fastapi import Request
 from fastapi.responses import FileResponse
@@ -24,6 +26,12 @@ _TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET_KEY", "")
 _TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "0x4AAAAAADpiHSEwMjHC13nK")
 _TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 _DIGEST_BASE_URL = os.environ.get("DIGEST_BASE_URL", "").rstrip("/")
+_RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+_RESEND_URL = "https://api.resend.com/emails"
+_FROM_ADDRESS = os.environ.get(
+    "DIGEST_FROM_ADDRESS",
+    "Joey's CS Job Digest <jobs@cloud.joeyspagnoli-cloud.cc>",
+)
 
 
 def _db_path() -> str:
@@ -49,20 +57,83 @@ class PreferencesUpdateRequest(BaseModel):
     excluded_companies: list[str] | None = None
 
 
+async def _send_confirmation_email(
+    to_email: str, name: str, confirm_url: str
+) -> bool:
+    if not _RESEND_API_KEY:
+        return False
+    html_body = f"""\
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+            max-width:480px;margin:0 auto;padding:24px 16px;color:#1a1a1a;">
+  <h2 style="font-size:20px;margin-bottom:8px;">Confirm your subscription</h2>
+  <p style="color:#4a4a4a;font-size:15px;line-height:1.6;">
+    Hey {html.escape(name)}, click the button below to start receiving Joey's CS Job Digest
+    at 3 pm EST daily.
+  </p>
+  <a href="{confirm_url}"
+     style="display:inline-block;margin:20px 0;padding:12px 28px;
+            background:#2c52a0;color:#fff;text-decoration:none;
+            border-radius:4px;font-weight:600;font-size:15px;">
+    Confirm my subscription
+  </a>
+  <p style="color:#777;font-size:13px;">
+    If you didn't sign up, just ignore this email.
+  </p>
+</div>"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                _RESEND_URL,
+                headers={
+                    "Authorization": f"Bearer {_RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": _FROM_ADDRESS,
+                    "to": [to_email],
+                    "subject": "Confirm your subscription — Joey's CS Job Digest",
+                    "html": html_body,
+                },
+            )
+            resp.raise_for_status()
+            return True
+    except httpx.HTTPError as exc:
+        logger.error("Confirmation email to {} failed: {}", to_email, exc)
+        return False
+
+
 @router.post("/subscribe")
 async def subscribe(payload: SubscribeRequest, request: Request) -> JSONResponse:
     """Create a new email digest subscription (unconfirmed)."""
 
-    if _TURNSTILE_SECRET and payload.turnstile_token:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                _TURNSTILE_VERIFY_URL,
-                data={
-                    "secret": _TURNSTILE_SECRET,
-                    "response": payload.turnstile_token,
-                    "remoteip": request.client.host if request.client else "",
-                },
+    if _TURNSTILE_SECRET:
+        # When a Turnstile secret is configured, a valid token is mandatory.
+        # An empty/omitted token must be rejected here — previously the whole
+        # verification block was skipped when the token was falsy, which let a
+        # caller bypass the CAPTCHA by sending turnstile_token="".
+        if not payload.turnstile_token:
+            return JSONResponse(
+                status_code=403,
+                content={"status": "error", "message": "CAPTCHA verification failed."},
             )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                resp = await client.post(
+                    _TURNSTILE_VERIFY_URL,
+                    data={
+                        "secret": _TURNSTILE_SECRET,
+                        "response": payload.turnstile_token,
+                        "remoteip": request.client.host if request.client else "",
+                    },
+                )
+                resp.raise_for_status()
+            except httpx.HTTPError:
+                # Fail closed if Cloudflare's verify endpoint is unreachable,
+                # rather than raising an unhandled 500.
+                return JSONResponse(
+                    status_code=503,
+                    content={"status": "error", "message": "CAPTCHA check unavailable. Please try again."},
+                )
             if not resp.json().get("success"):
                 return JSONResponse(
                     status_code=403,
@@ -101,6 +172,15 @@ async def subscribe(payload: SubscribeRequest, request: Request) -> JSONResponse
         return JSONResponse(
             status_code=409,
             content={"status": "error", "message": "Email already subscribed."},
+        )
+
+    confirm_url = f"{_DIGEST_BASE_URL}/api/digest/confirm?token={confirm_token}"
+    email_sent = await _send_confirmation_email(payload.email, payload.name, confirm_url)
+
+    if not email_sent:
+        return JSONResponse(
+            status_code=502,
+            content={"status": "error", "message": "Could not send confirmation email. Please try again."},
         )
 
     return JSONResponse(
@@ -283,24 +363,12 @@ async def unsubscribe(token: str = Query(...)) -> JSONResponse:
 async def send_digest() -> dict[str, object]:
     """Admin trigger to run the daily digest sender immediately."""
 
-    import importlib
-
-    from api.config import settings  # type: ignore[attr-defined]
-
-    resend_key = os.environ.get("RESEND_API_KEY", "")
-    from_address = os.environ.get(
-        "DIGEST_FROM_ADDRESS",
-        "Joey's CS Job Digest <jobs@cloud.joeyspagnoli-cloud.cc>",
-    )
-    db_path = str(settings.db_path) if hasattr(settings, "db_path") else _db_path()
-
-    sender_mod = importlib.import_module("src.digest.sender")
-    send_daily_digest = sender_mod.send_daily_digest
+    from src.digest.sender import send_daily_digest
 
     result = await send_daily_digest(
-        db_path=db_path,
-        resend_api_key=resend_key,
-        from_address=from_address,
+        db_path=_db_path(),
+        resend_api_key=_RESEND_API_KEY,
+        from_address=_FROM_ADDRESS,
         base_url=_DIGEST_BASE_URL,
     )
     return result

@@ -64,7 +64,22 @@ logger = logging.getLogger(__name__)
 
 
 _DIGEST_HOST_MARKER = "jobs.joeyspagnoli-cloud"
-_DIGEST_ALLOWED_PREFIXES = ("/subscribe", "/manage", "/api/digest/", "/favicon", "/apple-touch-icon")
+# Public-safe paths for the digest subdomain. This enumerates the
+# subscriber-facing digest endpoints explicitly rather than allowlisting the
+# whole "/api/digest/" prefix — that prefix would also expose the unauthenticated
+# admin trigger POST /api/digest/send to the internet. The daily cron calls
+# /send over localhost (no host marker), so it is unaffected.
+_DIGEST_ALLOWED_PREFIXES = (
+    "/subscribe",
+    "/manage",
+    "/api/digest/subscribe",
+    "/api/digest/confirm",
+    "/api/digest/hide",
+    "/api/digest/preferences",
+    "/api/digest/unsubscribe",
+    "/favicon",
+    "/apple-touch-icon",
+)
 
 
 class _DigestSubdomainGuard(BaseHTTPMiddleware):

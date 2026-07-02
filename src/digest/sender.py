@@ -9,6 +9,7 @@ and bumps last_digest_at.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -54,6 +55,7 @@ _FIELD_TO_CATEGORY: dict[str, str] = {
     "hardware": "Hardware",
     "product": "Product",
     "quant": "Quant",
+    "business": "Business",
 }
 
 
@@ -75,7 +77,7 @@ async def send_daily_digest(
         resend_api_key: Bearer token for the Resend email API.
         from_address: The ``From:`` address used in outgoing emails.
         base_url: Origin prefix for links in emails
-            (e.g. ``https://jobs.cloud.joeyspagnoli-cloud.cc``).
+            (e.g. ``https://jobs.joeyspagnoli-cloud.cc``).
             Defaults to empty string for relative URLs in local dev.
     """
     totals: dict[str, int] = {"total_subscribers": 0, "emails_sent": 0, "errors": 0}
@@ -121,11 +123,20 @@ async def _fetch_confirmed_subscribers(
 async def _fetch_new_jobs_for_subscriber(
     db: aiosqlite.Connection,
     since_iso: str,
+    subscriber_id: int,
 ) -> list[aiosqlite.Row]:
-    """Return job postings fetched after since_iso."""
+    """Return job postings fetched after since_iso, excluding FILTERED and already-sent."""
     cursor = await db.execute(
-        "SELECT * FROM job_postings WHERE fetched_at > ?",
-        (since_iso,),
+        """
+        SELECT jp.* FROM job_postings jp
+        WHERE jp.fetched_at > ?
+          AND jp.status != 'FILTERED'
+          AND NOT EXISTS (
+              SELECT 1 FROM digest_sends ds
+              WHERE ds.job_id = jp.id AND ds.subscriber_id = ?
+          )
+        """,
+        (since_iso, subscriber_id),
     )
     return await cursor.fetchall()
 
@@ -161,7 +172,7 @@ async def _process_subscriber(
     base_url: str = "",
 ) -> bool | None:
     since_iso = _resolve_lookback_cutoff(subscriber["last_digest_at"])
-    raw_jobs = await _fetch_new_jobs_for_subscriber(db, since_iso)
+    raw_jobs = await _fetch_new_jobs_for_subscriber(db, since_iso, subscriber["id"])
 
     if not raw_jobs:
         return None
@@ -295,20 +306,26 @@ def _passes_category_filter(
     raw_data_json: str | None,
     allowed_categories: set[str],
 ) -> bool:
-    """Return True if the job's category is in the subscriber's allowed set."""
+    """Return True if the job's category is in the subscriber's allowed set.
+
+    Jobs with no category data (e.g. ATS-sourced) always pass — the filter
+    only excludes jobs carrying an explicit category not in the allowed set.
+    """
     if not allowed_categories:
-        # Empty allowed set means subscriber wants all fields.
         return True
 
     if not raw_data_json:
-        return False
+        return True
 
     try:
         raw_data: dict[str, Any] = json.loads(raw_data_json)
     except (json.JSONDecodeError, TypeError):
-        return False
+        return True
 
     category: str = raw_data.get("category", "")
+    if not category:
+        return True
+
     return category in allowed_categories
 
 
@@ -483,13 +500,26 @@ def _render_job_item(
 
     company_encoded = quote(job["company"], safe="")
     hide_url = f"{base_url}/api/digest/hide?token={unsubscribe_token}&company={company_encoded}"
-    apply_url = job["source_url"] or "#"
+
+    # Company/title come from scraped external job boards (untrusted input), so
+    # escape them before interpolating into the outgoing email HTML — matching
+    # the escaping already done in src/digest/pages.py.
+    company = html.escape(job["company"])
+    title = html.escape(job["title"])
+
+    # Only permit http(s) apply links, and escape for use inside an href.
+    raw_url = job["source_url"] or ""
+    apply_url = (
+        html.escape(raw_url, quote=True)
+        if raw_url.startswith(("http://", "https://"))
+        else "#"
+    )
 
     # Truncate the raw fetched_at timestamp to date-only for readability.
     discovered_display = (job["fetched_at"] or "")[:10]
 
     return f"""    <div style="margin-bottom: 16px; padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
-      <strong>{job['company']}</strong> &mdash; {job['title']}<br>
+      <strong>{company}</strong> &mdash; {title}<br>
       <a href="{apply_url}" style="color: #0066cc;">Apply</a>
       &middot; <small>Discovered: {discovered_display}</small>
       &middot; <a href="{hide_url}" style="color: #999; font-size: 12px;">hide</a>

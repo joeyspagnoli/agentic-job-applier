@@ -34,14 +34,14 @@ body{
   -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.5;margin:0;
 }
 
-.page{max-width:680px;margin:0 auto;padding:3rem 1.25rem 2rem}
+.page{max-width:680px;margin:0 auto;padding:3rem 1.25rem 2rem;box-sizing:border-box}
 
 .hdr{margin-bottom:1.75rem}
 .hdr h1{font-family:var(--font-display);letter-spacing:-.01em;margin-bottom:.5rem;font-size:1.65rem;font-weight:500;line-height:1.2}
 .hdr .desc{color:var(--ink-2);font-size:.92rem;line-height:1.55}
 .hdr .desc strong{color:var(--ink);font-weight:600}
 
-.form{background:var(--surface-raised);border:1px solid var(--line);border-radius:6px;padding:1.25rem}
+.form{background:var(--surface-raised);border:1px solid var(--line);border-radius:6px;padding:1.25rem;box-sizing:border-box}
 .form-grid{display:grid;gap:1.5rem}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
 
@@ -51,7 +51,7 @@ body{
 .fld input[type=text],.fld input[type=email]{
   font-family:var(--font-body);border:1px solid var(--line);background:var(--surface);
   color:var(--ink);border-radius:4px;outline:none;padding:.45rem .6rem;font-size:.88rem;
-  transition:border-color .12s;
+  transition:border-color .12s;width:100%;box-sizing:border-box;
 }
 .fld input:focus{border-color:var(--tint);box-shadow:0 0 0 2px var(--tint-soft)}
 .fld input::placeholder{color:var(--ink-4)}
@@ -73,7 +73,7 @@ body{
 }
 .rad span{color:var(--ink-2);user-select:none;font-size:.85rem}
 
-.chips-row{display:flex;align-items:baseline;gap:.2rem}
+.chips-row{display:flex;align-items:baseline;gap:.2rem;overflow:hidden}
 .chips-label{min-width:5rem;flex-shrink:0;padding-top:.2rem;color:var(--ink);font-size:.78rem;font-weight:600}
 .chips-wrap{display:flex;flex-wrap:wrap;flex:1;gap:.35rem}
 .chip{
@@ -92,7 +92,7 @@ body{
 .exclude-ta{
   font-family:var(--font-body);border:1px solid var(--line);background:var(--surface);
   color:var(--ink);resize:vertical;border-radius:4px;outline:none;padding:.45rem .6rem;
-  font-size:.85rem;line-height:1.5;transition:border-color .12s;width:100%;
+  font-size:.85rem;line-height:1.5;transition:border-color .12s;width:100%;box-sizing:border-box;
 }
 .exclude-ta:focus{border-color:var(--tint);box-shadow:0 0 0 2px var(--tint-soft)}
 .exclude-ta::placeholder{color:var(--ink-4)}
