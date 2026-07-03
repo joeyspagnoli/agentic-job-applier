@@ -80,7 +80,7 @@ When code and the spec disagree, treat current source as authoritative and updat
 - `src/digest/sender.py`: Queries `job_postings` for roles fetched since each subscriber's `last_digest_at`, filters by per-subscriber preferences, groups by category, renders an HTML email, and delivers via the Resend API. On success, writes `digest_sends` rows and bumps `last_digest_at`.
 - Subscriber preferences: `role_level` (intern, new-grad, either), `allowed_categories` (Software, AI/ML/Data, Hardware, Design, Product, Quant, Business), `allowed_terms` (Fall 26, Spring 27, Summer 27), `location_preference` (remote, on-site, either), `excluded_companies`.
 - Category routing: every job is classified at digest-render time by the title-based classifier in `src/digest/categorize.py` (source-provided labels like Simplify's are only a fallback for titles no rule matches). The field filter is strict — subscribers with field selections only receive jobs classified into them; "Other" only reaches subscribers with no field selection. Role-level matching is source-aware: listings from the Simplify new-grad tracker count as new-grad even with plain titles.
-- The public signup page (`/subscribe`) carries chips for all categories including Business and Design, so non-CS subscribers can self-serve; the same automated digest pipeline handles every field.
+- The public signup page (`/subscribe`) is CS-scoped: chips for Software, AI/ML/Data, Hardware, Design, Product, Quant. Business has no public chip — non-CS subscribers (e.g. business majors) are added manually via Claude sessions by inserting `email_subscribers` rows with `fields=["business"]`; the digest pipeline then handles their emails identically (the `business` field id and Business category remain fully supported in the sender).
 - The discovery pipeline is 100% generic. All fetchers accept arbitrary search terms and companies. The CS/tech focus is purely configuration (`config/search_criteria.yaml`, `config/companies.yaml`, `config/filters.yaml`). Other fields can be supported by adding config profiles without code changes.
 
 ## Production Deployment
@@ -116,8 +116,8 @@ All fields share one database and one discovery instance — the subscriber
 fields from contaminating each other. To support a new field:
 1. Add companies to `companies.yaml` with appropriate ATS config and `search_text` overrides
 2. Add an Indeed board entry (e.g. `Indeed_Business`, `Indeed_Design`) with field-specific search terms and metro areas
-3. Add classification rules for the field's titles in `src/digest/categorize.py` and a chip in `src/digest/pages.py` + `_FIELD_TO_CATEGORY` in `src/digest/sender.py`
-4. Subscribers pick the chip on `/subscribe` (or are inserted directly into `email_subscribers`)
+3. Add classification rules for the field's titles in `src/digest/categorize.py` and the field id in `_FIELD_TO_CATEGORY` in `src/digest/sender.py`
+4. Only add a chip in `src/digest/pages.py` if the field belongs on the public CS-scoped signup page — non-CS subscribers are inserted directly into `email_subscribers` via a Claude session instead
 
 ### Known unsupported ATS platforms
 
