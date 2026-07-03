@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import html
 import json
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -18,6 +19,11 @@ from typing import Any
 import aiosqlite
 import httpx
 from loguru import logger
+
+from src.digest.categorize import (
+    CANONICAL_CATEGORY_ORDER,
+    categorize_job,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -34,21 +40,38 @@ _INTER_SEND_DELAY_SECONDS = 0.2
 # HTTP request timeout for the Resend API.
 _RESEND_TIMEOUT_SECONDS = 10.0
 
-# Intern / co-op role patterns (case-insensitive substring match).
-_INTERN_TITLE_PATTERNS: tuple[str, ...] = ("intern", "co-op", "coop", "student")
-
-# New-grad / early-career role patterns (case-insensitive substring match).
-_NEW_GRAD_TITLE_PATTERNS: tuple[str, ...] = (
-    "new grad",
-    "new-grad",
-    "early career",
-    "early-career",
-    "junior",
-    "entry level",
-    "entry-level",
+# Intern / co-op title markers. Word-bounded so "Internal Audit" and
+# "International" do not read as internships.
+_INTERN_TITLE_RE = re.compile(
+    r"\bintern(?:ship)?s?\b|\bco-?op\b|\bstudent\b",
+    re.IGNORECASE,
 )
 
-# Maps subscriber field IDs to SimplifyJobs category strings stored in raw_data.
+# New-grad / early-career title markers.
+_NEW_GRAD_TITLE_RE = re.compile(
+    r"new.?grad|early.?career|\bjunior\b|entry.?level|\bgraduate\b"
+    r"|university grad|college grad|\bcampus\b",
+    re.IGNORECASE,
+)
+
+# Sources whose repos are curated by role level: listings from the Simplify
+# new-grad tracker count as new-grad even when the title is plain
+# ("Software Engineer"), and internship trackers count as intern.
+_NEW_GRAD_SOURCE_MARKER = "new-grad"
+_INTERN_SOURCE_MARKER = "internships"
+
+# Senior-role markers that should never appear in an early-career digest.
+# Discovery-side filters now reject these at insert time, but rows inserted
+# before those filters existed are still in job_postings — this screen
+# covers them for every subscriber regardless of preferences.
+_SENIOR_TITLE_RE = re.compile(
+    r"\bsenior\b|\bsr\.?\b|\bstaff\b|\bprincipal\b|\bdirector\b"
+    r"|\bvp\b|vice president|head of|\bchief\b",
+    re.IGNORECASE,
+)
+
+# Maps subscriber field IDs to canonical digest categories
+# (see src/digest/categorize.py).
 _FIELD_TO_CATEGORY: dict[str, str] = {
     "software": "Software",
     "ai_ml_data": "AI/ML/Data",
@@ -56,6 +79,7 @@ _FIELD_TO_CATEGORY: dict[str, str] = {
     "product": "Product",
     "quant": "Quant",
     "business": "Business",
+    "design": "Design",
 }
 
 
@@ -278,55 +302,66 @@ def _apply_preference_filters(
     """
     return [
         job for job in jobs
-        if _passes_role_level_filter(job["title"], preferences["role_level"])
-        and _passes_category_filter(job["raw_data"], preferences["allowed_categories"])
+        if not _SENIOR_TITLE_RE.search(job["title"] or "")
+        and _passes_role_level_filter(
+            job["title"], preferences["role_level"], job["source"]
+        )
+        and _passes_category_filter(job, preferences["allowed_categories"])
         and _passes_terms_filter(job["raw_data"], preferences["allowed_terms"])
         and _passes_location_filter(job["location"], preferences["location_preference"])
         and job["company"].lower() not in preferences["excluded_companies_lower"]
     ]
 
 
-def _passes_role_level_filter(title: str | None, role_level: str) -> bool:
-    """Return True if the job title matches the subscriber's role level filter."""
-    if role_level == "both" or not title:
+def _passes_role_level_filter(
+    title: str | None,
+    role_level: str,
+    source: str | None = None,
+) -> bool:
+    """Return True if the job matches the subscriber's role level filter.
+
+    Curated GitHub trackers imply a level for every listing they carry, so
+    the source is consulted alongside the title: a plain-titled
+    "Software Engineer" from the Simplify new-grad repo still counts as
+    new-grad.
+    """
+    if role_level == "both":
         return True
 
-    title_lower = title.lower()
+    source_lower = (source or "").lower()
 
     if role_level == "intern":
-        return any(pattern in title_lower for pattern in _INTERN_TITLE_PATTERNS)
+        if _INTERN_SOURCE_MARKER in source_lower:
+            return True
+        if not title:
+            return False
+        return bool(_INTERN_TITLE_RE.search(title))
 
     if role_level == "new_grad":
-        return any(pattern in title_lower for pattern in _NEW_GRAD_TITLE_PATTERNS)
+        if _NEW_GRAD_SOURCE_MARKER in source_lower:
+            return True
+        if not title:
+            return False
+        return bool(_NEW_GRAD_TITLE_RE.search(title))
 
     return True
 
 
 def _passes_category_filter(
-    raw_data_json: str | None,
+    job: aiosqlite.Row,
     allowed_categories: set[str],
 ) -> bool:
     """Return True if the job's category is in the subscriber's allowed set.
 
-    Jobs with no category data (e.g. ATS-sourced) always pass — the filter
-    only excludes jobs carrying an explicit category not in the allowed set.
+    Every job gets a category from the title-based classifier (with the
+    source label as fallback), so the field filter is authoritative:
+    subscribers who picked fields only receive jobs classified into them.
+    Subscribers with no field selection receive everything.
     """
     if not allowed_categories:
         return True
 
-    if not raw_data_json:
-        return True
-
-    try:
-        raw_data: dict[str, Any] = json.loads(raw_data_json)
-    except (json.JSONDecodeError, TypeError):
-        return True
-
-    category: str = raw_data.get("category", "")
-    if not category:
-        return True
-
-    return category in allowed_categories
+    return _job_category(job) in allowed_categories
 
 
 def _passes_terms_filter(
@@ -401,7 +436,7 @@ def _dedup_by_company_title(jobs: list[aiosqlite.Row]) -> list[aiosqlite.Row]:
 
 
 def _group_by_category(jobs: list[aiosqlite.Row]) -> dict[str, list[aiosqlite.Row]]:
-    """Group jobs by their raw_data category, falling back to 'Other'.
+    """Group jobs by their classified digest category.
 
     Args:
         jobs: Deduplicated job_postings rows.
@@ -412,22 +447,33 @@ def _group_by_category(jobs: list[aiosqlite.Row]) -> dict[str, list[aiosqlite.Ro
     grouped: dict[str, list[aiosqlite.Row]] = defaultdict(list)
 
     for job in jobs:
-        category = _extract_category(job["raw_data"])
-        grouped[category].append(job)
+        grouped[_job_category(job)].append(job)
 
     return dict(grouped)
 
 
-def _extract_category(raw_data_json: str | None) -> str:
-    """Return the category string from a raw_data JSON blob, or 'Other'."""
+def _job_category(job: aiosqlite.Row) -> str:
+    """Return the canonical digest category for a job_postings row.
+
+    The title-based classifier decides; the category label the source
+    shipped in raw_data (e.g. Simplify's) is only a fallback for titles
+    that match no rule.
+    """
+    return categorize_job(job["title"], _raw_source_category(job["raw_data"]))
+
+
+def _raw_source_category(raw_data_json: str | None) -> str | None:
+    """Extract the source-provided category from a raw_data JSON blob."""
     if not raw_data_json:
-        return "Other"
+        return None
 
     try:
         raw_data: dict[str, Any] = json.loads(raw_data_json)
-        return raw_data.get("category") or "Other"
     except (json.JSONDecodeError, TypeError):
-        return "Other"
+        return None
+
+    category = raw_data.get("category")
+    return category if isinstance(category, str) else None
 
 
 # ---------------------------------------------------------------------------
@@ -443,9 +489,16 @@ def _render_email(
     total_jobs = sum(len(jobs) for jobs in jobs_by_category.values())
     subject = f"Joey's CS Job Digest — {total_jobs} new role{'s' if total_jobs != 1 else ''}"
 
+    def _category_sort_key(item: tuple[str, list[aiosqlite.Row]]) -> tuple[int, str]:
+        category = item[0]
+        try:
+            return (CANONICAL_CATEGORY_ORDER.index(category), category)
+        except ValueError:
+            return (len(CANONICAL_CATEGORY_ORDER), category)
+
     category_blocks = "".join(
         _render_category_block(category, jobs, unsubscribe_token, base_url)
-        for category, jobs in sorted(jobs_by_category.items())
+        for category, jobs in sorted(jobs_by_category.items(), key=_category_sort_key)
     )
 
     manage_url = f"{base_url}/manage?token={unsubscribe_token}"

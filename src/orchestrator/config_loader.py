@@ -256,6 +256,39 @@ def build_loose_filter(filters_config: dict[str, Any]) -> JobFilter | None:
     return JobFilter(relaxed_config)
 
 
+def build_curated_filter(filters_config: dict[str, Any]) -> JobFilter | None:
+    """Build a JobFilter clone with no title requirement at all.
+
+    Purpose:
+        Community internship/new-grad trackers (the ``github_repos``
+        section) are already curated to early-career roles, but most of
+        their listings carry plain titles — the Simplify new-grad repo is
+        full of "Software Engineer" and "Entry-Level Software Engineer"
+        entries with no "new grad" marker. Running those through the
+        strict ``require_title_patterns`` gate silently dropped the
+        majority of the tracker's listings, making the digest worse than
+        the free board it ingests. This clone keeps every other hard/soft
+        filter (excluded locations, excluded companies, seniority title
+        excludes, max age) and removes only the title requirement.
+    Args:
+        filters_config: Parsed ``filters.yaml`` mapping.
+    Output:
+        Returns a ``JobFilter`` with ``require_title_patterns`` cleared,
+        or ``None`` when the input config is empty.
+    """
+
+    if not filters_config:
+        return None
+    curated_config: dict[str, Any] = {
+        "hard_filters": {
+            **(filters_config.get("hard_filters") or {}),
+            "require_title_patterns": [],
+        },
+        "soft_filters": filters_config.get("soft_filters") or {},
+    }
+    return JobFilter(curated_config)
+
+
 def resolve_workday_search_text(
     candidate_profile_config: dict[str, Any],
 ) -> str:

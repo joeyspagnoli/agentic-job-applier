@@ -39,6 +39,7 @@ async def fetch_jobspy_jobs(
     *,
     default_search_terms: list[str] | None = None,
     title_include_patterns: list[str] | None = None,
+    title_exclude_patterns: list[str] | None = None,
     job_filter: JobFilter | None = None,
 ) -> tuple[int, int, int, int]:
     """Fetch jobs from enabled job boards through JobSpy.
@@ -70,11 +71,10 @@ async def fetch_jobspy_jobs(
             logger.debug(f"Skipping disabled board: {board_name}")
             continue
 
-        # Board labels come from user YAML, so the lower-cased value is a
-        # plain ``str`` until the JobSpy fetcher itself validates it.  Cast
-        # to the documented Literal so the constructor stays typed, and let
-        # the fetcher reject unsupported sites at runtime as before.
-        site_name = cast(_JobSpySite, board_name.lower())
+        site_name = cast(
+            _JobSpySite,
+            config.get("site_name", board_name).lower(),
+        )
         source_name = f"job_boards.{board_name}"
         configured_search_terms = normalize_string_list(
             config.get("search_terms"),
@@ -88,10 +88,10 @@ async def fetch_jobspy_jobs(
         # placeholder ``search_terms: ["software engineer"]`` would otherwise
         # mute that profile entirely. Empty profile defaults still allow the
         # configured terms (or a fully-cleared block) to take effect.
-        if default_search_terms:
-            search_terms = default_search_terms
-        elif configured_search_terms:
+        if configured_search_terms:
             search_terms = configured_search_terms
+        elif default_search_terms:
+            search_terms = default_search_terms
         else:
             logger.warning(
                 "No search terms configured for {} and no profile defaults — skipping",
@@ -134,7 +134,9 @@ async def fetch_jobspy_jobs(
                     )
                     jobs = await fetcher.fetch_jobs()
                     if title_include_patterns:
-                        jobs = filter_by_title_patterns(jobs, title_include_patterns)
+                        jobs = filter_by_title_patterns(
+                            jobs, title_include_patterns, title_exclude_patterns,
+                        )
                     crawl_jobs_found = len(jobs)
                     new_jobs = await deduplicator.filter_new_jobs(jobs)
                     # Route this board's jobs to the right digest category
@@ -142,8 +144,9 @@ async def fetch_jobspy_jobs(
                     # reach subscribers who opted into that field.
                     stamp_digest_category(new_jobs, resolve_digest_category(config))
 
+                    board_filter = None if config.get("skip_job_filter") else job_filter
                     await insert_with_filters(
-                        new_jobs, db=db, job_filter=job_filter,
+                        new_jobs, db=db, job_filter=board_filter,
                         counters=partial_counters,
                     )
                     crawl_jobs_new = partial_counters[0] + partial_counters[1]

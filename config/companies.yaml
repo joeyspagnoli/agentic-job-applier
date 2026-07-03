@@ -7,95 +7,95 @@ greenhouse_companies:
   # ── AI Labs ────────────────────────────────────────────────────────
   Anthropic:
     greenhouse_id: "anthropic"
-    industry: ai_lab
+    industry: software_tech
     priority: 1
 
   xAI:
     greenhouse_id: "xai"
-    industry: ai_lab
+    industry: software_tech
     priority: 1
 
   Runway ML:
     greenhouse_id: "runwayml"
-    industry: ai_lab
+    industry: software_tech
     priority: 2
 
   Thinking Machines Lab:
     greenhouse_id: "thinkingmachines"
-    industry: ai_lab
+    industry: software_tech
     priority: 2
 
   # ── Forward Deployed / Solutions ───────────────────────────────────
   Databricks:
     greenhouse_id: "databricks"
-    industry: forward_deployed
+    industry: software_tech
     priority: 1
 
   Scale AI:
     greenhouse_id: "scaleai"
-    industry: forward_deployed
+    industry: software_tech
     priority: 1
 
   Glean:
     greenhouse_id: "gleanwork"
-    industry: enterprise_ai
+    industry: software_tech
     priority: 1
 
   Hebbia:
     greenhouse_id: "hebbia"
-    industry: enterprise_ai
+    industry: software_tech
     priority: 1
 
   Cresta:
     greenhouse_id: "cresta"
-    industry: enterprise_ai
+    industry: software_tech
     priority: 2
 
   dbt Labs:
     greenhouse_id: "dbtlabsinc"
-    industry: forward_deployed
+    industry: software_tech
     priority: 2
 
   Sigma Computing:
     greenhouse_id: "sigmacomputing"
-    industry: forward_deployed
+    industry: software_tech
     priority: 2
 
   # ── AI Infrastructure / Compute ────────────────────────────────────
   Together AI:
     greenhouse_id: "togetherai"
-    industry: ai_infra
+    industry: software_tech
     priority: 1
 
   Fireworks AI:
     greenhouse_id: "fireworksai"
-    industry: ai_infra
+    industry: software_tech
     priority: 1
 
   Cerebras Systems:
     greenhouse_id: "cerebrassystems"
-    industry: ai_infra
+    industry: software_tech
     priority: 1
 
   Groq:
     greenhouse_id: "groq"
-    industry: ai_infra
+    industry: software_tech
     priority: 1
 
   CoreWeave:
     greenhouse_id: "coreweave"
-    industry: ai_infra
+    industry: software_tech
     priority: 2
 
   Figure AI:
     greenhouse_id: "figureai"
-    industry: ai_infra
+    industry: software_tech
     priority: 1
 
   # ── Robotics / Neuro ────────────────────────────────────────────────
   Neuralink:
     greenhouse_id: "neuralink"
-    industry: ai_infra
+    industry: software_tech
     priority: 1
 
   # ── Big Tech / Software ────────────────────────────────────────────
@@ -175,78 +175,86 @@ greenhouse_companies:
   # ── Fintech ────────────────────────────────────────────────────────
   Block:
     greenhouse_id: "block"
-    industry: fintech
+    industry: software_tech
     priority: 1
 
   Robinhood:
     greenhouse_id: "robinhood"
-    industry: fintech
+    industry: software_tech
     priority: 1
 
   Affirm:
     greenhouse_id: "affirm"
-    industry: fintech
+    industry: software_tech
     priority: 2
 
   Chime:
     greenhouse_id: "chime"
-    industry: fintech
+    industry: software_tech
     priority: 2
 
   Gusto:
     greenhouse_id: "gusto"
-    industry: fintech
+    industry: software_tech
     priority: 2
 
   Navan:
     greenhouse_id: "tripactions"
-    industry: fintech
+    industry: software_tech
     priority: 2
 
   Faire:
     greenhouse_id: "faire"
-    industry: fintech
+    industry: software_tech
     priority: 2
 
   Marqeta:
     greenhouse_id: "marqeta"
-    industry: fintech
+    industry: software_tech
     priority: 3
 
   Flexport:
     greenhouse_id: "flexport"
-    industry: logistics_tech
+    industry: software_tech
     priority: 2
+
+  # ── Quant / Trading ────────────────────────────────────────────────
+  Point72:
+    greenhouse_id: "point72"
+    industry: finance
+    priority: 2
+
+  # Two Sigma: uses SmartRecruiters (no fetcher) — not added
 
   # ── Cybersecurity ──────────────────────────────────────────────────
   Wiz:
     greenhouse_id: "wizinc"
-    industry: cybersecurity
+    industry: software_tech
     priority: 1
 
   Snyk:
     greenhouse_id: "snyk"
-    industry: cybersecurity
+    industry: software_tech
     priority: 2
 
   Zscaler:
     greenhouse_id: "zscaler"
-    industry: cybersecurity
+    industry: software_tech
     priority: 2
 
   SentinelOne:
     greenhouse_id: "sentinellabs"
-    industry: cybersecurity
+    industry: software_tech
     priority: 2
 
   Verkada:
     greenhouse_id: "verkada"
-    industry: cybersecurity
+    industry: software_tech
     priority: 2
 
   Tanium:
     greenhouse_id: "tanium"
-    industry: cybersecurity
+    industry: software_tech
     priority: 2
 
   # ── Enterprise / Dev Tools ─────────────────────────────────────────
@@ -286,30 +294,41 @@ greenhouse_companies:
     priority: 3
 
   # ── Consumer Tech ──────────────────────────────────────────────────
+  Duolingo:
+    greenhouse_id: "duolingo"
+    industry: software_tech
+    priority: 2
+
   Discord:
     greenhouse_id: "discord"
-    industry: consumer_tech
+    industry: software_tech
     priority: 1
 
   Epic Games:
     greenhouse_id: "epicgames"
-    industry: consumer_tech
+    industry: software_tech
     priority: 1
 
   Reddit:
     greenhouse_id: "reddit"
-    industry: consumer_tech
+    industry: software_tech
     priority: 2
 
   Roblox:
     greenhouse_id: "roblox"
-    industry: consumer_tech
+    industry: software_tech
     priority: 2
 
   Pinterest:
     greenhouse_id: "pinterest"
-    industry: consumer_tech
+    industry: software_tech
     priority: 2
+
+  # ── Business / CRE ──────────────────────────────────────────────────
+  Rexford Industrial Realty:
+    greenhouse_id: "rexfordindustrial"
+    industry: real_estate
+    priority: 3
 
 
 # ── Workday ──────────────────────────────────────────────────────────
@@ -319,10 +338,17 @@ workday_companies:
     workday_url: "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site"
     industry: software_tech
     priority: 1
+    search_text: "internship"
   Adobe:
     workday_url: "https://adobe.wd5.myworkdayjobs.com/external_experienced"
     industry: software_tech
     priority: 1
+
+  # Aerospace
+  Blue Origin:
+    workday_url: "https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin"
+    industry: software_tech
+    priority: 2
 
   # Semiconductor (minus NVIDIA)
   Intel:
@@ -351,48 +377,147 @@ workday_companies:
     industry: semiconductor
     priority: 2
 
+  # Media / Streaming
+  Disney:
+    workday_url: "https://disney.wd5.myworkdayjobs.com/disneycareer"
+    industry: media
+    priority: 2
+    search_text: "intern"
+
   # Big Tech / Cybersecurity
   CrowdStrike:
     workday_url: "https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers"
-    industry: cybersecurity
+    industry: software_tech
     priority: 1
   Snap:
     workday_url: "https://wd1.myworkdaysite.com/wday/cxs/snapchat/snap/jobs"
-    industry: consumer_tech
+    industry: software_tech
     priority: 2
+
+  # ── Business / CRE / Banking / Logistics ──────────────────────────
+  JLL:
+    workday_url: "https://jll.wd1.myworkdayjobs.com/jllcareers"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Cushman & Wakefield:
+    workday_url: "https://cw.wd1.myworkdayjobs.com/External"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Colliers:
+    workday_url: "https://colliers.wd3.myworkdayjobs.com/Colliers-External-Career-Site"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Marcus & Millichap:
+    workday_url: "https://marcusmillichap.wd108.myworkdayjobs.com/MarcusMillichap"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Hines:
+    workday_url: "https://hines.wd5.myworkdayjobs.com"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Prologis:
+    workday_url: "https://prologis.wd1.myworkdayjobs.com/en-US/"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Link Logistics:
+    workday_url: "https://linklogistics.wd5.myworkdayjobs.com/Link"
+    industry: real_estate
+    search_text: "analyst"
+    priority: 3
+  Blackstone:
+    workday_url: "https://blackstone.wd1.myworkdayjobs.com/Blackstone_Careers"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  Brookfield Asset Management:
+    workday_url: "https://brookfield.wd5.myworkdayjobs.com/brookfield"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  Bank of America:
+    workday_url: "https://ghr.wd1.myworkdayjobs.com"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  Wells Fargo:
+    workday_url: "https://wf.wd1.myworkdayjobs.com/WellsFargoJobs"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  Goldman Sachs:
+    workday_url: "https://gs.wd1.myworkdayjobs.com"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  PNC Financial Services:
+    workday_url: "https://pnc.wd5.myworkdayjobs.com"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  Johnson & Johnson:
+    workday_url: "https://jj.wd5.myworkdayjobs.com/JJ/"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  General Electric:
+    workday_url: "https://ge.wd5.myworkdayjobs.com/GE_ExternalSite"
+    industry: finance_banking
+    search_text: "analyst"
+    priority: 3
+  UPS:
+    workday_url: "https://hcmportal.wd5.myworkdayjobs.com/en-US/Search"
+    industry: logistics
+    search_text: "analyst"
+    priority: 3
+  Ryder System:
+    workday_url: "https://ryder.wd5.myworkdayjobs.com"
+    industry: logistics
+    search_text: "analyst"
+    priority: 3
 
 
 # ── Lever ATS ────────────────────────────────────────────────────────
 lever_companies:
   Palantir:
     lever_id: "palantir"
-    industry: forward_deployed
+    industry: software_tech
     priority: 1
   Mistral:
     lever_id: "mistral"
-    industry: ai_lab
+    industry: software_tech
     priority: 1
   Anduril:
     lever_id: "anduril"
-    industry: defense_ai
+    industry: software_tech
     priority: 1
   Shield AI:
     lever_id: "shieldai"
-    industry: defense_ai
+    industry: software_tech
     priority: 2
   Weights & Biases:
     lever_id: "wandb"
-    industry: ai_infra
+    industry: software_tech
     priority: 2
   Revolut:
     lever_id: "revolut"
-    industry: fintech
+    industry: software_tech
     priority: 1
   # Canva: moved to SmartRecruiters (no fetcher) — removed from Lever
   Spotify:
     lever_id: "spotify"
-    industry: consumer_tech
+    industry: software_tech
     priority: 1
+  # Match Group = Tinder, Hinge, OkCupid, Match — dating-app roles incl. design
+  Match Group:
+    lever_id: "matchgroup"
+    industry: software_tech
+    priority: 2
 
 
 # ── Ashby ATS ────────────────────────────────────────────────────────
@@ -485,11 +610,27 @@ icims_companies:
     industry: semiconductor
     priority: 2
 
+  # ── Business / CRE ──────────────────────────────────────────────────
+  Avison Young:
+    icims_subdomain: "us-avisonyoung.icims.com"
+    industry: real_estate
+    priority: 3
+  PepsiCo:
+    icims_subdomain: "pepsico.icims.com"
+    industry: finance_banking
+    priority: 3
+
 
 # ── Taleo — none ────────────────────────────────────────────────────
 taleo_companies: {}
 
 
+# NOTE: digest categories are no longer stamped per-board — the digest
+# classifies every job by title at render time (src/digest/categorize.py).
+# skip_job_filter was removed from business boards: early-career program
+# titles (Summer Analyst, Trainee, Rotational, ...) now pass the normal
+# filter pipeline via filters.yaml require_title_patterns, so business
+# sources get the same seniority/location protections as everything else.
 job_boards:
   Indeed:
     enabled: true
@@ -498,6 +639,52 @@ job_boards:
       - "United States"
     results_wanted: 25
     priority: 2
+
+  Indeed_Business:
+    site_name: indeed
+    enabled: true
+    locations:
+      - "Tampa, FL"
+      - "Orlando, FL"
+      - "Miami, FL"
+      - "Dallas, TX"
+      - "Houston, TX"
+      - "Austin, TX"
+      - "New York, NY"
+      - "Los Angeles, CA"
+      - "San Francisco, CA"
+    search_terms:
+      - "Summer 2027 Analyst"
+      - "Investment Banking Summer Analyst"
+      - "Finance Intern"
+      - "Accounting Intern"
+      - "Real Estate Analyst Intern"
+      - "Acquisitions Analyst Intern"
+      - "Capital Markets Analyst Intern"
+      - "Financial Analyst entry level"
+      - "Commercial Banking Analyst Program"
+      - "Supply Chain Intern"
+      - "Operations Analyst entry level"
+      - "Finance Leadership Development Program"
+      - "Management Trainee finance"
+      - "Rotational Analyst Program"
+    results_wanted: 15
+    priority: 3
+
+  Indeed_Design:
+    site_name: indeed
+    enabled: true
+    locations:
+      - "Remote"
+      - "United States"
+    search_terms:
+      - "Product Design Intern"
+      - "UX Design Intern"
+      - "UI UX Designer Intern"
+      - "Product Designer New Grad"
+      - "UX Designer New Grad"
+    results_wanted: 15
+    priority: 3
 
   Glassdoor:
     enabled: false
@@ -523,6 +710,10 @@ adzuna:
 
 
 # ── GitHub internship repos ─────────────────────────────────────────
+# No `categories` filter: fetch every listing the trackers carry (incl.
+# Simplify's "Other", where design roles land) — the digest's title-based
+# classifier decides what each subscriber sees. Dropping categories at
+# fetch time silently threw away listings the free board shows everyone.
 github_repos:
   - owner: SimplifyJobs
     repo: Summer2026-Internships
@@ -530,36 +721,28 @@ github_repos:
     json_path: .github/scripts/listings.json
     enabled: true
     max_days_old: 45
-    categories:
-      - "Software"
-      - "AI/ML/Data"
-      - "Hardware"
-      - "Product"
-      - "Quant"
+  # Does not exist yet (checked 2026-07-02) — Simplify creates the new
+  # cycle repo around August. The fetcher tolerates the 404 and this
+  # entry starts producing the moment the repo appears, so we never lag
+  # the cycle rollover.
+  - owner: SimplifyJobs
+    repo: Summer2027-Internships
+    branch: dev
+    json_path: .github/scripts/listings.json
+    enabled: true
+    max_days_old: 45
   - owner: SimplifyJobs
     repo: New-Grad-Positions
     branch: dev
     json_path: .github/scripts/listings.json
     enabled: true
     max_days_old: 45
-    categories:
-      - "Software"
-      - "AI/ML/Data"
-      - "Hardware"
-      - "Product"
-      - "Quant"
   - owner: vanshb03
     repo: Summer2027-Internships
     branch: dev
     json_path: .github/scripts/listings.json
     enabled: true
     max_days_old: 45
-    categories:
-      - "Software"
-      - "AI/ML/Data"
-      - "Hardware"
-      - "Product"
-      - "Quant"
 
 
 # ── Direct LinkedIn scraping ────────────────────────────────────────
@@ -588,5 +771,7 @@ polling:
   workday_interval_minutes: 60
   jobspy_interval_minutes: 60
   linkedin_interval_minutes: 60
-  github_repos_interval_minutes: 360
+  # Hourly: the digest promises to be on top of the Simplify trackers, and
+  # a raw.githubusercontent.com fetch per repo is nearly free.
+  github_repos_interval_minutes: 60
   career_pages_interval_minutes: 60

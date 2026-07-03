@@ -21,12 +21,16 @@ When code and the spec disagree, treat current source as authoritative and updat
 
 ## Major Subsystems
 - `src/fetchers/`: Source-specific integrations for every board listed in Purpose, plus shared helpers (`base_fetcher`, `ats_scanner`, `fuzzy_dedup`, `liveness_checker`, `errors`).
+- `src/orchestrator/`: Discovery orchestration, insert pipeline (filter/qualify), and per-ATS fetcher wrappers (`fetchers/greenhouse.py`, `fetchers/workday.py`, `fetchers/jobspy.py`, etc.).
+- `src/digest/`: Email digest system — `sender.py` (per-subscriber filtering, category grouping, dedup, Resend delivery), `pages.py` (self-contained HTML signup and manage-preferences pages served by FastAPI).
+- `src/utils/notification_protocol.py`, `src/utils/notification_dispatcher.py`, `src/utils/notification_adapters/`: Notification protocol — `NotificationChannel` interface with `NtfyAdapter` and `EmailAdapter`, `NotificationDispatcher` for routing alerts.
 - `src/utils/`: Cross-cutting helpers for logging, deduplication, cost tracking, notifications, and path resolution used across orchestrators and workers.
 - `src/agents/apply_decider/` (under `src/agents/root_apply_decider/`): Gate agent — qualifies or rejects NEW postings against the candidate profile using Instructor-backed structured-output LLM calls.
 - `src/agents/resume_tailor/`: LaTeX tailor + reviewer pipeline — rewrites resume bullets for a specific job, compiles via tectonic, and selects the best variant (base / v1 / v2) via a 3-axis LLM reviewer.
 - `src/agents/apply_worker/`: Playwright-driven apply worker — connects to host Chrome over CDP, triggers Simplify autofill, evaluates the binary submit gate, and either submits or hands off to human review.
 - `src/agents/apply_finisher/`: Pydantic-AI agent with 8 typed BYO Playwright tools for post-Simplify Greenhouse and Ashby form completion.
-- `tests/`: Integration-style tests that validate the database lifecycle, deduplication, crawl tracking, and model normalization.
+- `api/routers/digest.py`: Digest API endpoints — subscriber signup (double opt-in with Turnstile CAPTCHA), email confirmation, preference management, admin-triggered digest sends.
+- `tests/`: Integration-style tests that validate the database lifecycle, deduplication, crawl tracking, model normalization, digest filtering, and notification dispatch.
 
 ## Documentation Standard
 - Every Python callable should start with plain-English sentence(s) describing what it does.
@@ -71,6 +75,53 @@ When code and the spec disagree, treat current source as authoritative and updat
 - DB columns: `apply_handoffs.deferred_questions_json`, `apply_handoffs.finisher_diagnostics_json`.
 - REST surface: `POST /api/jobs/{job_hash}/apply` (409 on in-flight conflict), `GET /api/apply-runs/{id}`, `DELETE /api/apply-runs/{id}`.
 - Environment knobs: `SAFE_MODE`, `LITELLM_LOCAL_MODEL_COST_MAP`.
+
+## Email Digest System
+- `src/digest/sender.py`: Queries `job_postings` for roles fetched since each subscriber's `last_digest_at`, filters by per-subscriber preferences, groups by category, renders an HTML email, and delivers via the Resend API. On success, writes `digest_sends` rows and bumps `last_digest_at`.
+- Subscriber preferences: `role_level` (intern, new-grad, either), `allowed_categories` (Software, AI/ML/Data, Hardware, Design, Product, Quant, Business), `allowed_terms` (Fall 26, Spring 27, Summer 27), `location_preference` (remote, on-site, either), `excluded_companies`.
+- Category routing: every job is classified at digest-render time by the title-based classifier in `src/digest/categorize.py` (source-provided labels like Simplify's are only a fallback for titles no rule matches). The field filter is strict — subscribers with field selections only receive jobs classified into them; "Other" only reaches subscribers with no field selection. Role-level matching is source-aware: listings from the Simplify new-grad tracker count as new-grad even with plain titles.
+- The public signup page (`/subscribe`) carries chips for all categories including Business and Design, so non-CS subscribers can self-serve; the same automated digest pipeline handles every field.
+- The discovery pipeline is 100% generic. All fetchers accept arbitrary search terms and companies. The CS/tech focus is purely configuration (`config/search_criteria.yaml`, `config/companies.yaml`, `config/filters.yaml`). Other fields can be supported by adding config profiles without code changes.
+
+## Production Deployment
+
+The canonical production instance runs on bare-metal Ubuntu LTS (i5-6500, 8GB RAM, 1.8TB storage) using `uv` (no Docker, pip, or Chrome). User-level systemd units with linger keep the services running:
+
+- `job-api.service` — FastAPI on `localhost:8000`
+- `job-discovery.timer` — discovery cycle every 15 minutes
+- Daily digest cron at 3pm EST: `curl -s -X POST http://localhost:8000/api/digest/send`
+
+The digest signup page is exposed via Cloudflare Tunnel at `jobs.joeyspagnoli-cloud.cc`. Host-based middleware locks that subdomain to digest routes only; the dashboard is only accessible on `localhost:8000`.
+
+Email delivery uses Resend (free tier, 3K emails/month). Bot protection on the signup page uses Cloudflare Turnstile in invisible mode.
+
+## Discovery Pipeline
+
+The pipeline is 100% field-agnostic. All fetchers accept arbitrary search terms and companies. The CS/tech focus is purely config — other fields (business, finance, engineering) can be supported by adding YAML config without code changes.
+
+Key operational patterns:
+- **`search_text` per-company overrides:** Companies like Salesforce need `search_text: "internship"` instead of the default `"intern"` to avoid matching "internal" roles. Set in `companies.yaml`.
+- **Digest categories are not set by fetchers.** `digest_category` tagging was removed — the digest classifies every job by title at render time (`src/digest/categorize.py`), so boards and ATS sources need no category config and cross-field contamination is handled in one place.
+- **`exclude_title_patterns`:** Regex patterns in `search_criteria.yaml` that filter out senior/staff/manager roles before storage. `filters.yaml` also hard-rejects seniority markers via `hard_filters.exclude_title_patterns`, which covers the curated GitHub-tracker path.
+- **No `skip_job_filter`:** Business/CRE/banking sources run through the normal filter pipeline; early-career program titles (Summer Analyst, Trainee, Rotational, Analyst Program, ...) are part of `filters.yaml` `require_title_patterns`.
+- **Curated GitHub trackers skip the title gate:** the `github_repos` family uses a JobFilter clone with no `require_title_patterns` (see `build_curated_filter`) because tracker listings are early-career by construction but mostly plain-titled ("Software Engineer").
+- **`max_days_old` and term filtering:** The GitHub repo fetcher auto-computes current term windows (e.g. Fall 2026 through Fall 2027) and filters by posting date.
+- **Job hash dedup:** SHA-256 of `(source_url, company, title)` — `source` was deliberately removed after it caused 35% duplicate rows when the same job appeared from multiple search queries.
+- **DB TTL:** 90-day TTL for `crawl_history` and stale `job_postings`, enforced on each discovery cycle.
+
+### Adding a new field (subscriber category)
+
+All fields share one database and one discovery instance — the subscriber
+`fields` column multiplexes who sees what, and the title classifier keeps
+fields from contaminating each other. To support a new field:
+1. Add companies to `companies.yaml` with appropriate ATS config and `search_text` overrides
+2. Add an Indeed board entry (e.g. `Indeed_Business`, `Indeed_Design`) with field-specific search terms and metro areas
+3. Add classification rules for the field's titles in `src/digest/categorize.py` and a chip in `src/digest/pages.py` + `_FIELD_TO_CATEGORY` in `src/digest/sender.py`
+4. Subscribers pick the chip on `/subscribe` (or are inserted directly into `email_subscribers`)
+
+### Known unsupported ATS platforms
+
+SmartRecruiters (Canva, Two Sigma), Gem ATS (Retool), Phenom People (Snowflake), and proprietary systems (Tesla, TikTok/ByteDance, Rippling) were investigated and confirmed unsupported. Jobs from these companies are discovered via Indeed/LinkedIn aggregators only.
 
 ## Opt-In API Surface
 - `POST /api/jobs/{job_hash}/tailor` (`api/routers/tailor_runs.py`): enqueues a FastAPI BackgroundTask that runs `run_tailor_review_pipeline`. Returns 409 with `code=MODE_AUTONOMOUS` when `tailor_mode=autonomous`, `code=RUN_ALREADY_EXISTS` when a non-deleted active run already exists, or `code=BUDGET_EXCEEDED` when the monthly budget is exhausted.

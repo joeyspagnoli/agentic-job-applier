@@ -41,6 +41,7 @@ async def fetch_workday_jobs(
     deduplicator: Deduplicator,
     *,
     title_include_patterns: list[str] | None = None,
+    title_exclude_patterns: list[str] | None = None,
     job_filter: JobFilter | None = None,
     loose_job_filter: JobFilter | None = None,
     search_text: str = "",
@@ -52,6 +53,11 @@ async def fetch_workday_jobs(
         db: Connected database manager used to track crawl metadata and inserts.
         deduplicator: Helper that filters out jobs already present in storage.
         title_include_patterns: Regex patterns a title must match to be kept.
+        title_exclude_patterns: Regex patterns that drop a title even when an
+            include pattern matched. Must be applied here because
+            ``skip_job_filter`` tenants (banking/CRE "analyst" crawls) never
+            reach the JobFilter — without this, senior roles leak straight
+            into the digest.
         job_filter: Pre-gate filter instance for hard/soft filtering.
         loose_job_filter: Optional relaxed-title clone of ``job_filter`` used
             for tenants whose ``industry`` tag is in
@@ -96,14 +102,16 @@ async def fetch_workday_jobs(
                 company_name,
                 workday_url,
                 fetch_descriptions=WORKDAY_FETCH_DESCRIPTIONS,
-                search_text=search_text,
+                search_text=config.get("search_text", search_text),
             ) as fetcher:
                 jobs = await asyncio.wait_for(
                     fetcher.fetch_jobs(),
                     timeout=WORKDAY_PER_COMPANY_TIMEOUT_SEC,
                 )
                 if title_include_patterns:
-                    jobs = filter_by_title_patterns(jobs, title_include_patterns)
+                    jobs = filter_by_title_patterns(
+                        jobs, title_include_patterns, title_exclude_patterns,
+                    )
                 crawl_jobs_found = len(jobs)
                 new_jobs = await deduplicator.filter_new_jobs(jobs)
                 # Route non-CS tenants (finance / real-estate / logistics) to
@@ -119,12 +127,15 @@ async def fetch_workday_jobs(
                     industry_value = config.get("industry")
                     if isinstance(industry_value, str):
                         industry = industry_value
-                effective_filter = (
-                    loose_job_filter
-                    if loose_job_filter is not None
+                if isinstance(config, dict) and config.get("skip_job_filter"):
+                    effective_filter = None
+                elif (
+                    loose_job_filter is not None
                     and industry in EE_FRIENDLY_INDUSTRIES
-                    else job_filter
-                )
+                ):
+                    effective_filter = loose_job_filter
+                else:
+                    effective_filter = job_filter
                 await insert_with_filters(
                     new_jobs, db=db, job_filter=effective_filter,
                     counters=partial_counters,

@@ -21,19 +21,26 @@ from src.models.job_posting import JobPosting
 def filter_by_title_patterns(
     jobs: list[JobPosting],
     include_patterns: list[str],
+    exclude_patterns: list[str] | None = None,
 ) -> list[JobPosting]:
-    """Keep only jobs whose title matches at least one include pattern."""
+    """Keep only jobs whose title matches at least one include pattern
+    and none of the exclude patterns."""
     if not include_patterns:
         return jobs
-    compiled = [re.compile(p, re.IGNORECASE) for p in include_patterns]
-    return [j for j in jobs if any(rx.search(j.title) for rx in compiled)]
+    compiled_inc = [re.compile(p, re.IGNORECASE) for p in include_patterns]
+    compiled_exc = [re.compile(p, re.IGNORECASE) for p in (exclude_patterns or [])]
+    return [
+        j for j in jobs
+        if any(rx.search(j.title) for rx in compiled_inc)
+        and not any(rx.search(j.title) for rx in compiled_exc)
+    ]
 
 
-# Non-CS industries whose roles route to the "Business" digest category, so
-# finance / real-estate / logistics analyst postings reach only subscribers
-# who opted into the business field — never the default CS digest. ATS jobs
-# carry no category otherwise, and the digest's category filter is inclusive
-# by default, so without this tag a business role would leak to CS subscribers.
+# Non-CS industries whose roles are tagged "Business" in raw_data at insert.
+# The digest classifies every job by title at render time
+# (src/digest/categorize.py); this stamp only serves as the fallback label
+# for vague titles no classifier rule matches, keeping recall for
+# finance / real-estate / logistics postings with unusual names.
 _BUSINESS_INDUSTRIES: frozenset[str] = frozenset(
     {"finance_banking", "finance", "real_estate", "logistics"}
 )

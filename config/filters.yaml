@@ -1,62 +1,117 @@
-# Pre-gate filtering rules for job discovery.
-#
-# Hard filters reject jobs outright before they enter the database.
-# Soft filters auto-categorize jobs to skip the gate agent when the decision
-# is obvious. The dashboard's Filters settings page writes to this file, and
-# wizard step 5 seeds it on first run.
-#
-# Defaults shipped here are conservative — they reject obvious noise (recruiter
-# / sales / support) but otherwise let everything through to the gate agent.
-# Tune for your seniority, geography, and salary band.
-
 hard_filters:
-  # Job types to reject outright (case-insensitive match against normalized
-  # job_type). Valid values: "Full-time", "Part-time", "Contract",
-  # "Internship". Leave empty to accept all types.
-  exclude_job_types: []
-
-  # Regex patterns — a job whose title matches ANY of these is rejected.
-  exclude_title_patterns:
-    - "(?i)recruiter"
-    - "(?i)sales"
-    - "(?i)marketing"
-    - "(?i)support"
-
-  # Regex patterns — a job must match AT LEAST ONE of these to be kept.
-  # Leave empty to disable (all titles pass).
-  require_title_patterns: []
-
-  # Location strings to reject (case-insensitive substring match).
-  exclude_locations: []
-
-  # When true, only keep jobs flagged as remote or hybrid.
-  require_remote: false
-
-  # Companies to never import jobs from (case-insensitive exact match).
-  exclude_companies: []
-
-  # Reject jobs older than this many days (based on posted_date).
-  # Set to 0 to disable.
-  max_days_old: 30
-
-  # Salary bounds in USD (annual). Jobs outside this range are rejected.
-  # Only applied when the job has salary data. Set to 0 to disable a bound.
   min_salary_usd: 0
   max_salary_usd: 0
-
+  require_remote: false
+  exclude_companies:
+    - NVIDIA
+  # Seniority markers reject outright everywhere the JobFilter runs —
+  # including the curated GitHub-tracker path, which skips the
+  # require_title_patterns gate below and would otherwise let senior
+  # roles through.
+  exclude_title_patterns:
+    - "(?i)\\bsenior\\b"
+    - "(?i)\\bsr\\.?\\b"
+    - "(?i)\\bstaff\\b"
+    - "(?i)\\bprincipal\\b"
+    - "(?i)\\bdirector\\b"
+    - "(?i)\\bvp\\b|vice president"
+    - "(?i)head of"
+    - "(?i)\\bchief\\b"
+  exclude_job_types: []
+  # Early-career markers. The business-program forms (summer analyst,
+  # trainee, rotational, ...) let banking/CRE sources run through the
+  # normal filter pipeline instead of skip_job_filter, which used to
+  # bypass every protection at once.
+  require_title_patterns:
+    - "(?i)\\bintern(ship)?s?\\b"
+    - "(?i)\\bco-?op\\b"
+    - "(?i)\\bnew.?grad\\b"
+    - "(?i)\\bstudent\\b"
+    - "(?i)\\bearly.?career\\b"
+    - "(?i)entry.?level"
+    - "(?i)\\btrainee\\b"
+    - "(?i)\\brotational\\b"
+    - "(?i)summer analyst"
+    - "(?i)analyst program"
+    - "(?i)development program"
+    - "(?i)leadership development"
+  exclude_locations:
+    - "Canada"
+    - "Toronto"
+    - "Montreal"
+    - "Vancouver"
+    - "Ontario"
+    - "Waterloo"
+    - ", UK"
+    - "London, UK"
+    - "United Kingdom"
+    - "Singapore"
+    - ", Australia"
+    - "Sydney, AU"
+    - "Sydney"
+    - "Berlin"
+    - "London"
+    - "Munich"
+    - "Paris"
+    - "Lisbon"
+    - "Dublin"
+    - "Amsterdam"
+    - "Stockholm"
+    - "Copenhagen"
+    - "Zurich"
+    - "Vienna"
+    - "Prague"
+    - "Warsaw"
+    - "Bangalore"
+    - "Hyderabad"
+    - "Pune"
+    - "Chennai"
+    - "Gurgaon"
+    - "Noida"
+    - ", Brazil"
+    - ", India"
+    - ", Japan"
+    - ", Germany"
+    - ", France"
+    - ", Italy"
+    - ", Spain"
+    - ", Sweden"
+    - ", Ireland"
+    - ", Netherlands"
+    - "Korea"
+    - "Belgrade"
+    - "Colombia"
+    - "Mexico City"
+    - "Hong Kong"
+    - "Tel Aviv"
+    - "Taipei"
+    - "Shanghai"
+    - "Beijing"
+    - "Manila"
+  max_days_old: 30
 soft_filters:
-  # If a job description contains ANY of these keywords, auto-FILTER it
-  # (skip the gate agent, mark as FILTERED).
+  positive_keywords:
+    - "Python"
+    - "AI"
+    - "machine learning"
+    - "agentic"
+    - "LLM"
+    - "deep learning"
+    - "MLOps"
+    - "backend"
+    - "solutions engineer"
+    - "forward deployed"
+    - "cloud"
+    - "infrastructure"
   negative_keywords:
     - "clearance required"
     - "security clearance"
-
-  # If a job description contains ALL of these keywords, auto-QUALIFY it
-  # (skip the gate agent, mark as QUALIFIED). Use sparingly — bypassing the
-  # gate means no LLM judgment.
-  positive_keywords: []
-
-  # Maximum years of experience mentioned in the description.
-  # If the job mentions "X+ years" and X exceeds this, auto-FILTER.
-  # Set to 0 to disable.
-  max_experience_years: 0
+    - "3+ years"
+    - "4+ years"
+    - "5+ years"
+    - "6+ years"
+    - "7+ years"
+    - "8+ years"
+    - "10+ years"
+    - "help desk"
+    - "it support"

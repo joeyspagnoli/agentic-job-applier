@@ -9,6 +9,9 @@ applied to scraped (untrusted) company/title/URL text in outgoing email.
 from __future__ import annotations
 
 import json
+from typing import cast
+
+import aiosqlite
 from types import SimpleNamespace
 from typing import Any
 
@@ -68,25 +71,51 @@ def test_stamp_digest_category_none_is_noop() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_category_filter_inclusive_when_job_has_no_category() -> None:
-    # ATS-sourced jobs carry no category; they must still reach a subscriber
-    # who set field preferences — otherwise ~90% of postings vanish.
-    assert sender._passes_category_filter(None, {"Software"}) is True
-    assert sender._passes_category_filter(json.dumps({}), {"Software"}) is True
+def test_category_filter_classifies_uncategorized_jobs_by_title() -> None:
+    # ATS-sourced jobs carry no source category; the title classifier decides,
+    # so on-field jobs still reach a field-filtered subscriber while
+    # off-field jobs no longer slip through as uncategorized noise.
+    swe = cast(
+        aiosqlite.Row, {"title": "Software Engineering Intern", "raw_data": None}
+    )
+    banking = cast(
+        aiosqlite.Row,
+        {"title": "Wealth Management Summer Analyst", "raw_data": None},
+    )
+    assert sender._passes_category_filter(swe, {"Software"}) is True
+    assert sender._passes_category_filter(banking, {"Software"}) is False
 
 
 def test_category_filter_excludes_business_from_cs_subscriber() -> None:
-    business = json.dumps({"category": "Business"})
-    assert sender._passes_category_filter(business, {"Software", "AI/ML/Data"}) is False
+    business = cast(
+        aiosqlite.Row,
+        {
+            "title": "Commercial Banking Analyst Program",
+            "raw_data": json.dumps({"category": "Business"}),
+        },
+    )
+    assert (
+        sender._passes_category_filter(business, {"Software", "AI/ML/Data"}) is False
+    )
 
 
-def test_category_filter_allows_matching_category() -> None:
-    software = json.dumps({"category": "Software"})
+def test_category_filter_falls_back_to_source_category() -> None:
+    # A vague title no rule matches keeps the curated source's label.
+    software = cast(
+        aiosqlite.Row,
+        {"title": "HLS Intern", "raw_data": json.dumps({"category": "Software"})},
+    )
     assert sender._passes_category_filter(software, {"Software"}) is True
 
 
 def test_category_filter_no_field_prefs_passes_everything() -> None:
-    business = json.dumps({"category": "Business"})
+    business = cast(
+        aiosqlite.Row,
+        {
+            "title": "Commercial Banking Analyst Program",
+            "raw_data": json.dumps({"category": "Business"}),
+        },
+    )
     assert sender._passes_category_filter(business, set()) is True
 
 
