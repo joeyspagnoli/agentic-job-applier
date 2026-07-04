@@ -24,6 +24,7 @@ from src.utils.notifications import is_ntfy_enabled, send_ntfy_notification
 from src.filters.job_filter import JobFilter
 from src.orchestrator._family_tasks import build_family_tasks
 from src.orchestrator.config_loader import (
+    build_curated_filter,
     build_loose_filter,
     load_optional_yaml,
     load_yaml,
@@ -264,14 +265,21 @@ async def run_job_discovery() -> None:
         field_name="include_title_patterns",
         source_name="search_criteria",
     )
+    title_exclude_patterns = normalize_string_list(
+        search_criteria_config.get("exclude_title_patterns"),
+        field_name="exclude_title_patterns",
+        source_name="search_criteria",
+    )
 
     # Pre-gate filters reduce gate agent invocations by auto-rejecting or
     # auto-qualifying jobs that are obviously outside the user's criteria.
     job_filter: JobFilter | None = None
     loose_job_filter: JobFilter | None = None
+    curated_job_filter: JobFilter | None = None
     if filters_config:
         job_filter = JobFilter(filters_config)
         loose_job_filter = build_loose_filter(filters_config)
+        curated_job_filter = build_curated_filter(filters_config)
         logger.info("Pre-gate filters loaded from config/filters.yaml")
 
     # Workday CXS anonymous queries return only ~40 default-sorted results per
@@ -310,8 +318,10 @@ async def run_job_discovery() -> None:
             db=db,
             deduplicator=deduplicator,
             title_include_patterns=title_include_patterns,
+            title_exclude_patterns=title_exclude_patterns,
             job_filter=job_filter,
             loose_job_filter=loose_job_filter,
+            curated_job_filter=curated_job_filter,
             workday_search_text=workday_search_text,
             default_search_terms=default_search_terms,
         )

@@ -245,6 +245,7 @@ def subscribe_page(turnstile_site_key: str) -> str:
           <button type="button" class="chip" data-on="false" data-id="software">Software Eng</button>
           <button type="button" class="chip" data-on="false" data-id="ai_ml_data">AI / ML / Data</button>
           <button type="button" class="chip" data-on="false" data-id="hardware">Hardware</button>
+          <button type="button" class="chip" data-on="false" data-id="design">Design</button>
           <button type="button" class="chip" data-on="false" data-id="product">Product</button>
           <button type="button" class="chip" data-on="false" data-id="quant">Quant</button>
         </div>
@@ -431,6 +432,7 @@ def manage_page() -> str:
             <button type="button" class="chip" data-on="false" data-id="software">Software Eng</button>
             <button type="button" class="chip" data-on="false" data-id="ai_ml_data">AI / ML / Data</button>
             <button type="button" class="chip" data-on="false" data-id="hardware">Hardware</button>
+            <button type="button" class="chip" data-on="false" data-id="design">Design</button>
             <button type="button" class="chip" data-on="false" data-id="product">Product</button>
             <button type="button" class="chip" data-on="false" data-id="quant">Quant</button>
           </div>

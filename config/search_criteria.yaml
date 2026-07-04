@@ -1,30 +1,94 @@
-# Search criteria for job discovery.
-#
-# Most users should leave this file alone — the active filter source is
-# config/filters.yaml, and per-board search terms come from
-# config/candidate_profile.yaml (search_defaults.job_board_search_terms).
-#
-# This file remains for compatibility with code paths that still consult
-# include_title_patterns / exclude_title_patterns directly.
+# Search criteria and filtering rules for job discovery
 
-# Title must match at least one of these patterns to be stored (case-insensitive
-# regex). Empty = no pre-storage title filtering.
-include_title_patterns: []
+# Title must match at least one of these patterns to be stored (case-insensitive regex).
+# "intern" is word-bounded so "Internal Audit" / "International" don't slip
+# through. Bare "<x> analyst" patterns were removed — unmarked analyst titles
+# at banks are overwhelmingly experienced hires (the "5+ years" complaints);
+# early-career bank roles carry explicit markers like "Summer Analyst" or
+# "Analyst Program" instead.
+include_title_patterns:
+  - "\\bintern(?:ship)?s?\\b"
+  - "\\bco-?op\\b"
+  - "new.?grad"
+  - "early.?career"
+  - "\\bstudent\\b"
+  - "entry.?level"
+  - "\\btrainee\\b"
+  - "rotational"
+  - "development program"
+  - "leadership development"
+  - "summer analyst"
+  - "analyst program"
 
-# Job titles to search for on job boards. Empty = use candidate_profile's
-# search_defaults.job_board_search_terms instead.
+# Job titles to search for on job boards.
+# Leave empty — driven by candidate_profile.yaml search_defaults.job_board_search_terms.
 target_titles: []
 
-# Titles to exclude (case-insensitive regex). Mirrors filters.yaml's
-# hard_filters.exclude_title_patterns; kept here for legacy callers.
+# Titles to exclude (regex patterns - case insensitive)
 exclude_title_patterns:
+  - "(?i)senior"
+  - "(?i)\\bsr\\.?\\b"
+  - "(?i)staff"
+  - "(?i)principal"
+  - "(?i)\\blead\\b"
+  - "(?i)manager"
+  - "(?i)director"
+  - "(?i)vp|vice president"
+  - "(?i)head of"
+  - "(?i)chief"
   - "(?i)recruiter"
-  - "(?i)sales"
-  - "(?i)marketing"
-  - "(?i)support"
+  - "(?i)\\b(?:ii|iii|iv)\\b"
+  - "(?i)experienced"
 
-# Negative description keywords for legacy filter callers. The active list
-# lives in filters.yaml's soft_filters.negative_keywords.
+# Location preferences
+locations:
+  remote_preference: "any"
+  acceptable_cities:
+    - "Remote"
+    - "Anywhere"
+
+# Salary expectations
+salary:
+  min: 25
+  max: 120
+  currency: "USD"
+
+# Experience level
+experience:
+  min_years: 0
+  max_years: 2
+
+# Company size preferences
+company_size:
+  min_employees: 10
+  max_employees: 100000
+
+# Keywords to look for in descriptions (positive signals)
+positive_keywords:
+  - "intern"
+  - "internship"
+  - "co-op"
+  - "student"
+  - "python"
+  - "ml"
+  - "machine learning"
+  - "ai"
+  - "agentic"
+  - "LLM"
+  - "deep learning"
+  - "backend"
+  - "distributed systems"
+  - "solutions"
+  - "forward deployed"
+  - "aws"
+  - "gcp"
+  - "infrastructure"
+
+# Keywords to avoid (negative signals)
 negative_keywords:
   - "clearance required"
   - "security clearance"
+  - "5+ years"
+  - "7+ years"
+  - "help desk"
+  - "it support"

@@ -67,10 +67,12 @@ def build_family_tasks(
     db: DatabaseManager,
     deduplicator: Deduplicator,
     title_include_patterns: list[str],
-    job_filter: JobFilter | None,
-    loose_job_filter: JobFilter | None,
-    workday_search_text: str,
-    default_search_terms: list[str],
+    title_exclude_patterns: list[str] | None = None,
+    job_filter: JobFilter | None = None,
+    loose_job_filter: JobFilter | None = None,
+    curated_job_filter: JobFilter | None = None,
+    workday_search_text: str = "",
+    default_search_terms: list[str] | None = None,
 ) -> list[tuple[str, _FamilyCoroutine]]:
     """Assemble the list of (family_name, coroutine) pairs to run concurrently.
 
@@ -86,6 +88,9 @@ def build_family_tasks(
         title_include_patterns: Optional regex include list for titles.
         job_filter: Pre-gate filter instance, if configured.
         loose_job_filter: Relaxed-title filter for EE-friendly Workday tenants.
+        curated_job_filter: No-title-requirement filter for curated
+            early-career trackers (``github_repos``), whose plain-titled
+            listings the strict intern/new-grad gate would wrongly drop.
         workday_search_text: Free-text token forwarded to Workday CXS.
         default_search_terms: Default search terms derived from the profile.
     Output:
@@ -115,6 +120,7 @@ def build_family_tasks(
         family_tasks.append(("workday", workday_fn(
             workday_companies, db, deduplicator,
             title_include_patterns=title_include_patterns,
+            title_exclude_patterns=title_exclude_patterns,
             job_filter=job_filter,
             loose_job_filter=loose_job_filter,
             search_text=workday_search_text,
@@ -162,6 +168,7 @@ def build_family_tasks(
             job_boards, db, deduplicator,
             default_search_terms=default_search_terms,
             title_include_patterns=title_include_patterns,
+            title_exclude_patterns=title_exclude_patterns,
             job_filter=job_filter,
         )))
 
@@ -199,10 +206,14 @@ def build_family_tasks(
             gh_fn = _resolve_fetch_fn(
                 "fetch_github_repo_jobs", fetch_github_repo_jobs,
             )
+            # Curated trackers are early-career by construction and mostly
+            # plain-titled, so they skip the include-pattern gate and use
+            # the no-title-requirement filter clone (falling back to the
+            # strict filter only when no curated clone was built).
             family_tasks.append(("github_repos", gh_fn(
                 enabled_repos, db, deduplicator,
-                title_include_patterns=title_include_patterns,
-                job_filter=job_filter,
+                title_include_patterns=None,
+                job_filter=curated_job_filter or job_filter,
             )))
 
     linkedin_config = companies_config.get("linkedin", {})
