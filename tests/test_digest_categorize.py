@@ -8,6 +8,7 @@ Design field mapping.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import cast
 
 import aiosqlite
@@ -22,6 +23,7 @@ from src.digest.sender import (
     _FIELD_TO_CATEGORY,
     _apply_preference_filters,
     _passes_category_filter,
+    _passes_freshness_filter,
     _passes_role_level_filter,
 )
 
@@ -209,6 +211,8 @@ def test_senior_titles_never_reach_any_subscriber() -> None:
                 "source": "github_simplifyjobs_new-grad-positions",
                 "location": "Remote",
                 "company": "Foundry",
+                "posted_date": None,
+                "fetched_at": None,
             },
         ),
         cast(
@@ -219,8 +223,104 @@ def test_senior_titles_never_reach_any_subscriber() -> None:
                 "source": "greenhouse_stripe",
                 "location": "Remote",
                 "company": "Stripe",
+                "posted_date": None,
+                "fetched_at": None,
             },
         ),
     ]
     kept = _apply_preference_filters(jobs, prefs)
     assert [j["title"] for j in kept] == ["Software Engineering Intern"]
+
+
+# ---------------------------------------------------------------------------
+# Sender: posted-date freshness guard
+# ---------------------------------------------------------------------------
+
+
+_NOW = datetime.now(tz=timezone.utc)
+_CUTOFF = _NOW - timedelta(days=30)
+
+
+def _dated_job(posted_date: str | None, fetched_at: str | None = None) -> aiosqlite.Row:
+    """Row stand-in with just the columns the freshness filter reads."""
+    return cast(
+        aiosqlite.Row, {"posted_date": posted_date, "fetched_at": fetched_at}
+    )
+
+
+def test_freshness_drops_iso_dates_older_than_cutoff() -> None:
+    stale = (_NOW - timedelta(days=45)).strftime("%Y-%m-%d")
+    assert not _passes_freshness_filter(_dated_job(stale), _CUTOFF)
+
+
+def test_freshness_keeps_recent_iso_dates() -> None:
+    recent = (_NOW - timedelta(days=3)).strftime("%Y-%m-%d")
+    assert _passes_freshness_filter(_dated_job(recent), _CUTOFF)
+
+    with_offset = (_NOW - timedelta(days=3)).isoformat()
+    assert _passes_freshness_filter(_dated_job(with_offset), _CUTOFF)
+
+
+def test_freshness_resolves_relative_strings_against_fetched_at() -> None:
+    """Workday's 'Posted N Days Ago' counts back from when the row was fetched."""
+    fetched = (_NOW - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+    assert _passes_freshness_filter(_dated_job("Posted 5 Days Ago", fetched), _CUTOFF)
+    assert _passes_freshness_filter(_dated_job("Posted Today", fetched), _CUTOFF)
+    assert _passes_freshness_filter(_dated_job("Posted Yesterday", fetched), _CUTOFF)
+    assert not _passes_freshness_filter(
+        _dated_job("Posted 45 Days Ago", fetched), _CUTOFF
+    )
+    # "30+ days" means at least 30 — right at the horizon, so it ages out.
+    assert not _passes_freshness_filter(
+        _dated_job("Posted 30+ Days Ago", fetched), _CUTOFF
+    )
+
+
+def test_freshness_passes_unresolvable_dates_through() -> None:
+    """A data-quality gap must not hide a listing: unknown ages are kept."""
+    assert _passes_freshness_filter(_dated_job(None), _CUTOFF)
+    assert _passes_freshness_filter(_dated_job(""), _CUTOFF)
+    assert _passes_freshness_filter(_dated_job("Posted Recently"), _CUTOFF)
+    assert _passes_freshness_filter(_dated_job("not a date"), _CUTOFF)
+
+
+def test_stale_postings_never_reach_any_subscriber() -> None:
+    """The guard applies before preference filters, for every subscriber."""
+    prefs = {
+        "role_level": "both",
+        "allowed_categories": set(),
+        "allowed_terms": set(),
+        "location_preference": "both",
+        "excluded_companies_lower": set(),
+    }
+    stale = (_NOW - timedelta(days=60)).strftime("%Y-%m-%d")
+    fresh = (_NOW - timedelta(days=2)).strftime("%Y-%m-%d")
+    jobs = [
+        cast(
+            aiosqlite.Row,
+            {
+                "title": "Software Engineering Intern",
+                "raw_data": None,
+                "source": "github_simplifyjobs_new-grad-positions",
+                "location": "Remote",
+                "company": "OldCo",
+                "posted_date": stale,
+                "fetched_at": None,
+            },
+        ),
+        cast(
+            aiosqlite.Row,
+            {
+                "title": "Software Engineering Intern",
+                "raw_data": None,
+                "source": "greenhouse_stripe",
+                "location": "Remote",
+                "company": "Stripe",
+                "posted_date": fresh,
+                "fetched_at": None,
+            },
+        ),
+    ]
+    kept = _apply_preference_filters(jobs, prefs)
+    assert [j["company"] for j in kept] == ["Stripe"]

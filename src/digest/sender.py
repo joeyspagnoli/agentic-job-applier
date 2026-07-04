@@ -34,6 +34,21 @@ _RESEND_URL = "https://api.resend.com/emails"
 # How far back to look when a subscriber has never received a digest.
 _DEFAULT_LOOKBACK_HOURS = 24
 
+# Digest freshness horizon: skip roles whose resolved posted date is older
+# than this. The digest windows on fetched_at, so without this guard any
+# newly-added source dumps its entire backlog (weeks of old postings) into
+# a single email. Rows whose posted_date cannot be resolved pass through.
+_MAX_POSTED_AGE_DAYS = 30
+
+# Workday-style relative posted dates ("Posted 5 Days Ago", "Posted 30+
+# Days Ago", "Posted Yesterday", "Posted Today"), resolved against the
+# row's fetched_at because "ago" is relative to when the fetch happened.
+_RELATIVE_POSTED_RE = re.compile(
+    r"^posted\s+(?:(?P<days>\d+)\+?\s+days?\s+ago"
+    r"|(?P<yesterday>yesterday)|(?P<today>today))$",
+    re.IGNORECASE,
+)
+
 # Resend rate-limit courtesy pause between subscribers.
 _INTER_SEND_DELAY_SECONDS = 0.2
 
@@ -258,6 +273,58 @@ def _resolve_lookback_cutoff(last_digest_at: str | None) -> str:
     return cutoff.isoformat()
 
 
+def _parse_db_timestamp(value: str | None) -> datetime | None:
+    """Parse an ISO-ish timestamp from the DB; naive values are taken as UTC."""
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _resolve_posted_at(job: aiosqlite.Row) -> datetime | None:
+    """Best-effort UTC datetime for when a job was posted.
+
+    Handles ISO dates/datetimes and Workday-style relative strings
+    (anchored to the row's fetched_at, since "ago" is relative to the
+    fetch). Returns None when the value is missing or unrecognized.
+    """
+    raw: str | None = job["posted_date"]
+    if not raw:
+        return None
+
+    text = raw.strip()
+    match = _RELATIVE_POSTED_RE.match(text)
+    if match is None:
+        return _parse_db_timestamp(text)
+
+    anchor = _parse_db_timestamp(job["fetched_at"]) or datetime.now(tz=timezone.utc)
+    if match.group("days"):
+        return anchor - timedelta(days=int(match.group("days")))
+    if match.group("yesterday"):
+        return anchor - timedelta(days=1)
+    return anchor
+
+
+def _passes_freshness_filter(job: aiosqlite.Row, cutoff: datetime) -> bool:
+    """Return True if the job was posted after the cutoff, or its age is unknown.
+
+    Unresolvable posted dates pass through rather than being dropped:
+    "new roles" should mean recently posted, but a data-quality gap must
+    not hide a listing forever.
+    """
+    posted_at = _resolve_posted_at(job)
+    if posted_at is None:
+        return True
+    return posted_at >= cutoff
+
+
 def _parse_subscriber_preferences(subscriber: aiosqlite.Row) -> dict[str, Any]:
     """Decode JSON fields and normalise preference values from a subscriber row.
 
@@ -293,6 +360,10 @@ def _apply_preference_filters(
 ) -> list[aiosqlite.Row]:
     """Return jobs that satisfy all subscriber preference filters.
 
+    Two screens apply to every subscriber regardless of preferences:
+    senior titles never belong in an early-career digest, and roles
+    posted more than _MAX_POSTED_AGE_DAYS ago are aged out.
+
     Args:
         jobs: Unfiltered job_postings rows.
         preferences: Parsed preferences from _parse_subscriber_preferences.
@@ -300,9 +371,13 @@ def _apply_preference_filters(
     Returns:
         Subset of jobs that pass every filter.
     """
+    freshness_cutoff = datetime.now(tz=timezone.utc) - timedelta(
+        days=_MAX_POSTED_AGE_DAYS
+    )
     return [
         job for job in jobs
-        if not _SENIOR_TITLE_RE.search(job["title"] or "")
+        if _passes_freshness_filter(job, freshness_cutoff)
+        and not _SENIOR_TITLE_RE.search(job["title"] or "")
         and _passes_role_level_filter(
             job["title"], preferences["role_level"], job["source"]
         )
